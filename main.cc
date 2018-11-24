@@ -8,9 +8,10 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <fstream>
+#include <unistd.h>
 
 
-#define BUFFER_SIZE 1024
+static const size_t BUFFER_SIZE   = 1024;
 
 static const uint16_t QR_MASK     = 0x8000;
 static const uint16_t OPCODE_MASK = 0x7800;
@@ -28,15 +29,25 @@ static const uint16_t DNS_TYPE_MX     = 15;
 static const uint16_t DNS_TYPE_TXT    = 16;
 
 
+FILE *LOG_FILE = nullptr;
+
 struct Node
 {
     Node *slots[26 + 10 + 2];
     bool isTerminal = false;
     bool isStar = false;
+    int id = 0;
 
     Node()
     {
         memset(slots, 0, sizeof(slots));
+        id = nextId();
+    }
+
+    static int nextId()
+    {
+        static int counter = 0;
+        return ++counter;
     }
 
     int index( char c )
@@ -54,14 +65,23 @@ struct Node
         return -1;
     }
 
+    char text( int index )
+    {
+        if (index >= 0 && index <= 25) return (char)('A' + index);
+        if (index >= 26 && index <= 35) return (char)('0' + index);
+        if (index == 36) return '-';
+        if (index == 37) return '.';
+        return '?';
+    }
+
     bool convert( const std::string &host, std::string &entry )
     {
-        for (int i = host.length() - 1; i >= 0; --i)
+        for (int i = (int) host.length() - 1; i >= 0; --i)
         {
             if (host[i] == '*') continue;
             int c = index(host[i]);
             if (c < 0) return false;
-            entry += c;
+            entry += (char) c;
         }
 
         return true;
@@ -75,16 +95,16 @@ struct Node
         std::string temp;
         if (!convert(host, temp)) return false;
 
-        //for (size_t i = 0; i < temp.length(); ++i)
-        //    std::cout << (int) temp[i] << std::endl;
-
         Node *next = this;
         for (size_t i = 0, t = temp.length(); i < t; ++i)
         {
             if (next->slots[(int)temp[i]] == nullptr)
                 next = next->slots[(int)temp[i]] = new Node();
             else
+            {
                 next = next->slots[(int)temp[i]];
+                if (next->isStar) return true;
+            }
         }
         next->isTerminal = true;
         next->isStar = isStar;
@@ -96,7 +116,6 @@ struct Node
     {
         std::string temp;
         if (!convert(host, temp)) return false;
-        std::cout << temp << std::endl;
 
         Node *next = this;
         for (size_t i = 0, t = temp.length(); i < t; ++i)
@@ -112,6 +131,23 @@ struct Node
         return next->isTerminal;
     }
 
+    void print( std::ostream &out )
+    {
+        if (this->isStar)
+            out << this->id << " [color=blue]" << std::endl;
+        else
+        if (this->isTerminal)
+            out << this->id << " [color=red]" << std::endl;
+
+        for (int i = 0; i < 38; ++i)
+        {
+            if (slots[i] == nullptr) continue;
+            out << this->id << " -> " << slots[i]->id << " [label=\"" << text(i) << "\"]" << std::endl;
+            slots[i]->print(out);
+        }
+
+    }
+
 };
 
 
@@ -119,13 +155,13 @@ static const char* getType( uint16_t type )
 {
     switch (type)
     {
-        case DNS_TYPE_A: return "A";
-        case DNS_TYPE_NS: return "NS";
+        case DNS_TYPE_A:     return "A";
+        case DNS_TYPE_NS:    return "NS";
         case DNS_TYPE_CNAME: return "CNAME";
-        case DNS_TYPE_PTR: return "PTR";
-        case DNS_TYPE_MX: return "MX";
-        case DNS_TYPE_TXT: return "TXT";
-        default: return "?";
+        case DNS_TYPE_PTR:   return "PTR";
+        case DNS_TYPE_MX:    return "MX";
+        case DNS_TYPE_TXT:   return "TXT";
+        default:             return "?";
     }
 }
 
@@ -279,7 +315,7 @@ struct BufferIO
 static int socketfd = 0;
 
 
-static int network_lookupIPv4(
+static int lookupIPv4(
 	const char *host,
 	struct sockaddr_in *address )
 {
@@ -307,26 +343,32 @@ static int network_lookupIPv4(
     return 1;
 }
 
-static int network_initialize( int port = 53 )
+static int initialize( int port = 53 )
 {
     socketfd = socket(AF_INET, SOCK_DGRAM, 0);
 
     struct sockaddr_in address;
     address.sin_family = AF_INET;
-    network_lookupIPv4("127.0.0.2", &address);
+    lookupIPv4("127.0.0.2", &address);
     address.sin_port = htons( (uint16_t) port);
 
     int rbind = bind(socketfd, (struct sockaddr *) & address, sizeof(struct sockaddr_in));
 
     if (rbind != 0)
     {
-        std::cout << "Could not bind: " << strerror(errno);
+        fprintf(LOG_FILE, "Could not bind: %s", strerror(errno));
         exit(1);
     }
 
     return 0;
 }
 
+
+static int terminate()
+{
+    if (socketfd != 0) close(socketfd);
+    return 0;
+}
 
 void decodeHeader(
     BufferIO &bio,
@@ -368,11 +410,11 @@ static void encodeHeader(
 {
     bio.writeU16(message.id);
 
-    uint16_t fields = 0;
+    int fields = 0;
     if (message.qr) fields |= 1 << 15;
     fields |= (message.opcode & 0x000F) << 14;
     fields |= (message.rcode & 0x0F);
-    bio.writeU16(fields);
+    bio.writeU16( (uint16_t) fields);
     bio.writeU16(message.qdcount);
     bio.writeU16(message.ancount);
     bio.writeU16(message.aucount);
@@ -421,7 +463,7 @@ static void process( Node &root )
 
     while (true)
     {
-        int nbytes = recvfrom(socketfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *) &clientAddress, &addrLen);
+        int nbytes = (int) recvfrom(socketfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *) &clientAddress, &addrLen);
 
         BufferIO bio(buffer, nbytes);
 
@@ -430,9 +472,10 @@ static void process( Node &root )
 
         bool isBlocked = root.match(request.qname);
         if (isBlocked)
-            std::cout << "[BLOCK] " << request.qname << std::endl;
+            fprintf(LOG_FILE, "[BLOCK] %s\n", request.qname.c_str());
         else
-            std::cout << "[ALLOW] " << request.qname << std::endl;
+            fprintf(LOG_FILE, "[ALLOW] %s\n", request.qname.c_str());
+        fflush(LOG_FILE);
 
         Message response;
         response.id = request.id;
@@ -459,13 +502,41 @@ static void process( Node &root )
 }
 
 
+static void daemonize()
+{
+    pid_t pid;
+
+    // fork the parent process
+    pid = fork();
+    if (pid < 0) exit(EXIT_FAILURE);
+    if (pid > 0) exit(EXIT_SUCCESS);
+    // turn the child process the session leader
+    if (setsid() < 0) exit(EXIT_FAILURE);
+
+    pid = fork();
+    if (pid > 0) exit(EXIT_SUCCESS);
+
+    chdir("/tmp");
+
+    // close opened file descriptors
+    for (long x = sysconf(_SC_OPEN_MAX); x>=0; x--) close ( (int) x);
+}
+
+
 int main( int argc, char** argv )
 {
     if (argc != 3)
     {
-        std::string text("Usage: ./dnsblocker <port> <rules>\n");
+        printf("Usage: ./dnsblocker <port> <rules>\n");
         return 1;
     }
+
+    //daemonize();
+    LOG_FILE = fopen("/var/log/dnsblocker.log", "wt");
+    if (LOG_FILE == nullptr) exit(EXIT_FAILURE);
+
+    fprintf(LOG_FILE, "DNS Blocker started\n");
+    fflush(LOG_FILE);
 
     std::string fileName = argv[2];
 
@@ -478,16 +549,25 @@ int main( int argc, char** argv )
             std::string line;
             std::getline(rules, line);
             if (line.empty()) continue;
-            if (root.add(line)) std::cout << "Added '" << line << '\'' << std::endl;
+            if (root.add(line)) fprintf(LOG_FILE, "Added '%s'\n", line.c_str());
         }
 
         rules.close();
     }
     else
         exit(1);
+    fflush(LOG_FILE);
 
-    network_initialize(atoi(argv[1]));
+    /*std::cerr << "digraph Nodes { " << std::endl;
+    root.print(std::cerr);
+    std::cerr << "}" << std::endl;
+    return 0;*/
+
+    initialize(atoi(argv[1]));
     process(root);
+    terminate();
+
+    fprintf(LOG_FILE, "DNS Blocker terminated\n");
 
     return 0;
 }
