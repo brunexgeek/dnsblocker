@@ -350,6 +350,7 @@ static void process( Node &root )
     uint8_t buffer[BUFFER_SIZE];
     struct sockaddr_in clientAddress;
     socklen_t addrLen = sizeof (struct sockaddr_in);
+    std::string lastQName;
 
     while (true)
     {
@@ -364,11 +365,16 @@ static void process( Node &root )
         inet_ntop(clientAddress.sin_family, get_in_addr((struct sockaddr *)&clientAddress), source, INET6_ADDRSTRLEN);
 
         bool isBlocked = root.match(request.qname);
-        if (isBlocked)
-            fprintf(LOG_FILE, "[BLOCK] %s asked for '%s'\n", source, request.qname.c_str());
-        else
-            fprintf(LOG_FILE, "        %s asked for '%s'\n", source, request.qname.c_str());
-        fflush(LOG_FILE);
+        // avoid to log repeated queries
+        if (request.qname != lastQName)
+        {
+            lastQName = request.qname;
+            if (isBlocked)
+                fprintf(LOG_FILE, "[BLOCK] %s asked for '%s'\n", source, request.qname.c_str());
+            else
+                fprintf(LOG_FILE, "        %s asked for '%s'\n", source, request.qname.c_str());
+            fflush(LOG_FILE);
+        }
 
         Message response;
         response.id = request.id;
