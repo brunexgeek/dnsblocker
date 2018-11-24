@@ -10,6 +10,8 @@
 #include <fstream>
 #include <unistd.h>
 
+#include "Node.hh"
+
 
 static const size_t BUFFER_SIZE   = 1024;
 
@@ -30,125 +32,6 @@ static const uint16_t DNS_TYPE_TXT    = 16;
 
 
 FILE *LOG_FILE = nullptr;
-
-struct Node
-{
-    Node *slots[26 + 10 + 2];
-    bool isTerminal = false;
-    bool isStar = false;
-    int id = 0;
-
-    Node()
-    {
-        memset(slots, 0, sizeof(slots));
-        id = nextId();
-    }
-
-    static int nextId()
-    {
-        static int counter = 0;
-        return ++counter;
-    }
-
-    int index( char c )
-    {
-        if (c >= 'A' && c <= 'Z')
-            return c - 'A';
-        if (c >= 'a' && c <= 'z')
-            return c - 'a';
-        if (c >= '0' && c <= '9')
-            return c - '0' + 26;
-        if (c == '-')
-            return 36;
-        if (c == '.')
-            return 37;
-        return -1;
-    }
-
-    char text( int index )
-    {
-        if (index >= 0 && index <= 25) return (char)('A' + index);
-        if (index >= 26 && index <= 35) return (char)('0' + index);
-        if (index == 36) return '-';
-        if (index == 37) return '.';
-        return '?';
-    }
-
-    bool convert( const std::string &host, std::string &entry )
-    {
-        for (int i = (int) host.length() - 1; i >= 0; --i)
-        {
-            if (host[i] == '*') continue;
-            int c = index(host[i]);
-            if (c < 0) return false;
-            entry += (char) c;
-        }
-
-        return true;
-    }
-
-    bool add( const std::string &host )
-    {
-        if (host.empty()) return false;
-
-        bool isStar = (host[0] == '*');
-        std::string temp;
-        if (!convert(host, temp)) return false;
-
-        Node *next = this;
-        for (size_t i = 0, t = temp.length(); i < t; ++i)
-        {
-            if (next->slots[(int)temp[i]] == nullptr)
-                next = next->slots[(int)temp[i]] = new Node();
-            else
-            {
-                next = next->slots[(int)temp[i]];
-                if (next->isStar) return true;
-            }
-        }
-        next->isTerminal = true;
-        next->isStar = isStar;
-
-        return true;
-    }
-
-    bool match( const std::string &host )
-    {
-        std::string temp;
-        if (!convert(host, temp)) return false;
-
-        Node *next = this;
-        for (size_t i = 0, t = temp.length(); i < t; ++i)
-        {
-            if (next->isStar) return true;
-
-            if (next->slots[(int)temp[i]] == nullptr)
-                return false;
-            else
-                next = next->slots[(int)temp[i]];
-        }
-
-        return next->isTerminal;
-    }
-
-    void print( std::ostream &out )
-    {
-        if (this->isStar)
-            out << this->id << " [color=blue]" << std::endl;
-        else
-        if (this->isTerminal)
-            out << this->id << " [color=red]" << std::endl;
-
-        for (int i = 0; i < 38; ++i)
-        {
-            if (slots[i] == nullptr) continue;
-            out << this->id << " -> " << slots[i]->id << " [label=\"" << text(i) << "\"]" << std::endl;
-            slots[i]->print(out);
-        }
-
-    }
-
-};
 
 
 static const char* getType( uint16_t type )
@@ -541,21 +424,8 @@ int main( int argc, char** argv )
     std::string fileName = argv[2];
 
     Node root;
-    std::ifstream rules(fileName);
-    if (rules.good())
-    {
-        while (!rules.eof())
-        {
-            std::string line;
-            std::getline(rules, line);
-            if (line.empty()) continue;
-            if (root.add(line)) fprintf(LOG_FILE, "Added '%s'\n", line.c_str());
-        }
-
-        rules.close();
-    }
-    else
-        exit(1);
+    if (!Node::load(fileName, root)) exit(1);
+    fprintf(LOG_FILE, "Tree is using %2.3f KiB of memory\n", (float) Node::allocated / 1024.0F);
     fflush(LOG_FILE);
 
     /*std::cerr << "digraph Nodes { " << std::endl;

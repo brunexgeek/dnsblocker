@@ -68,7 +68,9 @@ if (UNIX)
 endif()
 
 
-add_executable(dnsblocker "${CMAKE_CURRENT_LIST_DIR}/main.cc")
+add_executable(dnsblocker
+    "${CMAKE_CURRENT_LIST_DIR}/main.cc"
+    "${CMAKE_CURRENT_LIST_DIR}/Node.cc")
 target_compile_definitions(dnsblocker PRIVATE _DEFAULT_SOURCE)
 set_target_properties(dnsblocker PROPERTIES
     OUTPUT_NAME "dnsblocker"
