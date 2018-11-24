@@ -226,13 +226,13 @@ static int lookupIPv4(
     return 1;
 }
 
-static int initialize( int port = 53 )
+static int initialize( const std::string &host, int port = 53 )
 {
     socketfd = socket(AF_INET, SOCK_DGRAM, 0);
 
     struct sockaddr_in address;
     address.sin_family = AF_INET;
-    lookupIPv4("127.0.0.2", &address);
+    lookupIPv4(host.c_str(), &address);
     address.sin_port = htons( (uint16_t) port);
 
     int rbind = bind(socketfd, (struct sockaddr *) & address, sizeof(struct sockaddr_in));
@@ -338,6 +338,13 @@ static void encode(
 }
 
 
+static void *get_in_addr(struct sockaddr *sa)
+{
+    if (sa->sa_family == AF_INET)
+        return &(((struct sockaddr_in*)sa)->sin_addr);
+    return &(((struct sockaddr_in6*)sa)->sin6_addr);
+}
+
 static void process( Node &root )
 {
     uint8_t buffer[BUFFER_SIZE];
@@ -353,11 +360,14 @@ static void process( Node &root )
         Message request = decode(bio);
         //request.print(std::cout);
 
+        char source[INET6_ADDRSTRLEN + 1];
+        inet_ntop(clientAddress.sin_family, get_in_addr((struct sockaddr *)&clientAddress), source, INET6_ADDRSTRLEN);
+
         bool isBlocked = root.match(request.qname);
         if (isBlocked)
-            fprintf(LOG_FILE, "[BLOCK] %s\n", request.qname.c_str());
+            fprintf(LOG_FILE, "[BLOCK] %s asked for '%s'\n", source, request.qname.c_str());
         else
-            fprintf(LOG_FILE, "[ALLOW] %s\n", request.qname.c_str());
+            fprintf(LOG_FILE, "        %s asked for '%s'\n", source, request.qname.c_str());
         fflush(LOG_FILE);
 
         Message response;
@@ -378,7 +388,6 @@ static void process( Node &root )
         bio.reset();
         encode(request, response, bio);
         nbytes = (int) bio.cursor();
-        //std::cout << "Encoded " << nbytes << std::endl;
 
         sendto(socketfd, buffer, nbytes, 0, (struct sockaddr *) &clientAddress, addrLen);
     }
@@ -397,9 +406,8 @@ static void daemonize()
     if (setsid() < 0) exit(EXIT_FAILURE);
 
     pid = fork();
+    if (pid < 0) exit(EXIT_FAILURE);
     if (pid > 0) exit(EXIT_SUCCESS);
-
-    chdir("/tmp");
 
     // close opened file descriptors
     for (long x = sysconf(_SC_OPEN_MAX); x>=0; x--) close ( (int) x);
@@ -408,24 +416,22 @@ static void daemonize()
 
 int main( int argc, char** argv )
 {
-    if (argc != 3)
+    if (argc != 4)
     {
-        printf("Usage: ./dnsblocker <port> <rules>\n");
+        printf("Usage: ./dnsblocker <host> <port> <rules>\n");
         return 1;
     }
 
-    //daemonize();
+    daemonize();
     LOG_FILE = fopen("/var/log/dnsblocker.log", "wt");
     if (LOG_FILE == nullptr) exit(EXIT_FAILURE);
 
     fprintf(LOG_FILE, "DNS Blocker started\n");
     fflush(LOG_FILE);
 
-    std::string fileName = argv[2];
-
     Node root;
-    if (!Node::load(fileName, root)) exit(1);
-    fprintf(LOG_FILE, "Tree is using %2.3f KiB of memory\n", (float) Node::allocated / 1024.0F);
+    if (!Node::load(argv[3], root)) exit(1);
+    fprintf(LOG_FILE, "Using %2.3f KiB of memory to store the tree\n", (float) Node::allocated / 1024.0F);
     fflush(LOG_FILE);
 
     /*std::cerr << "digraph Nodes { " << std::endl;
@@ -433,7 +439,7 @@ int main( int argc, char** argv )
     std::cerr << "}" << std::endl;
     return 0;*/
 
-    initialize(atoi(argv[1]));
+    initialize(argv[1], atoi(argv[2]));
     process(root);
     terminate();
 
