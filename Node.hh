@@ -4,9 +4,9 @@
 
 struct Node
 {
-    Node *slots[26 + 10 + 2];
-    bool isTerminal = false;
-    bool isStar = false;
+    Node *slots[26 + 10 + 2]; // 26 letters, 10 digits, dash and dot
+    bool isTerminal = false; // this node is a terminal symbol
+    bool isStar = false; // denote a wildcard
     int id = 0;
     static size_t allocated;
 
