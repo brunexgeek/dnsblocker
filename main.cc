@@ -437,6 +437,7 @@ int main( int argc, char** argv )
 
     Node root;
     if (!Node::load(argv[3], root)) exit(1);
+    fprintf(LOG_FILE, "Generated tree with %d nodes\n", Node::count());
     fprintf(LOG_FILE, "Using %2.3f KiB of memory to store the tree\n", (float) Node::allocated / 1024.0F);
     fflush(LOG_FILE);
 

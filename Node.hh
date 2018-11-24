@@ -9,6 +9,7 @@ struct Node
     bool isStar = false; // denote a wildcard
     int id = 0;
     static size_t allocated;
+    static int counter;
 
     Node();
 
@@ -27,5 +28,7 @@ struct Node
     void print( std::ostream &out );
 
     static bool load( const std::string &fileName, Node &root );
+
+    static int count();
 
 };

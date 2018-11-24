@@ -5,7 +5,7 @@
 
 extern FILE *LOG_FILE;
 size_t Node::allocated = 0;
-
+int Node::counter = 0;
 
 Node::Node()
 {
@@ -16,7 +16,6 @@ Node::Node()
 
 int Node::nextId()
 {
-    static int counter = 0;
     return ++counter;
 }
 
@@ -136,4 +135,9 @@ bool Node::load( const std::string &fileName, Node &root )
     }
 
     return false;
+}
+
+int Node::count()
+{
+    return counter;
 }
