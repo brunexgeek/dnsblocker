@@ -10,7 +10,7 @@ For every query of type ``A`` (i.e. returns an IPv4 address for the given domain
 
 Any query with a type different than ``A`` receives an ``Server Failure`` error.
 
-# Building
+## Building
 
 ```
 mkdir build && cd build
@@ -18,7 +18,7 @@ cmake ..
 make
 ```
 
-# Run
+## Run
 
 Before starting the DNS server, you need a text file containing rules. Rules are domain names you want to block, one per line. It's possible to use wildcards to match any subdomains.
 
@@ -39,7 +39,7 @@ The first argument is the IP address the server should bind with; the second arg
 
 The program will run as a daemon and a log file will be generated at ``/var/log/dnsblocker.log``. To stop the program, send a SIGTERM signal with the command ``kill``.
 
-# Limitations
+## Limitations
 
 * Domain names can contain the following characters: letters, numbers, dashes (-) and dots (.). You can use an asterisk as the first character to enable wildcard matching.
 * This is a prototype code and many exceptional conditions are not properly handled.

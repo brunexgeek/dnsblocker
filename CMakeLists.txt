@@ -70,7 +70,8 @@ endif()
 
 add_executable(dnsblocker
     "${CMAKE_CURRENT_LIST_DIR}/main.cc"
-    "${CMAKE_CURRENT_LIST_DIR}/Node.cc")
+    "${CMAKE_CURRENT_LIST_DIR}/nodes.cc"
+    "${CMAKE_CURRENT_LIST_DIR}/dns.cc")
 target_compile_definitions(dnsblocker PRIVATE _DEFAULT_SOURCE)
 set_target_properties(dnsblocker PROPERTIES
     OUTPUT_NAME "dnsblocker"
