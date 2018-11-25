@@ -3,7 +3,7 @@ project(dnsblocker)
 cmake_minimum_required(VERSION 2.8)
 
 set(DNSB_MAJOR_VERSION 0)
-set(DNSB_MINOR_VERSION 2)
+set(DNSB_MINOR_VERSION 3)
 set(DNSB_PATCH_VERSION 0)
 
 set(LIBRARY_TYPE "SHARED" CACHE STRING "Specify the type of binary to be generated")
@@ -39,15 +39,14 @@ if (CMAKE_BUILD_TYPE STREQUAL "")
 endif()
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-    set(WEBSTER_BUILD_DEBUG 1)
+    set(DNSB_BUILD_DEBUG 1)
 else()
-    set(WEBSTER_BUILD_RELEASE 1)
+    set(DNSB_BUILD_RELEASE 1)
 endif()
 
-
-if(MSVC)
-    add_definitions(-D_CRT_SECURE_NO_WARNINGS -DNOMINMAX -DWIN32_LEAN_AND_MEAN)
-endif()
+add_definitions(-DMAJOR_VERSION=${DNSB_MAJOR_VERSION})
+add_definitions(-DMINOR_VERSION=${DNSB_MINOR_VERSION})
+add_definitions(-DPATCH_VERSION=${DNSB_PATCH_VERSION})
 
 if (UNIX)
     set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -Wfatal-errors -fvisibility=hidden -Wfatal-errors -pedantic -std=c++11 -Wl,--no-undefined -fPIC -Wall -Wextra -Wconversion -Werror=int-conversion -Werror=return-type -Werror=implicit-function-declaration -Werror=incompatible-pointer-types -Werror=discarded-qualifiers")

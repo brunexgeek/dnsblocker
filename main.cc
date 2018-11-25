@@ -215,6 +215,7 @@ int main( int argc, char** argv )
 
     if (argc != 4)
     {
+        printf("DNS Blocker %d.%d.%d\n", MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION);
         printf("Usage: ./dnsblocker <host> <port> <rules>\n");
         return 1;
     }
@@ -223,7 +224,7 @@ int main( int argc, char** argv )
     LOG_FILE = fopen("/var/log/dnsblocker.log", "wt");
     if (LOG_FILE == nullptr) exit(EXIT_FAILURE);
 
-    fprintf(LOG_FILE, "DNS Blocker started\n");
+    fprintf(LOG_FILE, "DNS Blocker %d.%d.%d started\n", MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION);
     fflush(LOG_FILE);
 
     // get the absolute path of the input file
