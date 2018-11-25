@@ -7,8 +7,9 @@ struct Node
 {
     static const int TERMINAL = 1; // this node is a terminal symbol
     static const int WILDCARD = 2; // denote a wildcard
+    static const int SLOTS    = 38; // 26 letters, 10 digits, dash and dot
 
-    Node *slots[26 + 10 + 2]; // 26 letters, 10 digits, dash and dot
+    Node *slots[SLOTS];
     int flags = 0;
     uint id = 0;
     static size_t allocated;
@@ -16,7 +17,7 @@ struct Node
 
     Node();
 
-    static int nextId();
+    ~Node();
 
     int index( char c );
 

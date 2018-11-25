@@ -10,15 +10,18 @@ int Node::counter = 0;
 Node::Node()
 {
     memset(slots, 0, sizeof(slots));
-    id = nextId();
+    id = ++Node::counter;
     flags = 0;
-    allocated += sizeof(Node);
+    Node::allocated += sizeof(Node);
 }
 
-int Node::nextId()
+
+Node::~Node()
 {
-    return ++counter;
+    for (size_t i = 0; i < SLOTS; ++i)
+        delete slots[i];
 }
+
 
 int Node::index( char c )
 {
@@ -123,7 +126,7 @@ void Node::print( std::ostream &out )
     if (this->flags & Node::TERMINAL)
         out << this->id << " [color=red]" << std::endl;
 
-    for (int i = 0; i < 38; ++i)
+    for (int i = 0; i < Node::SLOTS; ++i)
     {
         if (slots[i] == nullptr) continue;
         out << this->id << " -> " << slots[i]->id << " [label=\"" << text(i) << "\"]" << std::endl;
@@ -143,9 +146,9 @@ bool Node::load( const std::string &fileName, Node &root )
             std::getline(rules, line);
             if (line.empty()) continue;
             if (root.add(line))
-                fprintf(LOG_FILE, "Added '%s'\n", line.c_str());
+                fprintf(LOG_FILE, "  Added '%s'\n", line.c_str());
             else
-                fprintf(LOG_FILE, "Invalid rule '%s'\n", line.c_str());
+                fprintf(LOG_FILE, "  Invalid rule '%s'\n", line.c_str());
         }
 
         rules.close();
