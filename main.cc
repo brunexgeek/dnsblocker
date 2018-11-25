@@ -91,13 +91,13 @@ bool main_loadRules()
     Node::counter = 0;
     Node::allocated = 0;
     Node *root = new(std::nothrow) Node();
-    if (root != nullptr && !Node::load(context.rulesFileName, *root)) return false;
+    if (root == nullptr || !Node::load(context.rulesFileName, *root)) return false;
 
     fprintf(LOG_FILE, "Generated tree with %d nodes\n", Node::count());
     fprintf(LOG_FILE, "Using %2.3f KiB of memory to store the tree\n", (float) Node::allocated / 1024.0F);
     fflush(LOG_FILE);
 
-    if (context.root != nullptr) delete root;
+    if (context.root != nullptr) delete context.root;
     context.root = root;
 
     return true;
@@ -117,6 +117,7 @@ static void main_process( Node &root )
         {
             fprintf(LOG_FILE, "Received signal %d\n", context.signal);
             if (context.signal == SIGUSR1) main_loadRules();
+            if (context.signal == SIGINT) break;
             context.signal = 0;
         }
 
@@ -244,15 +245,18 @@ int main( int argc, char** argv )
         struct sigaction act;
         sigemptyset(&act.sa_mask);
         sigaddset(&act.sa_mask, SIGUSR1);
+        sigaddset(&act.sa_mask, SIGINT);
         act.sa_flags = 0;
         act.sa_handler = main_signalHandler;
         sigaction(SIGUSR1, &act, NULL);
+        sigaction(SIGINT, &act, NULL);
 
         if (main_initialize( argv[1], atoi(argv[2]) ))
         {
             main_process(*context.root);
             main_terminate();
         }
+        delete context.root;
     }
     else
         fprintf(LOG_FILE, "Unable to load rules\n");
