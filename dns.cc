@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string>
 
+extern FILE *LOG_FILE;
 
 dns_header_t::dns_header_t()
 {
@@ -121,4 +122,34 @@ void dns_encode(
     encodeHeader(bio, message.header);
     encodeQuestions(bio, message.questions);
     encodeRecords(bio, message.answers);
+}
+
+
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <string.h>
+
+bool dns_recursive(
+    uint8_t *buffer,
+    size_t size,
+    size_t *cursor )
+{
+    static int socketfd = 0;
+    if (socketfd == 0) socketfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (socketfd < 0) return false;
+
+    struct sockaddr_in address;
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = 0x08080808;
+    address.sin_port = htons(53);
+    ssize_t nbytes = sendto(socketfd, buffer, *cursor, 0, (struct sockaddr *) &address, sizeof(address));
+    if (nbytes < 0) return false;
+
+    socklen_t length;
+    nbytes = recvfrom(socketfd, buffer, size, 0, (struct sockaddr *) &address, &length);
+    if (nbytes < 0) return false;
+    *cursor = (size_t) nbytes;
+
+    //fprintf(LOG_FILE, "Received %d bytes from 8.8.8.8\n", (int)nbytes);
+    return true;
 }

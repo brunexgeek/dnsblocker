@@ -77,12 +77,15 @@ struct dns_message_t
 struct BufferIO
 {
     uint8_t *buffer;
-    size_t size;
     uint8_t *ptr;
+    size_t size;
 
     BufferIO(
         uint8_t *buffer,
-        size_t size ) : buffer(buffer), size(size), ptr(buffer) {}
+        size_t cursor,
+        size_t size ) : buffer(buffer), ptr(buffer + cursor), size(size)
+    {
+    }
 
     uint16_t readU16()
     {
@@ -173,3 +176,8 @@ void dns_decode(
 void dns_encode(
     BufferIO &bio,
     dns_message_t &message );
+
+bool dns_recursive(
+    uint8_t *buffer,
+    size_t size,
+    size_t *cursor );

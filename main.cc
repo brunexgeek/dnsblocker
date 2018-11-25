@@ -104,7 +104,7 @@ bool main_loadRules()
 }
 
 
-static void main_process( Node &root )
+static void main_process()
 {
     uint8_t buffer[BUFFER_SIZE];
     struct sockaddr_in clientAddress;
@@ -124,15 +124,14 @@ static void main_process( Node &root )
         int nbytes = (int) recvfrom(socketfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *) &clientAddress, &addrLen);
         if (nbytes <= 0) continue;
 
-        BufferIO bio(buffer, nbytes);
+        BufferIO bio(buffer, 0, nbytes);
         dns_message_t request;
         dns_decode(bio, request);
-        //request.print(std::cout);
 
         char source[INET6_ADDRSTRLEN + 1];
         inet_ntop(clientAddress.sin_family, get_in_addr((struct sockaddr *)&clientAddress), source, INET6_ADDRSTRLEN);
 
-        bool isBlocked = root.match(request.questions[0].qname);
+        bool isBlocked = context.root->match(request.questions[0].qname);
         // avoid to log repeated queries
         if (request.questions[0].qname != lastQName)
         {
@@ -144,31 +143,47 @@ static void main_process( Node &root )
             fflush(LOG_FILE);
         }
 
-        bio = BufferIO(buffer, BUFFER_SIZE);
-        dns_message_t response;
-        response.header.id = request.header.id;
-        DNS_SET_QR(response.header.fields);
-        // copy the request question
-        response.questions.push_back(request.questions[0]);
-        // decide whether we have to include an answer
-        if (!isBlocked || request.questions[0].type != DNS_TYPE_A)
+        // if the domain is not blocked, we ask Google DNS for its information
+        if (false && !isBlocked && request.questions[0].type == DNS_TYPE_A)
         {
-            DNS_SET_RCODE(response.header.fields, 2);
+            size_t cursor = (size_t) nbytes;
+            if (dns_recursive(buffer, BUFFER_SIZE, &cursor))
+                sendto(socketfd, buffer, cursor, 0, (struct sockaddr *) &clientAddress, addrLen);
+            else
+            {
+                fprintf(LOG_FILE, "Unable to ask 8.8.8.8 about '%s'", request.questions[0].qname.c_str());
+                fflush(LOG_FILE);
+            }
         }
+        // if the domain is blocked of this is not a 'A' query, handle internally
         else
         {
-            dns_record_t answer;
-            answer.qname = request.questions[0].qname;
-            answer.type = request.questions[0].type;
-            answer.clazz = request.questions[0].clazz;
-            answer.ttl = 1200;
-            // TODO: fill 'rdata'
-            response.answers.push_back(answer);
-        }
+            bio = BufferIO(buffer, 0, BUFFER_SIZE);
+            dns_message_t response;
+            response.header.id = request.header.id;
+            DNS_SET_QR(response.header.fields);
+            // copy the request question
+            response.questions.push_back(request.questions[0]);
+            // decide whether we have to include an answer
+            if (!isBlocked || request.questions[0].type != DNS_TYPE_A)
+            {
+                DNS_SET_RCODE(response.header.fields, 2);
+            }
+            else
+            {
+                dns_record_t answer;
+                answer.qname = request.questions[0].qname;
+                answer.type = request.questions[0].type;
+                answer.clazz = request.questions[0].clazz;
+                answer.ttl = 60;
+                // TODO: fill 'rdata'
+                response.answers.push_back(answer);
+            }
 
-        dns_encode(bio, response);
-        nbytes = (int) bio.cursor();
-        sendto(socketfd, buffer, nbytes, 0, (struct sockaddr *) &clientAddress, addrLen);
+            dns_encode(bio, response);
+            nbytes = (int) bio.cursor();
+            sendto(socketfd, buffer, nbytes, 0, (struct sockaddr *) &clientAddress, addrLen);
+        }
     }
 }
 
@@ -254,7 +269,7 @@ int main( int argc, char** argv )
 
         if (main_initialize( argv[1], atoi(argv[2]) ))
         {
-            main_process(*context.root);
+            main_process();
             main_terminate();
         }
         delete context.root;
