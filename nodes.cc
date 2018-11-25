@@ -26,11 +26,11 @@ Node::~Node()
 int Node::index( char c )
 {
     if (c >= 'A' && c <= 'Z')
-        return c - 'A';
+        return c - 'A'; // 0..25
     if (c >= 'a' && c <= 'z')
-        return c - 'a';
+        return c - 'a'; // 0..25
     if (c >= '0' && c <= '9')
-        return c - '0' + 26;
+        return c - '0' + 26; // 26..35
     if (c == '-')
         return 36;
     if (c == '.')
@@ -47,49 +47,62 @@ char Node::text( int index )
     return '?';
 }
 
-bool Node::convert( const std::string &host, std::string &entry )
+char *Node::prepare(
+    char *host )
 {
-    for (int i = (int) host.length() - 1; i >= 0; --i)
-    {
-        if (host[i] == '*') continue;
-        int c = index(host[i]);
-        if (c < 0) return false;
-        entry += (char) c;
-    }
+    if (host == nullptr) return nullptr;
+    char *ptr = host;
 
-    return true;
+    // remove leading and trailing unused characters
+    while (*ptr == ' ' || *ptr == '*') ++ptr;
+    if (*ptr == 0) return nullptr;
+    for (size_t i = strlen(ptr) - 1; ptr[i] == ' '; --i) *ptr = 0;
+    // validate the host characters
+    for (char *p = ptr; *p != 0; ++p)
+        if (index(*p) < 0) return nullptr;
+    // reverse the symbols
+    for (size_t i = 0, t = strlen(ptr); i < t / 2; i++)
+        std::swap(ptr[i],  ptr[t - i - 1]);
+
+    if (*ptr == '.') return nullptr;
+
+    return ptr;
 }
 
 bool Node::add( const std::string &host )
 {
-    if (host.empty()) return false;
-    const char *ptr = host.c_str();
+    if (host.empty() || host.length() > MAX_HOST_LENGTH) return false;
+
+    char temp[MAX_HOST_LENGTH + 1] = { 0 };
+    strcpy(temp, host.c_str());
 
     bool isWildcard = false;
-    // '*' and '**' must precede a dot
-    if (ptr[0] == '*')
+    // '*' and '**' must precede a period
+    if (temp[0] == '*')
     {
         isWildcard = true;
 
         // if we have a 'double star', add the domain itself
-        if (ptr[1] == '*' && ptr[2] == '.')
-            add(ptr + 3);
+        if (temp[1] == '*' && temp[2] == '.')
+            add(temp + 3);
         else
-        if (ptr[1] != '.')
+        if (temp[1] != '.')
             return false;
     }
 
-    std::string temp;
-    if (!convert(host, temp)) return false;
+    // preprocess the host name
+    char *ptr = prepare(temp);
+    if (ptr == nullptr) return false;
 
     Node *next = this;
-    for (size_t i = 0, t = temp.length(); i < t; ++i)
+    for (;*ptr != 0; ++ptr)
     {
-        if (next->slots[(int)temp[i]] == nullptr)
-            next = next->slots[(int)temp[i]] = new Node();
+        int idx = index(*ptr);
+        if (next->slots[idx] == nullptr)
+            next = next->slots[idx] = new Node();
         else
         {
-            next = next->slots[(int)temp[i]];
+            next = next->slots[idx];
             if (next->flags & Node::WILDCARD) return true;
         }
     }
@@ -101,18 +114,25 @@ bool Node::add( const std::string &host )
 
 bool Node::match( const std::string &host )
 {
-    std::string temp;
-    if (!convert(host, temp)) return false;
+    if (host.empty() || host.length() > MAX_HOST_LENGTH) return false;
+
+    char temp[MAX_HOST_LENGTH + 1] = { 0 };
+    strcpy(temp, host.c_str());
+
+    // preprocess the host name
+    char *ptr = prepare(temp);
+    if (ptr == nullptr) return false;
 
     Node *next = this;
-    for (size_t i = 0, t = temp.length(); i < t; ++i)
+    for (;*ptr != 0; ++ptr)
     {
         if (next->flags & Node::WILDCARD) return true;
 
-        if (next->slots[(int)temp[i]] == nullptr)
+        int idx = index(*ptr);
+        if (next->slots[idx] == nullptr)
             return false;
         else
-            next = next->slots[(int)temp[i]];
+            next = next->slots[idx];
     }
 
     return (next->flags & Node::TERMINAL) != 0;
@@ -140,11 +160,18 @@ bool Node::load( const std::string &fileName, Node &root )
     std::ifstream rules(fileName.c_str());
     if (rules.good())
     {
+        std::string line;
+
         while (!rules.eof())
         {
-            std::string line;
             std::getline(rules, line);
             if (line.empty()) continue;
+
+            // we have a comment?
+            const char *ptr = line.c_str();
+            while (*ptr == ' ') ++ptr;
+            if (*ptr == '#') continue;
+
             if (root.add(line))
                 fprintf(LOG_FILE, "  Added '%s'\n", line.c_str());
             else

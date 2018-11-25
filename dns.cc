@@ -22,7 +22,8 @@ dns_question_t::dns_question_t( const dns_question_t &obj )
 
 dns_record_t::dns_record_t()
 {
-    type = clazz = ttl = 0;
+    type = clazz = 0;
+    ttl = 0;
 }
 
 static void decodeHeader(

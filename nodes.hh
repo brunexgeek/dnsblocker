@@ -8,6 +8,7 @@ struct Node
     static const int TERMINAL = 1; // this node is a terminal symbol
     static const int WILDCARD = 2; // denote a wildcard
     static const int SLOTS    = 38; // 26 letters, 10 digits, dash and dot
+    static const int MAX_HOST_LENGTH = 512;
 
     Node *slots[SLOTS];
     int flags = 0;
@@ -23,7 +24,7 @@ struct Node
 
     char text( int index );
 
-    bool convert( const std::string &host, std::string &entry );
+    char *prepare( char *host );
 
     bool add( const std::string &host );
 
