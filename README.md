@@ -18,28 +18,38 @@ cmake ..
 make && sudo make install
 ```
 
-## Run
+## Rules
 
-Before starting the DNS server, you need a text file containing rules. Rules are domain names you want to block, one per line. It's possible to use wildcards to match any subdomains.
+Before starting the DNS server, you need a text file containing rules. Rules are domain names you want to block, one per line. It's possible to use an asterisk (*) to match any subdomains and two asterisks (**) to match any subdomains and the domain itself.
 
 ```
 google.com
 *.microsoft.com
+**.bing.com
 ```
 
-The first line blocks the domain ``google.com`` and the second line blocks every subdomain of ``microsoft.com``, but not ``microsoft.com`` itself.
-
-With the file created, just run the program with a command like:
+In the example above, the first rule blocks the domain ``google.com``; the second rule blocks every subdomain of ``microsoft.com``, but not ``microsoft.com`` itself; and the third rule blocks ``bing.com`` and any of its subdomains. The third rule is equivalent to:
 
 ```
-dnsblocker 192.168.0.1 53 rules.txt
+bing.com
+*.bing.com
+```
+
+Domain names can contain the following characters: ASCII letters, numbers, dashes (-) and periods (.). Asterisks must appear only at the beginning of the rule and must be followed by a periods.
+
+## Running
+
+Once you have a file with rules, just run ``dnsblocker``:
+
+```
+# dnsblocker 192.168.0.1 53 rules.txt
 ```
 
 The first argument is the IP address the server should bind with; the second argument is the UDP port to be used (53 is the standard DNS port); and the third argument is the path to the file containing the rules.
 
-The program will run as a daemon and a log file will be generated at ``/var/log/dnsblocker.log``. To stop the program, send a SIGTERM signal with the command ``kill``.
+The program will run as a daemon and output information in a log file at ``/var/log/dnsblocker.log``. To stop the program, send ``SIGTERM`` signal with the command ``kill`` or ``pkill``. You can also send ``SIGUSR1`` signal to reload the rules.
 
 ## Limitations
 
-* Domain names can contain the following characters: letters, numbers, dashes (-) and dots (.). You can use an asterisk as the first character to enable wildcard matching.
 * This is a prototype code and many exceptional conditions are not properly handled.
+* Only the required parts of DNS protocol as implemented.
