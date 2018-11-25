@@ -2,12 +2,15 @@
 #include <iostream>
 #include <string>
 
+
 struct Node
 {
+    static const int TERMINAL = 1; // this node is a terminal symbol
+    static const int WILDCARD = 2; // denote a wildcard
+
     Node *slots[26 + 10 + 2]; // 26 letters, 10 digits, dash and dot
-    bool isTerminal = false; // this node is a terminal symbol
-    bool isStar = false; // denote a wildcard
-    int id = 0;
+    int flags = 0;
+    uint id = 0;
     static size_t allocated;
     static int counter;
 

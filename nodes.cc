@@ -11,6 +11,7 @@ Node::Node()
 {
     memset(slots, 0, sizeof(slots));
     id = nextId();
+    flags = 0;
     allocated += sizeof(Node);
 }
 
@@ -59,8 +60,22 @@ bool Node::convert( const std::string &host, std::string &entry )
 bool Node::add( const std::string &host )
 {
     if (host.empty()) return false;
+    const char *ptr = host.c_str();
 
-    bool isStar = (host[0] == '*');
+    bool isWildcard = false;
+    // '*' and '**' must precede a dot
+    if (ptr[0] == '*')
+    {
+        isWildcard = true;
+
+        // if we have a 'double star', add the domain itself
+        if (ptr[1] == '*' && ptr[2] == '.')
+            add(ptr + 3);
+        else
+        if (ptr[1] != '.')
+            return false;
+    }
+
     std::string temp;
     if (!convert(host, temp)) return false;
 
@@ -72,11 +87,11 @@ bool Node::add( const std::string &host )
         else
         {
             next = next->slots[(int)temp[i]];
-            if (next->isStar) return true;
+            if (next->flags & Node::WILDCARD) return true;
         }
     }
-    next->isTerminal = true;
-    next->isStar = isStar;
+    next->flags |= Node::TERMINAL;
+    if (isWildcard) next->flags |= Node::WILDCARD;
 
     return true;
 }
@@ -89,7 +104,7 @@ bool Node::match( const std::string &host )
     Node *next = this;
     for (size_t i = 0, t = temp.length(); i < t; ++i)
     {
-        if (next->isStar) return true;
+        if (next->flags & Node::WILDCARD) return true;
 
         if (next->slots[(int)temp[i]] == nullptr)
             return false;
@@ -97,15 +112,15 @@ bool Node::match( const std::string &host )
             next = next->slots[(int)temp[i]];
     }
 
-    return next->isTerminal;
+    return (next->flags & Node::TERMINAL) != 0;
 }
 
 void Node::print( std::ostream &out )
 {
-    if (this->isStar)
+    if (this->flags & Node::WILDCARD)
         out << this->id << " [color=blue]" << std::endl;
     else
-    if (this->isTerminal)
+    if (this->flags & Node::TERMINAL)
         out << this->id << " [color=red]" << std::endl;
 
     for (int i = 0; i < 38; ++i)
@@ -127,7 +142,10 @@ bool Node::load( const std::string &fileName, Node &root )
             std::string line;
             std::getline(rules, line);
             if (line.empty()) continue;
-            if (root.add(line)) fprintf(LOG_FILE, "Added '%s'\n", line.c_str());
+            if (root.add(line))
+                fprintf(LOG_FILE, "Added '%s'\n", line.c_str());
+            else
+                fprintf(LOG_FILE, "Invalid rule '%s'\n", line.c_str());
         }
 
         rules.close();
