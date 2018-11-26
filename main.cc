@@ -11,13 +11,13 @@
 #include <unistd.h>
 #include <signal.h>
 #include <limits.h>
-
 #include "nodes.hh"
 #include "dns.hh"
+#include "config.hh"
+#include "log.hh"
 
 
 static const size_t BUFFER_SIZE = 1024;
-FILE *LOG_FILE = nullptr;
 static int socketfd = 0;
 
 static struct
@@ -58,7 +58,7 @@ static bool main_initialize( const std::string &host, int port = 53 )
     int rbind = bind(socketfd, (struct sockaddr *) & address, sizeof(struct sockaddr_in));
     if (rbind != 0)
     {
-        fprintf(LOG_FILE, "Unable to bind: %s", strerror(errno));
+        log_message("Unable to bind: %s", strerror(errno));
         return false;
     }
 
@@ -85,17 +85,15 @@ bool main_loadRules()
 {
     if (context.rulesFileName.empty()) return false;
 
-    fprintf(LOG_FILE, "Loading rules from '%s'\n", context.rulesFileName.c_str());
-    fflush(LOG_FILE);
+    log_message("Loading rules from '%s'\n", context.rulesFileName.c_str());
 
     Node::counter = 0;
     Node::allocated = 0;
     Node *root = new(std::nothrow) Node();
     if (root == nullptr || !Node::load(context.rulesFileName, *root)) return false;
 
-    fprintf(LOG_FILE, "Generated tree with %d nodes\n", Node::count());
-    fprintf(LOG_FILE, "Using %2.3f KiB of memory to store the tree\n", (float) Node::allocated / 1024.0F);
-    fflush(LOG_FILE);
+    log_message("Generated tree with %d nodes\n", Node::count());
+    log_message("Using %2.3f KiB of memory to store the tree\n", (float) Node::allocated / 1024.0F);
 
     if (context.root != nullptr) delete context.root;
     context.root = root;
@@ -115,7 +113,7 @@ static void main_process()
     {
         if (context.signal != 0)
         {
-            fprintf(LOG_FILE, "Received signal %d\n", context.signal);
+            log_message("Received signal %d\n", context.signal);
             if (context.signal == SIGUSR1) main_loadRules();
             if (context.signal == SIGINT) break;
             context.signal = 0;
@@ -137,13 +135,12 @@ static void main_process()
         {
             lastQName = request.questions[0].qname;
             if (isBlocked)
-                fprintf(LOG_FILE, "[BLOCK] %s asked for '%s'\n", source, request.questions[0].qname.c_str());
+                log_message("[BLOCK] %s asked for '%s'\n", source, request.questions[0].qname.c_str());
             else
-                fprintf(LOG_FILE, "        %s asked for '%s'\n", source, request.questions[0].qname.c_str());
-            fflush(LOG_FILE);
+                log_message("        %s asked for '%s'\n", source, request.questions[0].qname.c_str());
         }
 
-        #ifdef ENABLE_FALLBACK_DNS
+        #ifdef ENABLE_RECURSIVE_DNS
         // if the domain is not blocked, we ask the fallback DNS for its information
         if (!isBlocked && request.questions[0].type == DNS_TYPE_A)
         {
@@ -152,8 +149,7 @@ static void main_process()
                 sendto(socketfd, buffer, cursor, 0, (struct sockaddr *) &clientAddress, addrLen);
             else
             {
-                fprintf(LOG_FILE, "Unable communicate with fallback DNS about '%s'", request.questions[0].qname.c_str());
-                fflush(LOG_FILE);
+                log_message("Unable communicate with fallback DNS about '%s'", request.questions[0].qname.c_str());
             }
         }
         // if the domain is blocked of this is not a 'A' query, handle internally
@@ -237,17 +233,18 @@ int main( int argc, char** argv )
         return 1;
     }
 
+    #ifdef ENABLE_DAEMON
     daemonize();
-    LOG_FILE = fopen("/var/log/dnsblocker.log", "wt");
-    if (LOG_FILE == nullptr) exit(EXIT_FAILURE);
+    #endif
+    if (!log_initialize()) exit(EXIT_FAILURE);
 
-    fprintf(LOG_FILE, "DNS Blocker %d.%d.%d started\n", MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION);
-    fflush(LOG_FILE);
+    log_message("DNS Blocker %d.%d.%d started\n", MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION);
 
     // get the absolute path of the input file
     context.rulesFileName = main_realPath(argv[3]);
     if (context.rulesFileName.empty())
     {
+        log_message("Invalid rules file '%s'\n", argv[3]);
         result = 1;
         goto ESCAPE;
     }
@@ -277,11 +274,11 @@ int main( int argc, char** argv )
         delete context.root;
     }
     else
-        fprintf(LOG_FILE, "Unable to load rules\n");
+        log_message("Unable to load rules\n");
 
 ESCAPE:
-    fprintf(LOG_FILE, "DNS Blocker terminated\n");
-    fclose(LOG_FILE);
+    log_message("DNS Blocker terminated\n");
+    log_terminate();
 
     return result;
 }

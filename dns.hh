@@ -1,9 +1,8 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
+#include "config.hh"
 
-
-#define DNS_FALLBACK   0x08080808  //  8.8.8.8
 
 #define DNS_GET_QR(x)         ((x) & 15)
 #define DNS_GET_OPCODE(x)     (((x) >> 11) & 15)
@@ -179,7 +178,7 @@ void dns_encode(
     BufferIO &bio,
     dns_message_t &message );
 
-#ifdef ENABLE_FALLBACK_DNS
+#ifdef ENABLE_RECURSIVE_DNS
 bool dns_recursive(
     uint8_t *buffer,
     size_t size,

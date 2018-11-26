@@ -1,9 +1,9 @@
 #include "nodes.hh"
 #include <cstring>
 #include <fstream>
+#include "log.hh"
 
 
-extern FILE *LOG_FILE;
 size_t Node::allocated = 0;
 int Node::counter = 0;
 
@@ -173,9 +173,9 @@ bool Node::load( const std::string &fileName, Node &root )
             if (*ptr == '#') continue;
 
             if (root.add(line))
-                fprintf(LOG_FILE, "  Added '%s'\n", line.c_str());
+                log_message("  Added '%s'\n", line.c_str());
             else
-                fprintf(LOG_FILE, "  Invalid rule '%s'\n", line.c_str());
+                log_message("  Invalid rule '%s'\n", line.c_str());
         }
 
         rules.close();

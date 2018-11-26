@@ -12,10 +12,8 @@ set_property(CACHE LIBRARY_TYPE PROPERTY STRINGS "STATIC" "SHARED")
 set(CMAKE_BUILD_TYPE "Release"  CACHE STRING  "Specify the build type")
 set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release")
 
-set(ENABLE_FALLBACK_DNS false CACHE BOOLEAN "Enable resursive query using fallback DNS")
-if (ENABLE_FALLBACK_DNS)
-    add_definitions(-DENABLE_FALLBACK_DNS)
-endif()
+set(ENABLE_RECURSIVE_DNS false CACHE BOOLEAN "Enable resursive query using fallback DNS")
+set(ENABLE_TIMESTAMP true CACHE BOOLEAN "Enable timestamp in log entries")
 
 if (UNIX)
     set(CMAKE_BUILD_PLATFORM "auto"  CACHE STRING  "Target platform which the binaries will be generated")
@@ -48,9 +46,6 @@ else()
     set(DNSB_BUILD_RELEASE 1)
 endif()
 
-add_definitions(-DMAJOR_VERSION=${DNSB_MAJOR_VERSION})
-add_definitions(-DMINOR_VERSION=${DNSB_MINOR_VERSION})
-add_definitions(-DPATCH_VERSION=${DNSB_PATCH_VERSION})
 
 if (UNIX)
     set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -Wfatal-errors -fvisibility=hidden -Wfatal-errors -pedantic -std=c++11 -Wl,--no-undefined -fPIC -Wall -Wextra -Wconversion -Werror=int-conversion -Werror=return-type -Werror=implicit-function-declaration -Werror=incompatible-pointer-types -Werror=discarded-qualifiers")
@@ -71,9 +66,12 @@ if (UNIX)
 endif()
 
 
+configure_file("config.hh.in" "${CMAKE_CURRENT_LIST_DIR}/config.hh")
+
 add_executable(dnsblocker
     "${CMAKE_CURRENT_LIST_DIR}/main.cc"
     "${CMAKE_CURRENT_LIST_DIR}/nodes.cc"
+    "${CMAKE_CURRENT_LIST_DIR}/log.cc"
     "${CMAKE_CURRENT_LIST_DIR}/dns.cc")
 target_compile_definitions(dnsblocker PRIVATE _DEFAULT_SOURCE)
 set_target_properties(dnsblocker PROPERTIES

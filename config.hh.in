@@ -1,0 +1,17 @@
+#ifndef DNSB_CONFIG_HH
+#define DNSB_CONFIG_HH
+
+#define MAJOR_VERSION @DNSB_MAJOR_VERSION@
+#define MINOR_VERSION @DNSB_MINOR_VERSION@
+#define PATCH_VERSION @DNSB_PATCH_VERSION@
+
+#cmakedefine ENABLE_TIMESTAMP
+#cmakedefine ENABLE_RECURSIVE_DNS
+#define RECURSIVE_DNS   0x08080808  //  8.8.8.8
+
+/* #define ENABLE_DAEMON */
+
+#define LOG_FILENAME           "/var/log/dnsblocker.log"
+#define CONFIG_FILENAME        "/etc/dnsblocker.conf"
+
+#endif // DNSB_CONFIG_HH
