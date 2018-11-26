@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include "config.hh"
+#include "log.hh"
 
 
 #define DNS_GET_QR(x)         ((x) & 15)
@@ -25,6 +26,11 @@
 #define DNS_SET_AD(x)           ( x |= 1 <<  5)
 #define DNS_SET_CD(x)           ( x |= 1 <<  4)
 #define DNS_SET_RCODE(x,v)      ( x |= ( (v) & 15 ))
+
+#define DNS_IP_O1(x)          (((x) & 0xFF000000) >> 24)
+#define DNS_IP_O2(x)          (((x) & 0x00FF0000) >> 16)
+#define DNS_IP_O3(x)          (((x) & 0x0000FF00) >> 8)
+#define DNS_IP_O4(x)          ((x) & 0x000000FF)
 
 static const uint16_t DNS_TYPE_A      = 1;
 static const uint16_t DNS_TYPE_NS     = 2;
@@ -62,7 +68,7 @@ struct dns_record_t
     uint16_t clazz;
     uint32_t ttl;
     //uint16_t rdlen;
-    //std::string rdata;
+    uint32_t rdata;  // IPv4
 
     dns_record_t();
 };
@@ -80,12 +86,26 @@ struct BufferIO
     uint8_t *buffer;
     uint8_t *ptr;
     size_t size;
+    bool release;
+
+    BufferIO(
+        size_t size ) : size(size), release(true)
+    {
+        if (size == 0) size = 1;
+        ptr = buffer = new(std::nothrow) uint8_t[size];
+    }
 
     BufferIO(
         uint8_t *buffer,
         size_t cursor,
-        size_t size ) : buffer(buffer), ptr(buffer + cursor), size(size)
+        size_t size ) : buffer(buffer), ptr(buffer + cursor), size(size),
+            release(false)
     {
+    }
+
+    ~BufferIO()
+    {
+        if (release) delete[] buffer;
     }
 
     uint16_t readU16()
@@ -101,6 +121,16 @@ struct BufferIO
         ptr[0] = (uint8_t) ((value & 0xFF00) >> 8);
         ptr[1] = (uint8_t) (value & 0xFF);
         ptr += sizeof(uint16_t);
+    }
+
+    uint32_t readU32()
+    {
+        uint32_t value = (uint32_t) (ptr[0] << 24);
+        value = (uint32_t) (value + (uint32_t) (ptr[1] << 16) );
+        value = (uint32_t) (value + (uint32_t) (ptr[2] << 8) );
+        value = (uint32_t) (value + (uint32_t) ptr[3] );
+        ptr += sizeof(uint32_t);
+        return value;
     }
 
     void writeU32( uint32_t value )
@@ -127,9 +157,25 @@ struct BufferIO
         return (size_t)(ptr - buffer);
     }
 
+    void skip( size_t bytes )
+    {
+        ptr += bytes;
+    }
+
     std::string readQName()
     {
         std::string qname;
+
+        // check whether the qname is a pointer (RFC-1035 4.1.4. Message compression)
+        if ((*ptr & 0xC0) == 0xC0)
+        {
+            size_t offset = ((ptr[0] & 0x3F) << 8) | ptr[1];
+            uint8_t *prev = ptr + 2;
+            ptr = buffer + offset;
+            std::string temp = readQName();
+            ptr = prev;
+            return temp;
+        }
 
         int length = *ptr++;
         while (length != 0)
@@ -142,6 +188,7 @@ struct BufferIO
             length = *ptr++;
             if (length != 0) qname.append(1,'.');
         }
+
         return qname;
     }
 
@@ -179,8 +226,13 @@ void dns_encode(
     dns_message_t &message );
 
 #ifdef ENABLE_RECURSIVE_DNS
+
+bool dns_cache(
+    const std::string &host,
+    uint32_t *address );
+
 bool dns_recursive(
-    uint8_t *buffer,
-    size_t size,
-    size_t *cursor );
+    const std::string &host,
+    uint32_t *address );
+
 #endif

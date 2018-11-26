@@ -17,7 +17,6 @@
 #include "log.hh"
 
 
-static const size_t BUFFER_SIZE = 1024;
 static int socketfd = 0;
 
 static struct
@@ -104,7 +103,7 @@ bool main_loadRules()
 
 static void main_process()
 {
-    uint8_t buffer[BUFFER_SIZE];
+    uint8_t buffer[DNS_BUFFER_SIZE] = { 0 };
     struct sockaddr_in clientAddress;
     socklen_t addrLen = sizeof (struct sockaddr_in);
     std::string lastQName;
@@ -119,7 +118,7 @@ static void main_process()
             context.signal = 0;
         }
 
-        int nbytes = (int) recvfrom(socketfd, buffer, BUFFER_SIZE, 0, (struct sockaddr *) &clientAddress, &addrLen);
+        int nbytes = (int) recvfrom(socketfd, buffer, DNS_BUFFER_SIZE, 0, (struct sockaddr *) &clientAddress, &addrLen);
         if (nbytes <= 0) continue;
 
         BufferIO bio(buffer, 0, nbytes);
@@ -130,6 +129,17 @@ static void main_process()
         inet_ntop(clientAddress.sin_family, get_in_addr((struct sockaddr *)&clientAddress), source, INET6_ADDRSTRLEN);
 
         bool isBlocked = context.root->match(request.questions[0].qname);
+        uint32_t address = 0;
+
+        #ifdef ENABLE_RECURSIVE_DNS
+        // if the domain is not blocked, we retrieve the IP address from the cache
+        if (!isBlocked && request.questions[0].type == DNS_TYPE_A)
+        {
+            if (!dns_cache(request.questions[0].qname, &address))
+                log_message("Unable to get IP address '%s' from cache", request.questions[0].qname.c_str());
+        }
+        #endif
+
         // avoid to log repeated queries
         if (request.questions[0].qname != lastQName)
         {
@@ -137,51 +147,40 @@ static void main_process()
             if (isBlocked)
                 log_message("[BLOCK] %s asked for '%s'\n", source, request.questions[0].qname.c_str());
             else
-                log_message("        %s asked for '%s'\n", source, request.questions[0].qname.c_str());
+            if (address == 0)
+                log_message("        %s asked for '%s' [NXDOMAIN]\n", source, request.questions[0].qname.c_str());
+            else
+                log_message("        %s asked for '%s' [%d.%d.%d.%d]\n", source, request.questions[0].qname.c_str(),
+                    DNS_IP_O1(address),DNS_IP_O2(address), DNS_IP_O3(address), DNS_IP_O4(address));
         }
 
-        #ifdef ENABLE_RECURSIVE_DNS
-        // if the domain is not blocked, we ask the fallback DNS for its information
-        if (!isBlocked && request.questions[0].type == DNS_TYPE_A)
-        {
-            size_t cursor = (size_t) nbytes;
-            if (dns_recursive(buffer, BUFFER_SIZE, &cursor))
-                sendto(socketfd, buffer, cursor, 0, (struct sockaddr *) &clientAddress, addrLen);
-            else
-            {
-                log_message("Unable communicate with fallback DNS about '%s'", request.questions[0].qname.c_str());
-            }
-        }
         // if the domain is blocked of this is not a 'A' query, handle internally
-        else
-        #endif
+        bio = BufferIO(buffer, 0, DNS_BUFFER_SIZE);
+        dns_message_t response;
+        response.header.id = request.header.id;
+        DNS_SET_QR(response.header.fields);
+        // copy the request question
+        response.questions.push_back(request.questions[0]);
+        // decide whether we have to include an answer
+        if (request.questions[0].type != DNS_TYPE_A || (!isBlocked && address == 0))
         {
-            bio = BufferIO(buffer, 0, BUFFER_SIZE);
-            dns_message_t response;
-            response.header.id = request.header.id;
-            DNS_SET_QR(response.header.fields);
-            // copy the request question
-            response.questions.push_back(request.questions[0]);
-            // decide whether we have to include an answer
-            if (!isBlocked || request.questions[0].type != DNS_TYPE_A)
-            {
-                DNS_SET_RCODE(response.header.fields, 2);
-            }
-            else
-            {
-                dns_record_t answer;
-                answer.qname = request.questions[0].qname;
-                answer.type = request.questions[0].type;
-                answer.clazz = request.questions[0].clazz;
-                answer.ttl = 60;
-                // TODO: fill 'rdata'
-                response.answers.push_back(answer);
-            }
-
-            dns_encode(bio, response);
-            nbytes = (int) bio.cursor();
-            sendto(socketfd, buffer, nbytes, 0, (struct sockaddr *) &clientAddress, addrLen);
+            DNS_SET_RCODE(response.header.fields, 2); // Server Failure
         }
+        // TODO: send 'NXDomain' when address == 0 and is not blocked
+        else
+        {
+            if (address == 0) address = BLOCK_ADDRESS;
+            dns_record_t answer;
+            answer.qname = request.questions[0].qname;
+            answer.type = request.questions[0].type;
+            answer.clazz = request.questions[0].clazz;
+            answer.ttl = 60;
+            answer.rdata = address;
+            response.answers.push_back(answer);
+        }
+
+        dns_encode(bio, response);
+        sendto(socketfd, bio.buffer, bio.cursor(), 0, (struct sockaddr *) &clientAddress, addrLen);
     }
 }
 

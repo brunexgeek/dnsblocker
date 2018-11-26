@@ -7,9 +7,13 @@
 
 #cmakedefine ENABLE_TIMESTAMP
 #cmakedefine ENABLE_RECURSIVE_DNS
-#define RECURSIVE_DNS   0x08080808  //  8.8.8.8
+#define RECURSIVE_DNS                 0x08080404  // 8.8.4.4
+#define BLOCK_ADDRESS                 0x7F000002  // 127.0.0.2
+#define DNS_CACHE_TTL                 300 // 5 minutes
+#define DNS_CACHE_LIMIT               200
+#define DNS_BUFFER_SIZE               1024
 
-/* #define ENABLE_DAEMON */
+#define ENABLE_DAEMON
 
 #define LOG_FILENAME           "/var/log/dnsblocker.log"
 #define CONFIG_FILENAME        "/etc/dnsblocker.conf"
