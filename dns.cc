@@ -192,7 +192,9 @@ bool dns_recursive(
     ssize_t nbytes = sendto(socketfd, bio.buffer, bio.cursor(), 0, (struct sockaddr *) &address, sizeof(address));
     if (nbytes < 0) return false;
 
-    struct pollfd pfd = {.fd = socketfd, .events = POLLIN};
+    struct pollfd pfd;
+    pfd.fd = socketfd;
+    pfd.events = POLLIN;
     if (poll(&pfd, 1, 5000) <= 0) return false;
 
 //log_message("Message sent to 0x%08X\n", RECURSIVE_DNS);
@@ -282,9 +284,12 @@ bool dns_cache(
 
     if (!dns_recursive(host, output)) return false;
 
-    dns_cache_t &entry = cache[host];
-    entry.address = *output;
-    entry.timestamp = currentTime;
+    if (*output != 0)
+    {
+        dns_cache_t &entry = cache[host];
+        entry.address = *output;
+        entry.timestamp = currentTime;
+    }
     //log_message("-- recursive DNS\n");
 
     return true;

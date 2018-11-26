@@ -11,6 +11,7 @@
 #define BLOCK_ADDRESS                 0x7F000002  // 127.0.0.2
 #define DNS_CACHE_TTL                 300 // 5 minutes
 #define DNS_CACHE_LIMIT               200
+#define DNS_ANSWER_TTL                180 // 3 minutes
 #define DNS_BUFFER_SIZE               1024
 
 #define ENABLE_DAEMON

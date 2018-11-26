@@ -175,7 +175,7 @@ static void main_process()
             answer.qname = request.questions[0].qname;
             answer.type = request.questions[0].type;
             answer.clazz = request.questions[0].clazz;
-            answer.ttl = 60;
+            answer.ttl = DNS_ANSWER_TTL;
             answer.rdata = address;
             response.answers.push_back(answer);
         }
