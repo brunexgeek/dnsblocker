@@ -143,20 +143,22 @@ static void main_process()
             fflush(LOG_FILE);
         }
 
-        // if the domain is not blocked, we ask Google DNS for its information
-        if (false && !isBlocked && request.questions[0].type == DNS_TYPE_A)
+        #ifdef ENABLE_FALLBACK_DNS
+        // if the domain is not blocked, we ask the fallback DNS for its information
+        if (!isBlocked && request.questions[0].type == DNS_TYPE_A)
         {
             size_t cursor = (size_t) nbytes;
             if (dns_recursive(buffer, BUFFER_SIZE, &cursor))
                 sendto(socketfd, buffer, cursor, 0, (struct sockaddr *) &clientAddress, addrLen);
             else
             {
-                fprintf(LOG_FILE, "Unable to ask 8.8.8.8 about '%s'", request.questions[0].qname.c_str());
+                fprintf(LOG_FILE, "Unable communicate with fallback DNS about '%s'", request.questions[0].qname.c_str());
                 fflush(LOG_FILE);
             }
         }
         // if the domain is blocked of this is not a 'A' query, handle internally
         else
+        #endif
         {
             bio = BufferIO(buffer, 0, BUFFER_SIZE);
             dns_message_t response;

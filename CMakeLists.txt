@@ -3,7 +3,7 @@ project(dnsblocker)
 cmake_minimum_required(VERSION 2.8)
 
 set(DNSB_MAJOR_VERSION 0)
-set(DNSB_MINOR_VERSION 3)
+set(DNSB_MINOR_VERSION 4)
 set(DNSB_PATCH_VERSION 0)
 
 set(LIBRARY_TYPE "SHARED" CACHE STRING "Specify the type of binary to be generated")
@@ -12,6 +12,10 @@ set_property(CACHE LIBRARY_TYPE PROPERTY STRINGS "STATIC" "SHARED")
 set(CMAKE_BUILD_TYPE "Release"  CACHE STRING  "Specify the build type")
 set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release")
 
+set(ENABLE_FALLBACK_DNS false CACHE BOOLEAN "Enable resursive query using fallback DNS")
+if (ENABLE_FALLBACK_DNS)
+    add_definitions(-DENABLE_FALLBACK_DNS)
+endif()
 
 if (UNIX)
     set(CMAKE_BUILD_PLATFORM "auto"  CACHE STRING  "Target platform which the binaries will be generated")

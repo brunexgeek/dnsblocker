@@ -129,6 +129,7 @@ void dns_encode(
 #include <arpa/inet.h>
 #include <string.h>
 
+#ifdef ENABLE_FALLBACK_DNS
 bool dns_recursive(
     uint8_t *buffer,
     size_t size,
@@ -140,7 +141,7 @@ bool dns_recursive(
 
     struct sockaddr_in address;
     address.sin_family = AF_INET;
-    address.sin_addr.s_addr = 0x08080808;
+    address.sin_addr.s_addr = DNS_FALLBACK;
     address.sin_port = htons(53);
     ssize_t nbytes = sendto(socketfd, buffer, *cursor, 0, (struct sockaddr *) &address, sizeof(address));
     if (nbytes < 0) return false;
@@ -153,3 +154,4 @@ bool dns_recursive(
     //fprintf(LOG_FILE, "Received %d bytes from 8.8.8.8\n", (int)nbytes);
     return true;
 }
+#endif
