@@ -235,4 +235,6 @@ bool dns_recursive(
     const std::string &host,
     uint32_t *address );
 
+void dns_cacheInfo();
+
 #endif

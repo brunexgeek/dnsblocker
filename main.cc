@@ -115,6 +115,7 @@ static void main_process()
             log_message("Received signal %d\n", context.signal);
             if (context.signal == SIGUSR1) main_loadRules();
             if (context.signal == SIGINT) break;
+            if (context.signal == SIGUSR2) dns_cacheInfo();
             context.signal = 0;
         }
 
@@ -258,10 +259,12 @@ int main( int argc, char** argv )
         // install the signal handler to stop the server with CTRL + C
         struct sigaction act;
         sigemptyset(&act.sa_mask);
+        sigaddset(&act.sa_mask, SIGUSR2);
         sigaddset(&act.sa_mask, SIGUSR1);
         sigaddset(&act.sa_mask, SIGINT);
         act.sa_flags = 0;
         act.sa_handler = main_signalHandler;
+        sigaction(SIGUSR2, &act, NULL);
         sigaction(SIGUSR1, &act, NULL);
         sigaction(SIGINT, &act, NULL);
 

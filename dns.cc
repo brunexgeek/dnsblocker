@@ -5,6 +5,7 @@
 #include "log.hh"
 #include <chrono>
 #include <unordered_map>
+#include <poll.h>
 
 
 dns_header_t::dns_header_t()
@@ -190,6 +191,10 @@ bool dns_recursive(
     address.sin_port = htons(53);
     ssize_t nbytes = sendto(socketfd, bio.buffer, bio.cursor(), 0, (struct sockaddr *) &address, sizeof(address));
     if (nbytes < 0) return false;
+
+    struct pollfd pfd = {.fd = socketfd, .events = POLLIN};
+    if (poll(&pfd, 1, 5000) <= 0) return false;
+
 //log_message("Message sent to 0x%08X\n", RECURSIVE_DNS);
     // wait for the response
     bio.reset();
@@ -283,6 +288,12 @@ bool dns_cache(
     //log_message("-- recursive DNS\n");
 
     return true;
+}
+
+
+void dns_cacheInfo()
+{
+    log_message("Cache entries: %d\n", cache.size());
 }
 
 #endif
