@@ -26,7 +26,7 @@ static struct
     int signal = 0;
 } context;
 
-#if 0
+
 static const char* getType( uint16_t type )
 {
     switch (type)
@@ -40,7 +40,6 @@ static const char* getType( uint16_t type )
         default:             return "?";
     }
 }
-#endif
 
 
 static bool main_initialize( const std::string &host, int port = 53 )
@@ -106,7 +105,6 @@ static void main_process()
     uint8_t buffer[DNS_BUFFER_SIZE] = { 0 };
     struct sockaddr_in clientAddress;
     socklen_t addrLen = sizeof (struct sockaddr_in);
-    std::string lastQName;
 
     while (true)
     {
@@ -141,21 +139,21 @@ static void main_process()
         }
         #endif
 
-        // avoid to log repeated queries
-        if (request.questions[0].qname != lastQName)
+        // Questions of type other than 'A' are silently responded with 'Server Failure'
+
+        if (request.questions[0].type == DNS_TYPE_A)
         {
-            lastQName = request.questions[0].qname;
             if (isBlocked)
-                log_message("[BLOCK] %s asked for '%s'\n", source, request.questions[0].qname.c_str());
+                log_message("[DENIED] %s asked for '%s'\n", source, request.questions[0].qname.c_str());
             else
             if (address == 0)
-                log_message("        %s asked for '%s' [NXDOMAIN]\n", source, request.questions[0].qname.c_str());
+                log_message("         %s asked for '%s' [NXDOMAIN]\n", source, request.questions[0].qname.c_str());
             else
-                log_message("        %s asked for '%s' [%d.%d.%d.%d]\n", source, request.questions[0].qname.c_str(),
+                log_message("         %s asked for '%s' [%d.%d.%d.%d]\n", source, request.questions[0].qname.c_str(),
                     DNS_IP_O1(address),DNS_IP_O2(address), DNS_IP_O3(address), DNS_IP_O4(address));
         }
 
-        // if the domain is blocked of this is not a 'A' query, handle internally
+        // response message
         bio = BufferIO(buffer, 0, DNS_BUFFER_SIZE);
         dns_message_t response;
         response.header.id = request.header.id;

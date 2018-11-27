@@ -183,7 +183,7 @@ bool dns_recursive(
     static int socketfd = 0;
     if (socketfd == 0) socketfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (socketfd < 0) return false;
-
+//log_message("-- message encoded\n");
     // send the query to the recursive DNS
     struct sockaddr_in address;
     address.sin_family = AF_INET;
@@ -197,13 +197,15 @@ bool dns_recursive(
     pfd.events = POLLIN;
     if (poll(&pfd, 1, 5000) <= 0) return false;
 
-//log_message("Message sent to 0x%08X\n", RECURSIVE_DNS);
+//log_message("-- message sent to 0x%08X\n", RECURSIVE_DNS);
     // wait for the response
     bio.reset();
     socklen_t length = 0;
     nbytes = recvfrom(socketfd, bio.buffer, bio.size, 0, (struct sockaddr *) &address, &length);
     if (nbytes < 0) return false;
-//log_message("Message received %d bytes\n", nbytes);
+//log_message("-- message received %d bytes\n", nbytes);
+    if (poll(&pfd, 1, 500) > 0)
+        log_message("There's pending data!");
     // decode the response
     dns_decode(bio, message);
     // use the first 'type A' answer
@@ -213,7 +215,7 @@ bool dns_recursive(
             if (it->type == DNS_TYPE_A) *output = it->rdata;
     }
 
-/*    if (DNS_GET_RCODE(message.header.fields) == 0)
+    /*if (DNS_GET_RCODE(message.header.fields) == 0)
         log_message("-- %d.%d.%d.%d tells '%s' is %d.%d.%d.%d\n",
             DNS_IP_O1(RECURSIVE_DNS),
             DNS_IP_O2(RECURSIVE_DNS),
@@ -276,7 +278,7 @@ bool dns_cache(
         {
             *output = it->second.address;
             it->second.timestamp = currentTime;
-            //log_message("-- using cache\n");
+            //log_message("-- using cache %08X \n", *output);
             return true;
         }
         //log_message("-- cache expired\n");

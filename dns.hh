@@ -38,6 +38,7 @@ static const uint16_t DNS_TYPE_CNAME  = 5;
 static const uint16_t DNS_TYPE_PTR    = 12;
 static const uint16_t DNS_TYPE_MX     = 15;
 static const uint16_t DNS_TYPE_TXT    = 16;
+static const uint16_t DNS_TYPE_AAAA   = 28;
 
 struct dns_header_t
 {
