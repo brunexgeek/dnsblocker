@@ -42,8 +42,6 @@ dns_record_t::dns_record_t()
 void dns_header_t::read(
     BufferIO &bio )
 {
-    uint16_t temp;
-
     id = bio.readU16();
     flags = bio.readU16();
     opcode = DNS_GET_OPCODE(flags);
@@ -204,8 +202,7 @@ bool dns_recursive(
     nbytes = recvfrom(socketfd, bio.buffer, bio.size, 0, (struct sockaddr *) &address, &length);
     if (nbytes < 0) return false;
 //log_message("-- message received %d bytes\n", nbytes);
-    if (poll(&pfd, 1, 500) > 0)
-        log_message("There's pending data!");
+
     // decode the response
     message.read(bio);
     // use the first 'type A' answer
@@ -230,15 +227,15 @@ bool dns_recursive(
 }
 
 
-static uint64_t dns_time()
+static uint32_t dns_time()
 {
     static std::chrono::system_clock::time_point startTime = std::chrono::high_resolution_clock::now();
-    return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - startTime).count();
+    return (uint32_t) std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - startTime).count();
 }
 
 struct dns_cache_t
 {
-    uint64_t timestamp;
+    uint32_t timestamp;
     uint32_t address;
 };
 
@@ -247,7 +244,7 @@ static std::unordered_map<std::string, dns_cache_t> cache;
 
 void dns_cleanup()
 {
-    uint64_t currentTime = dns_time();
+    uint32_t currentTime = dns_time();
     size_t count = cache.size();
 
     for (auto it = cache.begin(); it != cache.end(); ++it)
@@ -266,7 +263,7 @@ bool dns_cache(
 {
     if (cache.size() > DNS_CACHE_LIMIT) dns_cleanup();
 
-    uint64_t currentTime = dns_time();
+    uint32_t currentTime = dns_time();
     *output = 0;
 
     auto it = cache.find(host);
@@ -298,9 +295,39 @@ bool dns_cache(
 }
 
 
+void dns_dump()
+{
+    FILE *output = fopen("/var/log/dnscache.log", "wt");
+    if (output != nullptr)
+    {
+        char ipv4[16];
+        uint32_t now = dns_time();
+        for (auto it = cache.begin(); it != cache.end(); ++it)
+        {
+            uint32_t rt = 0;
+            if (now <= it->second.timestamp + DNS_CACHE_TTL)
+                rt = (it->second.timestamp + DNS_CACHE_TTL) - now;
+
+            sprintf(ipv4, "%d.%d.%d.%d",
+                DNS_IP_O1(it->second.address),
+                DNS_IP_O2(it->second.address),
+                DNS_IP_O3(it->second.address),
+                DNS_IP_O4(it->second.address));
+            fprintf(output, "%-16s  %6d  %s\n",
+                ipv4,
+                rt,
+                it->first.c_str());
+        }
+        fclose(output);
+    }
+}
+
+
 void dns_cacheInfo()
 {
     log_message("Cache entries: %d\n", cache.size());
+    dns_dump();
 }
+
 
 #endif

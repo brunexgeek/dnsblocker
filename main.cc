@@ -102,6 +102,7 @@ bool main_loadRules()
 
 static void main_process()
 {
+    std::string lastName;
     uint8_t buffer[DNS_BUFFER_SIZE] = { 0 };
     struct sockaddr_in clientAddress;
     socklen_t addrLen = sizeof (struct sockaddr_in);
@@ -141,15 +142,16 @@ static void main_process()
 
         // Questions of type other than 'A' are silently responded with 'Server Failure'
 
-        if (request.questions[0].type == DNS_TYPE_A)
+        if (request.questions[0].type == DNS_TYPE_A && lastName != request.questions[0].qname)
         {
+            lastName = request.questions[0].qname;
             if (isBlocked)
-                log_message("[DENIED] %s asked for '%s'\n", source, request.questions[0].qname.c_str());
+                log_message("[DENIED] %s asked for '%s'\n", source, lastName.c_str());
             else
             if (address == 0)
-                log_message("         %s asked for '%s' [NXDOMAIN]\n", source, request.questions[0].qname.c_str());
+                log_message("         %s asked for '%s' [NXDOMAIN]\n", source, lastName.c_str());
             else
-                log_message("         %s asked for '%s' [%d.%d.%d.%d]\n", source, request.questions[0].qname.c_str(),
+                log_message("         %s asked for '%s' [%d.%d.%d.%d]\n", source, lastName.c_str(),
                     DNS_IP_O1(address),DNS_IP_O2(address), DNS_IP_O3(address), DNS_IP_O4(address));
         }
 
