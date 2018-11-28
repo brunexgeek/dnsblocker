@@ -8,9 +8,17 @@
 #include <poll.h>
 
 
+#define DNS_GET_OPCODE(x)     (uint8_t) (((x) >> 11) & 15)
+#define DNS_GET_RCODE(x)      (uint8_t) ((x) & 15)
+
+#define DNS_SET_OPCODE(x,v)   ( x = (uint16_t) ( x | ( (v) & 15 ) << 11) )
+#define DNS_SET_RCODE(x,v)    ( x = (uint16_t) ( x | ( (v) & 15 )) )
+
+
 dns_header_t::dns_header_t()
 {
-    id = fields = qdcount = ancount = nscount = arcount = 0;
+    id = flags = qdcount = ancount = nscount = arcount = 0;
+    opcode = rcode = 0;
 }
 
 dns_question_t::dns_question_t()
@@ -31,125 +39,117 @@ dns_record_t::dns_record_t()
     ttl = 0;
 }
 
-static void decodeHeader(
-    BufferIO &bio,
-    dns_header_t &header )
+void dns_header_t::read(
+    BufferIO &bio )
 {
-    header.id = bio.readU16();
-    header.fields = bio.readU16();
-    header.qdcount = bio.readU16();
-    header.ancount = bio.readU16();
-    header.nscount = bio.readU16();
-    header.arcount = bio.readU16();
+    uint16_t temp;
+
+    id = bio.readU16();
+    flags = bio.readU16();
+    opcode = DNS_GET_OPCODE(flags);
+    rcode = DNS_GET_RCODE(flags);
+    qdcount = bio.readU16();
+    ancount = bio.readU16();
+    nscount = bio.readU16();
+    arcount = bio.readU16();
 }
 
 
-static void decodeQuestions(
-    BufferIO &bio,
-    int count,
-    std::vector<dns_question_t> &output )
+void dns_header_t::write(
+    BufferIO &bio )
 {
-    output.resize(count);
+    DNS_SET_OPCODE(flags, opcode);
+    DNS_SET_RCODE(flags, rcode);
 
-    for (auto it = output.begin(); it != output.end(); ++it)
-    {
-        it->qname = bio.readQName();
-        it->type = bio.readU16();
-        it->clazz = bio.readU16();
-    }
+    bio.writeU16(id);
+    bio.writeU16(flags);
+    bio.writeU16(qdcount);
+    bio.writeU16(ancount);
+    bio.writeU16(nscount);
+    bio.writeU16(arcount);
 }
 
 
-static void decodeAnswers(
-    BufferIO &bio,
-    int count,
-    std::vector<dns_record_t> &output )
+void dns_question_t::read(
+    BufferIO &bio )
 {
-    output.resize(count);
+    qname = bio.readQName();
+    type = bio.readU16();
+    clazz = bio.readU16();
+}
 
-    for (auto it = output.begin(); it != output.end(); ++it)
-    {
-        it->qname = bio.readQName();
-        it->type = bio.readU16();
-        it->clazz = bio.readU16();
-        it->ttl = bio.readU32();
-        uint16_t rdlen = bio.readU16();
-        //log_message("%s %d %d %d %d\n", it->qname.c_str(), it->type, it->clazz, it->ttl, rdlen);
-        it->rdata = 0;
-        if (rdlen == 4)
-            it->rdata = bio.readU32();
-        else
-            bio.skip(rdlen);
-    }
+void dns_question_t::write(
+    BufferIO &bio )
+{
+    bio.writeQName(qname);
+    bio.writeU16(type);
+    bio.writeU16(clazz);
 }
 
 
-void dns_decode(
-    BufferIO &bio,
-    dns_message_t &message )
+void dns_message_t::read(
+    BufferIO &bio )
 {
-    message.questions.clear();
-    message.answers.clear();
+    questions.clear();
+    answers.clear();
+    authority.clear();
+    additional.clear();
 
-    decodeHeader(bio, message.header);
-    decodeQuestions(bio, message.header.qdcount, message.questions);
-    decodeAnswers(bio, message.header.ancount, message.answers);
+    // read the message header
+    header.read(bio);
+    header.nscount = 0;
+    header.arcount = 0;
+    // read the questions
+    questions.resize(header.qdcount);
+    for (auto it = questions.begin(); it != questions.end(); ++it) it->read(bio);
+    // read the answer records
+    answers.resize(header.ancount);
+    for (auto it = answers.begin(); it != answers.end(); ++it) it->read(bio);
 }
 
 
-static void encodeHeader(
-    BufferIO &bio,
-    dns_header_t &header )
+void dns_message_t::write(
+    BufferIO &bio )
 {
-    bio.writeU16(header.id);
-    bio.writeU16(header.fields);
-    bio.writeU16(header.qdcount);
-    bio.writeU16(header.ancount);
-    bio.writeU16(header.nscount);
-    bio.writeU16(header.arcount);
+    header.qdcount = (uint16_t) questions.size();
+    header.ancount = (uint16_t) answers.size();
+    header.nscount = 0;
+    header.arcount = 0;
+
+    // write the header
+    header.write(bio);
+    // write the questions
+    for (auto it = questions.begin(); it != questions.end(); ++it) it->write(bio);
+    // write the answer records
+    for (auto it = answers.begin(); it != answers.end(); ++it) it->write(bio);
 }
 
 
-static void encodeQuestions(
-    BufferIO &bio,
-    const std::vector<dns_question_t> &input )
+void dns_record_t::write(
+    BufferIO &bio )
 {
-    for (auto it = input.begin(); it != input.end(); ++it)
-    {
-        bio.writeQName(it->qname);
-        bio.writeU16(it->type);
-        bio.writeU16(it->clazz);
-    }
+    bio.writeQName(qname);
+    bio.writeU16(type);
+    bio.writeU16(clazz);
+    bio.writeU32(ttl);
+    bio.writeU16(4);
+    bio.writeU32(rdata);
 }
 
-
-static void encodeRecords(
-    BufferIO &bio,
-    const std::vector<dns_record_t> &input )
+void dns_record_t::read(
+    BufferIO &bio )
 {
-    for (auto it = input.begin(); it != input.end(); ++it)
-    {
-        bio.writeQName(it->qname);
-        bio.writeU16(it->type);
-        bio.writeU16(it->clazz);
-        bio.writeU32(it->ttl);
-        bio.writeU16(4);
-        bio.writeU32(it->rdata);
-    }
-}
-
-void dns_encode(
-    BufferIO &bio,
-    dns_message_t &message )
-{
-    message.header.qdcount = (uint16_t) message.questions.size();
-    message.header.ancount = (uint16_t) message.answers.size();
-    message.header.nscount = 0;
-    message.header.arcount = 0;
-
-    encodeHeader(bio, message.header);
-    encodeQuestions(bio, message.questions);
-    encodeRecords(bio, message.answers);
+    qname = bio.readQName();
+    type = bio.readU16();
+    clazz = bio.readU16();
+    ttl = bio.readU32();
+    uint16_t rdlen = bio.readU16();
+    //log_message("%s %d %d %d %d\n", it->qname.c_str(), it->type, it->clazz, it->ttl, rdlen);
+    rdata = 0;
+    if (rdlen == 4)
+        rdata = bio.readU32();
+    else
+        bio.skip(rdlen);
 }
 
 
@@ -170,7 +170,7 @@ bool dns_recursive(
     // build the query message
     dns_message_t message;
     message.header.id = ++lastId;
-    DNS_SET_RD(message.header.fields);
+    message.header.flags |= DNS_FLAG_RD;
     dns_question_t question;
     question.qname = host;
     question.type = DNS_TYPE_A;
@@ -178,7 +178,7 @@ bool dns_recursive(
     message.questions.push_back(question);
     // encode the message
     BufferIO bio(DNS_BUFFER_SIZE);
-    dns_encode(bio, message);
+    message.write(bio);
 //log_message("Message encoded in %d bytes \n", bio.cursor());
     static int socketfd = 0;
     if (socketfd == 0) socketfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -207,9 +207,9 @@ bool dns_recursive(
     if (poll(&pfd, 1, 500) > 0)
         log_message("There's pending data!");
     // decode the response
-    dns_decode(bio, message);
+    message.read(bio);
     // use the first 'type A' answer
-    if (DNS_GET_RCODE(message.header.fields) == 0 && message.answers.size() > 0)
+    if (message.header.rcode == 0 && message.answers.size() > 0)
     {
         for (auto it = message.answers.begin(); it != message.answers.end(); ++it)
             if (it->type == DNS_TYPE_A) *output = it->rdata;

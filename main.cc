@@ -122,7 +122,7 @@ static void main_process()
 
         BufferIO bio(buffer, 0, nbytes);
         dns_message_t request;
-        dns_decode(bio, request);
+        request.read(bio);
 
         char source[INET6_ADDRSTRLEN + 1];
         inet_ntop(clientAddress.sin_family, get_in_addr((struct sockaddr *)&clientAddress), source, INET6_ADDRSTRLEN);
@@ -157,13 +157,13 @@ static void main_process()
         bio = BufferIO(buffer, 0, DNS_BUFFER_SIZE);
         dns_message_t response;
         response.header.id = request.header.id;
-        DNS_SET_QR(response.header.fields);
+        response.header.flags |= DNS_FLAG_QR;
         // copy the request question
         response.questions.push_back(request.questions[0]);
         // decide whether we have to include an answer
         if (request.questions[0].type != DNS_TYPE_A || (!isBlocked && address == 0))
         {
-            DNS_SET_RCODE(response.header.fields, 2); // Server Failure
+            response.header.rcode = 2; // Server Failure
         }
         // TODO: send 'NXDomain' when address == 0 and is not blocked
         else
@@ -178,7 +178,7 @@ static void main_process()
             response.answers.push_back(answer);
         }
 
-        dns_encode(bio, response);
+        response.write(bio);
         sendto(socketfd, bio.buffer, bio.cursor(), 0, (struct sockaddr *) &clientAddress, addrLen);
     }
 }
