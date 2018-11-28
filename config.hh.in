@@ -17,6 +17,7 @@
 #define ENABLE_DAEMON
 
 #define LOG_FILENAME           "/var/log/dnsblocker.log"
+#define LOG_CACHE_DUMP         "/var/log/dnscache.log"
 #define CONFIG_FILENAME        "/etc/dnsblocker.conf"
 
 #endif // DNSB_CONFIG_HH

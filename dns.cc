@@ -247,10 +247,12 @@ void dns_cleanup()
     uint32_t currentTime = dns_time();
     size_t count = cache.size();
 
-    for (auto it = cache.begin(); it != cache.end(); ++it)
+    for (auto it = cache.begin(); it != cache.end();)
     {
         if (currentTime <= it->second.timestamp + (DNS_CACHE_TTL / 2))
             it = cache.erase(it);
+        else
+             ++it;
     }
 
     log_message("Removed %d cache entries from %d\n", count - cache.size(), count);
@@ -297,16 +299,23 @@ bool dns_cache(
 
 void dns_dump()
 {
-    FILE *output = fopen("/var/log/dnscache.log", "wt");
+    FILE *output = fopen(LOG_CACHE_DUMP, "wt");
     if (output != nullptr)
     {
         char ipv4[16];
         uint32_t now = dns_time();
-        for (auto it = cache.begin(); it != cache.end(); ++it)
+        for (auto it = cache.begin(); it != cache.end();)
         {
             uint32_t rt = 0;
             if (now <= it->second.timestamp + DNS_CACHE_TTL)
                 rt = (it->second.timestamp + DNS_CACHE_TTL) - now;
+
+            if (rt == 0)
+            {
+                // we use the opportunity to remove expired entries
+                it = cache.erase(it);
+                continue;
+            }
 
             sprintf(ipv4, "%d.%d.%d.%d",
                 DNS_IP_O1(it->second.address),
@@ -317,6 +326,8 @@ void dns_dump()
                 ipv4,
                 rt,
                 it->first.c_str());
+
+            ++it;
         }
         fclose(output);
     }
@@ -325,7 +336,6 @@ void dns_dump()
 
 void dns_cacheInfo()
 {
-    log_message("Cache entries: %d\n", cache.size());
     dns_dump();
 }
 

@@ -136,7 +136,7 @@ static void main_process()
         if (!isBlocked && request.questions[0].type == DNS_TYPE_A)
         {
             if (!dns_cache(request.questions[0].qname, &address))
-                log_message("Unable to get IP address '%s' from cache", request.questions[0].qname.c_str());
+                log_message("Unable to get IP address '%s' from cache\n", request.questions[0].qname.c_str());
         }
         #endif
 
