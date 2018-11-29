@@ -3,7 +3,7 @@ project(dnsblocker)
 cmake_minimum_required(VERSION 2.8)
 
 set(DNSB_MAJOR_VERSION 0)
-set(DNSB_MINOR_VERSION 5)
+set(DNSB_MINOR_VERSION 6)
 set(DNSB_PATCH_VERSION 0)
 
 set(LIBRARY_TYPE "SHARED" CACHE STRING "Specify the type of binary to be generated")
@@ -72,6 +72,7 @@ add_executable(dnsblocker
     "${CMAKE_CURRENT_LIST_DIR}/main.cc"
     "${CMAKE_CURRENT_LIST_DIR}/nodes.cc"
     "${CMAKE_CURRENT_LIST_DIR}/log.cc"
+    "${CMAKE_CURRENT_LIST_DIR}/buffer.cc"
     "${CMAKE_CURRENT_LIST_DIR}/dns.cc")
 target_compile_definitions(dnsblocker PRIVATE _DEFAULT_SOURCE)
 set_target_properties(dnsblocker PROPERTIES

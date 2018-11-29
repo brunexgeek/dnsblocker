@@ -6,19 +6,18 @@
 
 FILE *LOG_FILE = nullptr;
 
-bool log_initialize()
+bool log_initialize( bool toFile )
 {
-    #ifdef ENABLE_DAEMON
-
-    LOG_FILE = fopen(LOG_FILENAME, "wt");
-    return (LOG_FILE != nullptr);
-
-    #else
-
-    LOG_FILE = stdout;
-    return true;
-
-    #endif
+    if (toFile)
+    {
+        LOG_FILE = fopen(LOG_FILENAME, "wt");
+        return (LOG_FILE != nullptr);
+    }
+    else
+    {
+        LOG_FILE = stdout;
+        return true;
+    }
 }
 
 void log_terminate()

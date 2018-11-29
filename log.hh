@@ -5,7 +5,7 @@
 #include <stdio.h>
 
 
-bool log_initialize();
+bool log_initialize( bool toFile = true );
 
 void log_terminate();
 

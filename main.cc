@@ -22,8 +22,12 @@ static int socketfd = 0;
 static struct
 {
     std::string rulesFileName;
+    std::string externalDNS;
+    std::string bindAddress;
+    int port = 53;
     Node *root = nullptr;
     int signal = 0;
+    bool deamonize = false;
 } context;
 
 
@@ -42,23 +46,33 @@ static const char* getType( uint16_t type )
 }
 
 
-static bool main_initialize( const std::string &host, int port = 53 )
+static bool main_initialize()
 {
-    if (host.empty() || port < 0 || port > 65535) return false;
+    if (context.port < 0 || context.port > 65535) return false;
 
     socketfd = socket(AF_INET, SOCK_DGRAM, 0);
 
     struct sockaddr_in address;
     address.sin_family = AF_INET;
-    inet_pton(AF_INET, host.c_str(), &address.sin_addr);
-    address.sin_port = htons( (uint16_t) port);
+    if (context.bindAddress.empty())
+        address.sin_addr.s_addr = INADDR_ANY;
+    else
+        inet_pton(AF_INET, context.bindAddress.c_str(), &address.sin_addr);
+    address.sin_port = htons( (uint16_t) context.port);
 
     int rbind = bind(socketfd, (struct sockaddr *) & address, sizeof(struct sockaddr_in));
     if (rbind != 0)
     {
-        log_message("Unable to bind: %s", strerror(errno));
+        log_message("Unable to bind to %s: %s\n", context.bindAddress.c_str(), strerror(errno));
+        close(socketfd);
+        socketfd = 0;
         return false;
     }
+
+    log_message("     Address: %s\n        Port: %d\nExternal DNS: %s\n\n",
+        context.bindAddress.c_str(),
+        context.port,
+        context.externalDNS.c_str());
 
     return true;
 }
@@ -67,6 +81,7 @@ static bool main_initialize( const std::string &host, int port = 53 )
 static int main_terminate()
 {
     if (socketfd != 0) close(socketfd);
+    socketfd = 0;
     return 0;
 }
 
@@ -91,7 +106,7 @@ bool main_loadRules()
     if (root == nullptr || !Node::load(context.rulesFileName, *root)) return false;
 
     log_message("Generated tree with %d nodes\n", Node::count());
-    log_message("Using %2.3f KiB of memory to store the tree\n", (float) Node::allocated / 1024.0F);
+    log_message("Using %2.3f KiB of memory to store the tree\n\n", (float) Node::allocated / 1024.0F);
 
     if (context.root != nullptr) delete context.root;
     context.root = root;
@@ -222,64 +237,102 @@ static std::string main_realPath( const char *path )
 }
 
 
+void main_usage()
+{
+    std::cout << "Usage: ./dnsblocker -r <rules> -x <ipv4> [ -b <ipv4> -p <port> -d ]\n";
+    exit(EXIT_FAILURE);
+}
+
+
+void main_error( const std::string &message )
+{
+    std::cerr << "ERROR: " << message << std::endl;
+    exit(EXIT_FAILURE);
+}
+
+void main_parseArguments(
+    int argc,
+    char **argv )
+{
+    int c;
+    while ((c = getopt (argc, argv, "r:x:b:p:d")) != -1)
+    {
+        switch (c)
+        {
+        case 'r':
+            context.rulesFileName = optarg;
+            break;
+        case 'x':
+            context.externalDNS = optarg;
+            break;
+        case 'b':
+            context.bindAddress = optarg;
+            break;
+        case 'p':
+            context.port = atoi(optarg);
+            break;
+        case 'd':
+            context.deamonize = true;
+            break;
+        case '?':
+        default:
+            main_usage();
+        }
+    }
+
+    if (context.rulesFileName.empty())
+        main_error("missing rules");
+    if (context.externalDNS.empty())
+        main_error("missing extern DNS address");
+}
+
+
 int main( int argc, char** argv )
 {
     int result = 0;
 
-    if (argc != 4)
-    {
-        printf("DNS Blocker %d.%d.%d\n", MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION);
-        printf("Usage: ./dnsblocker <host> <port> <rules>\n");
-        return 1;
-    }
+    main_parseArguments(argc, argv);
 
-    #ifdef ENABLE_DAEMON
-    daemonize();
-    #endif
-    if (!log_initialize()) exit(EXIT_FAILURE);
+    if (context.deamonize) daemonize();
+    if (!log_initialize(context.deamonize)) exit(EXIT_FAILURE);
 
-    log_message("DNS Blocker %d.%d.%d started\n", MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION);
+    log_message("DNS Blocker %d.%d.%d\n", MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION);
 
     // get the absolute path of the input file
-    context.rulesFileName = main_realPath(argv[3]);
+    context.rulesFileName = main_realPath(context.rulesFileName.c_str());
     if (context.rulesFileName.empty())
     {
-        log_message("Invalid rules file '%s'\n", argv[3]);
+        log_message("Invalid rules file '%s'\n", context.rulesFileName);
         result = 1;
         goto ESCAPE;
     }
 
-    if (main_loadRules())
+    // install the signal handler to stop the server with CTRL + C
+    struct sigaction act;
+    sigemptyset(&act.sa_mask);
+    sigaddset(&act.sa_mask, SIGUSR2);
+    sigaddset(&act.sa_mask, SIGUSR1);
+    sigaddset(&act.sa_mask, SIGINT);
+    act.sa_flags = 0;
+    act.sa_handler = main_signalHandler;
+    sigaction(SIGUSR2, &act, NULL);
+    sigaction(SIGUSR1, &act, NULL);
+    sigaction(SIGINT, &act, NULL);
+
+    if (main_initialize())
     {
-        /*std::cerr << "digraph Nodes { " << std::endl;
-        root.print(std::cerr);
-        std::cerr << "}" << std::endl;
-        return 0;*/
-
-        // install the signal handler to stop the server with CTRL + C
-        struct sigaction act;
-        sigemptyset(&act.sa_mask);
-        sigaddset(&act.sa_mask, SIGUSR2);
-        sigaddset(&act.sa_mask, SIGUSR1);
-        sigaddset(&act.sa_mask, SIGINT);
-        act.sa_flags = 0;
-        act.sa_handler = main_signalHandler;
-        sigaction(SIGUSR2, &act, NULL);
-        sigaction(SIGUSR1, &act, NULL);
-        sigaction(SIGINT, &act, NULL);
-
-        if (main_initialize( argv[1], atoi(argv[2]) ))
+        if (main_loadRules())
         {
             main_process();
-            main_terminate();
+            delete context.root;
         }
-        delete context.root;
+        else
+            log_message("Unable to load rules from '%s'\n", context.rulesFileName);
+        main_terminate();
     }
-    else
-        log_message("Unable to load rules\n");
 
 ESCAPE:
-    log_message("DNS Blocker terminated\n");
+    log_message("\nTerminated\n");
     log_terminate();
 
     return result;
