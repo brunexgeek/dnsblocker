@@ -38,6 +38,8 @@ static struct
     int signal = 0;
     bool deamonize = false;
     std::string logPath;
+    std::string dumpPath;
+    DNSCache *cache = nullptr;
 } context;
 
 
@@ -91,12 +93,15 @@ static bool main_initialize()
         return false;
     }
 
+    context.cache = new DNSCache();
+
     return true;
 }
 
 
 static int main_terminate()
 {
+    delete context.cache;
     if (socketfd != 0) close(socketfd);
     socketfd = 0;
     return 0;
@@ -179,7 +184,7 @@ static void main_control( const std::string &command )
     if (command == "dump@dnsblocker")
     {
         log_message("\nDumping DNS cache to '%s'\n\n", LOG_CACHE_DUMP);
-        dns_cacheInfo();
+        context.cache->dump(context.dumpPath);
     }
 }
 #endif
@@ -234,12 +239,18 @@ static void main_process()
 
         // if the domain is not blocked, we retrieve the IP address from the cache
         if (!isBlocked)
-            result = dns_cache(request.questions[0].qname, &address);
+        {
+            // assume NXDOMAIN for domains without periods (e.g. local host names)
+            // otherwise we try the external DNS
+            if (request.questions[0].qname.find('.') == std::string::npos)
+                result = DNSB_STATUS_NXDOMAIN;
+            else
+                result = context.cache->resolve(request.questions[0].qname, &address);
+        }
         else
-            address = BLOCK_ADDRESS;
+            address = DNS_BLOCKED_ADDRESS;
 
-        // Questions of type other than 'A' are silently responded with 'Server Failure'
-
+        // print some information about the request
         if (lastName != request.questions[0].qname)
         {
             const char *status = "DE";
@@ -397,6 +408,11 @@ void main_parseArguments(
             context.logPath = main_realPath(context.logPath.c_str());
             context.logPath += '/';
             context.logPath += LOG_FILENAME;
+
+            context.dumpPath = optarg;
+            context.dumpPath = main_realPath(context.logPath.c_str());
+            context.dumpPath += '/';
+            context.dumpPath += LOG_CACHE_DUMP;
             break;
         case '?':
         default:

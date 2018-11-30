@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
+#include <unordered_map>
 #include "config.hh"
 #include "log.hh"
 #include "buffer.hh"
@@ -24,20 +25,18 @@
 #define DNS_IP_O3(x)          (((x) & 0x0000FF00) >> 8)
 #define DNS_IP_O4(x)          ((x) & 0x000000FF)
 
-static const uint16_t DNS_TYPE_A      = 1;
-static const uint16_t DNS_TYPE_NS     = 2;
-static const uint16_t DNS_TYPE_CNAME  = 5;
-static const uint16_t DNS_TYPE_PTR    = 12;
-static const uint16_t DNS_TYPE_MX     = 15;
-static const uint16_t DNS_TYPE_TXT    = 16;
-static const uint16_t DNS_TYPE_AAAA   = 28;
-
+#define DNS_TYPE_A            (uint16_t) 1
+#define DNS_TYPE_NS           (uint16_t) 2
+#define DNS_TYPE_CNAME        (uint16_t) 5
+#define DNS_TYPE_PTR          (uint16_t) 12
+#define DNS_TYPE_MX           (uint16_t) 15
+#define DNS_TYPE_TXT          (uint16_t) 16
+#define DNS_TYPE_AAAA         (uint16_t) 28
 
 #define DNSB_STATUS_CACHE        1
 #define DNSB_STATUS_RECURSIVE    2
 #define DNSB_STATUS_NXDOMAIN     3
 #define DNSB_STATUS_FAILURE      4
-
 
 #define DNS_RCODE_NOERROR        0
 #define DNS_RCODE_SERVFAIL       2
@@ -99,16 +98,41 @@ struct dns_message_t
     void write( BufferIO &bio );
 };
 
+struct dns_cache_t
+{
+    uint32_t timestamp;
+    uint32_t address;
+};
 
-int dns_cache(
-    const std::string &host,
-    uint32_t *address );
+struct DNSCache
+{
+    public:
+        DNSCache(
+            int size = DNS_CACHE_LIMIT,
+            int ttl = DNS_CACHE_TTL,
+            uint32_t dnsAddress = DNS_EXTERNAL );
 
-int dns_recursive(
-    const std::string &host,
-    uint32_t *address );
+        ~DNSCache();
 
-void dns_cacheInfo();
+        int resolve(
+            const std::string &host,
+            uint32_t *address );
+
+        void dump( const std::string &path );
+
+        void cleanup();
+
+    private:
+        int socketfd;
+        int size;
+        int ttl;
+        uint32_t dnsAddress;
+        std::unordered_map<std::string, dns_cache_t> cache;
+
+        int recursive(
+            const std::string &host,
+            uint32_t *address );
+};
 
 
 #endif

@@ -154,9 +154,25 @@ void dns_record_t::read(
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <string.h>
+#include <unistd.h>
 
 
-int dns_recursive(
+DNSCache::DNSCache(
+    int size ,
+    int ttl ,
+    uint32_t dnsAddress ) : size(size), ttl(ttl), dnsAddress(dnsAddress)
+{
+    socketfd = socket(AF_INET, SOCK_DGRAM, 0);
+}
+
+
+DNSCache::~DNSCache()
+{
+    if (socketfd > 0) close(socketfd);
+}
+
+
+int DNSCache::recursive(
     const std::string &host,
     uint32_t *output )
 {
@@ -177,14 +193,12 @@ int dns_recursive(
     BufferIO bio(DNS_BUFFER_SIZE);
     message.write(bio);
 //log_message("Message encoded in %d bytes \n", bio.cursor());
-    static int socketfd = 0;
-    if (socketfd == 0) socketfd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (socketfd < 0) return DNSB_STATUS_FAILURE;
+
 //log_message("-- message encoded\n");
     // send the query to the recursive DNS
     struct sockaddr_in address;
     address.sin_family = AF_INET;
-    address.sin_addr.s_addr = ntohl(RECURSIVE_DNS);
+    address.sin_addr.s_addr = ntohl(dnsAddress);
     address.sin_port = htons(53);
     ssize_t nbytes = sendto(socketfd, bio.buffer, bio.cursor(), 0, (struct sockaddr *) &address, sizeof(address));
     if (nbytes < 0) return DNSB_STATUS_FAILURE;
@@ -232,16 +246,8 @@ static uint32_t dns_time()
     return (uint32_t) std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - startTime).count();
 }
 
-struct dns_cache_t
-{
-    uint32_t timestamp;
-    uint32_t address;
-};
 
-static std::unordered_map<std::string, dns_cache_t> cache;
-
-
-void dns_cleanup()
+void DNSCache::cleanup()
 {
     uint32_t currentTime = dns_time();
     size_t count = cache.size();
@@ -258,11 +264,11 @@ void dns_cleanup()
 }
 
 
-int dns_cache(
+int DNSCache::resolve(
     const std::string &host,
     uint32_t *output )
 {
-    if (cache.size() > DNS_CACHE_LIMIT) dns_cleanup();
+    if (cache.size() > DNS_CACHE_LIMIT) cleanup();
 
     uint32_t currentTime = dns_time();
     *output = 0;
@@ -282,7 +288,7 @@ int dns_cache(
         //log_message("-- cache expired\n");
     }
 
-    int result = dns_recursive(host, output);
+    int result = recursive(host, output);
     if (result != DNSB_STATUS_RECURSIVE) return result;
 
     if (*output != 0)
@@ -297,9 +303,9 @@ int dns_cache(
 }
 
 
-void dns_dump()
+void DNSCache::dump( const std::string &path )
 {
-    FILE *output = fopen(LOG_CACHE_DUMP, "wt");
+    FILE *output = fopen(path.c_str(), "wt");
     if (output != nullptr)
     {
         char ipv4[16];
@@ -333,9 +339,4 @@ void dns_dump()
     }
 }
 
-
-void dns_cacheInfo()
-{
-    dns_dump();
-}
 
