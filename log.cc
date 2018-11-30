@@ -2,28 +2,31 @@
 #include "config.hh"
 #include <time.h>
 #include <stdarg.h>
+#include <limits.h>
+#include <cstdlib>
+#include <string>
 
 
 static FILE *LOG_FILE = nullptr;
 
-bool log_initialize( bool toFile )
+bool log_initialize( const char *path )
 {
-    if (toFile)
-    {
-        LOG_FILE = fopen(LOG_FILENAME, "wt");
-        return (LOG_FILE != nullptr);
-    }
-    else
+    if (path == nullptr || path[0] == 0)
     {
         LOG_FILE = stdout;
         return true;
+    }
+    else
+    {
+        LOG_FILE = fopen(path, "wt");
+        return (LOG_FILE != nullptr);
     }
 }
 
 void log_terminate()
 {
     #ifdef ENABLE_DAEMON
-    fclose(LOG_FILE);
+    if (LOG_FILE != nullptr) fclose(LOG_FILE);
     #endif
 }
 
@@ -32,6 +35,8 @@ void log_message(
     const char *format,
     ... )
 {
+    if (LOG_FILE == nullptr) return;
+
     #ifdef ENABLE_TIMESTAMP
     time_t rawtime;
 	struct tm timeinfo;

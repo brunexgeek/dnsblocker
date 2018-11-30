@@ -37,6 +37,7 @@ static struct
     Node *root = nullptr;
     int signal = 0;
     bool deamonize = false;
+    std::string logPath;
 } context;
 
 
@@ -169,6 +170,7 @@ static bool main_returnError(
 }
 
 
+#ifdef ENABLE_DNS_CONSOLE
 static void main_control( const std::string &command )
 {
     if (command == "reload@dnsblocker")
@@ -180,6 +182,7 @@ static void main_control( const std::string &command )
         dns_cacheInfo();
     }
 }
+#endif
 
 
 static void main_process()
@@ -194,7 +197,7 @@ static void main_process()
         if (context.signal != 0)
         {
             log_message("Received signal %d\n", context.signal);
-            //if (context.signal == SIGUSR1) main_loadRules();
+            if (context.signal == SIGUSR1) main_loadRules();
             if (context.signal == SIGINT) break;
             //if (context.signal == SIGUSR2) dns_cacheInfo();
             context.signal = 0;
@@ -202,7 +205,7 @@ static void main_process()
 
         // receive the UDP message
         BufferIO bio(buffer, 0, DNS_BUFFER_SIZE);
-        main_receive(endpoint, bio);
+        if (!main_receive(endpoint, bio)) continue;
         // parse the message
         dns_message_t request;
         request.read(bio);
@@ -213,6 +216,7 @@ static void main_process()
             continue;
         }
 
+        #ifdef ENABLE_DNS_CONSOLE
         // check whether the message carry a remote command
         if (context.bindIPv4 == endpoint.address.sin_addr.s_addr &&
             request.questions[0].qname.find("@dnsblocker") != std::string::npos)
@@ -221,6 +225,7 @@ static void main_process()
             main_returnError(request, DNS_RCODE_NOERROR, endpoint);
             continue;
         }
+        #endif
 
         // check whether the domain is blocked
         bool isBlocked = context.root->match(request.questions[0].qname);
@@ -368,7 +373,7 @@ void main_parseArguments(
     char **argv )
 {
     int c;
-    while ((c = getopt (argc, argv, "r:x:b:p:d")) != -1)
+    while ((c = getopt (argc, argv, "r:x:b:p:dl:")) != -1)
     {
         switch (c)
         {
@@ -386,6 +391,12 @@ void main_parseArguments(
             break;
         case 'd':
             context.deamonize = true;
+            break;
+        case 'l':
+            context.logPath = optarg;
+            context.logPath = main_realPath(context.logPath.c_str());
+            context.logPath += '/';
+            context.logPath += LOG_FILENAME;
             break;
         case '?':
         default:
@@ -407,7 +418,8 @@ int main( int argc, char** argv )
     main_parseArguments(argc, argv);
 
     if (context.deamonize) daemonize();
-    if (!log_initialize(context.deamonize)) exit(EXIT_FAILURE);
+    if ( !log_initialize( context.logPath.c_str()) )
+        exit(EXIT_FAILURE);
 
     log_message("DNS Blocker %d.%d.%d\n", MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION);
 

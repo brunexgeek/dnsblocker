@@ -3,9 +3,10 @@
 
 
 #include <stdio.h>
+#include <string>
 
 
-bool log_initialize( bool toFile = true );
+bool log_initialize( const char *path );
 
 void log_terminate();
 
