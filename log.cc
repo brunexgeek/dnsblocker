@@ -11,7 +11,6 @@ bool log_initialize( bool toFile )
     if (toFile)
     {
         LOG_FILE = fopen(LOG_FILENAME, "wt");
-        if (LOG_FILE != nullptr) fprintf(LOG_FILE, "OK");
         return (LOG_FILE != nullptr);
     }
     else

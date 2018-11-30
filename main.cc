@@ -32,6 +32,7 @@ static struct
     std::string rulesFileName;
     std::string externalDNS;
     std::string bindAddress;
+    uint32_t bindIPv4;
     int port = 53;
     Node *root = nullptr;
     int signal = 0;
@@ -56,7 +57,7 @@ static const char* getType( uint16_t type )
 
 static bool main_initialize()
 {
-    log_message("     Address: %s\n        Port: %d\nExternal DNS: %s\n\n",
+    log_message("     Address: %s\n        Port: %d\nExternal DNS: %s\n",
         context.bindAddress.c_str(),
         context.port,
         context.externalDNS.c_str());
@@ -74,7 +75,10 @@ static bool main_initialize()
     if (context.bindAddress.empty())
         address.sin_addr.s_addr = INADDR_ANY;
     else
+    {
         inet_pton(AF_INET, context.bindAddress.c_str(), &address.sin_addr);
+        context.bindIPv4 = address.sin_addr.s_addr;
+    }
     address.sin_port = htons( (uint16_t) context.port);
 
     int rbind = bind(socketfd, (struct sockaddr *) & address, sizeof(struct sockaddr_in));
@@ -110,7 +114,7 @@ bool main_loadRules()
 {
     if (context.rulesFileName.empty()) return false;
 
-    log_message("Loading rules from '%s'\n", context.rulesFileName.c_str());
+    log_message("\nLoading rules from '%s'\n", context.rulesFileName.c_str());
 
     Node::counter = 0;
     Node::allocated = 0;
@@ -165,6 +169,19 @@ static bool main_returnError(
 }
 
 
+static void main_control( const std::string &command )
+{
+    if (command == "reload@dnsblocker")
+        main_loadRules();
+    else
+    if (command == "dump@dnsblocker")
+    {
+        log_message("\nDumping DNS cache to '%s'\n\n", LOG_CACHE_DUMP);
+        dns_cacheInfo();
+    }
+}
+
+
 static void main_process()
 {
     std::string lastName;
@@ -177,9 +194,9 @@ static void main_process()
         if (context.signal != 0)
         {
             log_message("Received signal %d\n", context.signal);
-            if (context.signal == SIGUSR1) main_loadRules();
+            //if (context.signal == SIGUSR1) main_loadRules();
             if (context.signal == SIGINT) break;
-            if (context.signal == SIGUSR2) dns_cacheInfo();
+            //if (context.signal == SIGUSR2) dns_cacheInfo();
             context.signal = 0;
         }
 
@@ -193,6 +210,15 @@ static void main_process()
         if (request.questions.size() != 1 || request.questions[0].type != DNS_TYPE_A)
         {
             main_returnError(request, DNS_RCODE_REFUSED, endpoint);
+            continue;
+        }
+
+        // check whether the message carry a remote command
+        if (context.bindIPv4 == endpoint.address.sin_addr.s_addr &&
+            request.questions[0].qname.find("@dnsblocker") != std::string::npos)
+        {
+            main_control(request.questions[0].qname);
+            main_returnError(request, DNS_RCODE_NOERROR, endpoint);
             continue;
         }
 
