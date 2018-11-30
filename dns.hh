@@ -1,3 +1,7 @@
+#ifndef DNSB_DNS_HH
+#define DNSB_DNS_HH
+
+
 #include <stdint.h>
 #include <string>
 #include <vector>
@@ -29,6 +33,16 @@ static const uint16_t DNS_TYPE_TXT    = 16;
 static const uint16_t DNS_TYPE_AAAA   = 28;
 
 
+#define DNSB_STATUS_CACHE        1
+#define DNSB_STATUS_RECURSIVE    2
+#define DNSB_STATUS_NXDOMAIN     3
+#define DNSB_STATUS_FAILURE      4
+
+
+#define DNS_RCODE_NOERROR        0
+#define DNS_RCODE_SERVFAIL       2
+#define DNS_RCODE_NXDOMAIN       3
+#define DNS_RCODE_REFUSED        5
 
 struct dns_header_t
 {
@@ -86,13 +100,11 @@ struct dns_message_t
 };
 
 
-#ifdef ENABLE_RECURSIVE_DNS
-
-bool dns_cache(
+int dns_cache(
     const std::string &host,
     uint32_t *address );
 
-bool dns_recursive(
+int dns_recursive(
     const std::string &host,
     uint32_t *address );
 

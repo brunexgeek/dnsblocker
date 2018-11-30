@@ -17,6 +17,14 @@
 #include "log.hh"
 
 
+struct Endpoint
+{
+    int socketfd;
+    struct sockaddr_in address;
+    socklen_t length = sizeof(struct sockaddr_in);
+};
+
+
 static int socketfd = 0;
 
 static struct
@@ -48,7 +56,16 @@ static const char* getType( uint16_t type )
 
 static bool main_initialize()
 {
-    if (context.port < 0 || context.port > 65535) return false;
+    log_message("     Address: %s\n        Port: %d\nExternal DNS: %s\n\n",
+        context.bindAddress.c_str(),
+        context.port,
+        context.externalDNS.c_str());
+
+    if (context.port < 0 || context.port > 65535)
+    {
+        log_message("Invalid port number %d\n", context.port);
+        return false;
+    }
 
     socketfd = socket(AF_INET, SOCK_DGRAM, 0);
 
@@ -68,11 +85,6 @@ static bool main_initialize()
         socketfd = 0;
         return false;
     }
-
-    log_message("     Address: %s\n        Port: %d\nExternal DNS: %s\n\n",
-        context.bindAddress.c_str(),
-        context.port,
-        context.externalDNS.c_str());
 
     return true;
 }
@@ -115,12 +127,50 @@ bool main_loadRules()
 }
 
 
+static bool main_send(
+    Endpoint &endpoint,
+    BufferIO &bio )
+{
+    int result = (int) sendto(endpoint.socketfd, bio.buffer, bio.cursor(), 0,
+        (struct sockaddr *) &endpoint.address, endpoint.length);
+    return result >= 0;
+}
+
+
+static bool main_receive(
+    Endpoint &endpoint,
+    BufferIO &bio )
+{
+    int result = (int) recvfrom(endpoint.socketfd, bio.buffer, bio.size, 0,
+        (struct sockaddr *) &endpoint.address, &endpoint.length);
+    if (result >= 0) bio.size = result;
+    return result >= 0;
+}
+
+
+static bool main_returnError(
+    dns_message_t &request,
+    int rcode,
+    Endpoint &endpoint )
+{
+    uint8_t buffer[DNS_BUFFER_SIZE] = { 0 };
+    BufferIO bio(buffer, 0, DNS_BUFFER_SIZE);
+    dns_message_t response;
+    response.header.id = request.header.id;
+    response.header.flags |= DNS_FLAG_QR;
+    response.questions.push_back(request.questions[0]);
+    response.header.rcode = (uint8_t) rcode;
+    response.write(bio);
+    return main_send(endpoint, bio);
+}
+
+
 static void main_process()
 {
     std::string lastName;
     uint8_t buffer[DNS_BUFFER_SIZE] = { 0 };
-    struct sockaddr_in clientAddress;
-    socklen_t addrLen = sizeof (struct sockaddr_in);
+    Endpoint endpoint;
+    endpoint.socketfd = socketfd;
 
     while (true)
     {
@@ -133,59 +183,84 @@ static void main_process()
             context.signal = 0;
         }
 
-        int nbytes = (int) recvfrom(socketfd, buffer, DNS_BUFFER_SIZE, 0, (struct sockaddr *) &clientAddress, &addrLen);
-        if (nbytes <= 0) continue;
-
-        BufferIO bio(buffer, 0, nbytes);
+        // receive the UDP message
+        BufferIO bio(buffer, 0, DNS_BUFFER_SIZE);
+        main_receive(endpoint, bio);
+        // parse the message
         dns_message_t request;
         request.read(bio);
+        // ignore messages with the number of questions other than 1
+        if (request.questions.size() != 1 || request.questions[0].type != DNS_TYPE_A)
+        {
+            main_returnError(request, DNS_RCODE_REFUSED, endpoint);
+            continue;
+        }
 
-        char source[INET6_ADDRSTRLEN + 1];
-        inet_ntop(clientAddress.sin_family, get_in_addr((struct sockaddr *)&clientAddress), source, INET6_ADDRSTRLEN);
-
+        // check whether the domain is blocked
         bool isBlocked = context.root->match(request.questions[0].qname);
         uint32_t address = 0;
+        int result = 0;
 
-        #ifdef ENABLE_RECURSIVE_DNS
         // if the domain is not blocked, we retrieve the IP address from the cache
-        if (!isBlocked && request.questions[0].type == DNS_TYPE_A)
-        {
-            if (!dns_cache(request.questions[0].qname, &address))
-                log_message("Unable to get IP address '%s' from cache\n", request.questions[0].qname.c_str());
-        }
-        #endif
+        if (!isBlocked)
+            result = dns_cache(request.questions[0].qname, &address);
+        else
+            address = BLOCK_ADDRESS;
 
         // Questions of type other than 'A' are silently responded with 'Server Failure'
 
-        if (request.questions[0].type == DNS_TYPE_A && lastName != request.questions[0].qname)
+        if (lastName != request.questions[0].qname)
         {
+            const char *status = "DE";
+            if (result == DNSB_STATUS_CACHE)
+                status = "CA";
+            else
+            if (result == DNSB_STATUS_RECURSIVE)
+                status = "RE";
+            else
+            if (result == DNSB_STATUS_FAILURE)
+                status = "FA";
+            else
+            if (result == DNSB_STATUS_NXDOMAIN)
+                status = "NX";
+
+            // extract the source IPv4 address
+            char source[INET6_ADDRSTRLEN];
+            inet_ntop(endpoint.address.sin_family,
+                get_in_addr((struct sockaddr *)&endpoint.address), source, INET6_ADDRSTRLEN);
+
+            char resolution[INET_ADDRSTRLEN];
+            snprintf(resolution, INET_ADDRSTRLEN, "%d.%d.%d.%d",
+                DNS_IP_O1(address),
+                DNS_IP_O2(address),
+                DNS_IP_O3(address),
+                DNS_IP_O4(address));
+
             lastName = request.questions[0].qname;
-            if (isBlocked)
-                log_message("[DENIED] %s asked for '%s'\n", source, lastName.c_str());
-            else
-            if (address == 0)
-                log_message("         %s asked for '%s' [NXDOMAIN]\n", source, lastName.c_str());
-            else
-                log_message("         %s asked for '%s' [%d.%d.%d.%d]\n", source, lastName.c_str(),
-                    DNS_IP_O1(address),DNS_IP_O2(address), DNS_IP_O3(address), DNS_IP_O4(address));
+            log_message("%s  %-15s  %-15s  %s\n",
+                status,
+                source,
+                resolution,
+                lastName.c_str());
         }
 
-        // response message
-        bio = BufferIO(buffer, 0, DNS_BUFFER_SIZE);
-        dns_message_t response;
-        response.header.id = request.header.id;
-        response.header.flags |= DNS_FLAG_QR;
-        // copy the request question
-        response.questions.push_back(request.questions[0]);
         // decide whether we have to include an answer
-        if (request.questions[0].type != DNS_TYPE_A || (!isBlocked && address == 0))
+        if (!isBlocked && result != DNSB_STATUS_CACHE && result != DNSB_STATUS_RECURSIVE)
         {
-            response.header.rcode = 2; // Server Failure
+            if (result == DNSB_STATUS_NXDOMAIN)
+                main_returnError(request, DNS_RCODE_NXDOMAIN, endpoint);
+            else
+                main_returnError(request, DNS_RCODE_SERVFAIL, endpoint);
         }
-        // TODO: send 'NXDomain' when address == 0 and is not blocked
         else
         {
-            if (address == 0) address = BLOCK_ADDRESS;
+            // response message
+            bio = BufferIO(buffer, 0, DNS_BUFFER_SIZE);
+            dns_message_t response;
+            response.header.id = request.header.id;
+            response.header.flags |= DNS_FLAG_QR;
+            // copy the request question
+            response.questions.push_back(request.questions[0]);
             dns_record_t answer;
             answer.qname = request.questions[0].qname;
             answer.type = request.questions[0].type;
@@ -193,13 +268,15 @@ static void main_process()
             answer.ttl = DNS_ANSWER_TTL;
             answer.rdata = address;
             response.answers.push_back(answer);
-        }
 
-        response.write(bio);
-        sendto(socketfd, bio.buffer, bio.cursor(), 0, (struct sockaddr *) &clientAddress, addrLen);
+            response.write(bio);
+            //sendto(socketfd, bio.buffer, bio.cursor(), 0, (struct sockaddr *) &clientAddress, addrLen);
+            main_send(endpoint, bio);
+        }
     }
 }
 
+#include <sys/stat.h>
 
 static void daemonize()
 {
@@ -209,15 +286,24 @@ static void daemonize()
     pid = fork();
     if (pid < 0) exit(EXIT_FAILURE);
     if (pid > 0) exit(EXIT_SUCCESS);
+
+#if 0
     // turn the child process the session leader
     if (setsid() < 0) exit(EXIT_FAILURE);
-
+#endif
+    signal(SIGCHLD, SIG_IGN);
+    signal(SIGHUP, SIG_IGN);
+#if 0
     pid = fork();
     if (pid < 0) exit(EXIT_FAILURE);
     if (pid > 0) exit(EXIT_SUCCESS);
 
+    umask(0);
+    chdir("/");
+#endif
     // close opened file descriptors
     for (long x = sysconf(_SC_OPEN_MAX); x>=0; x--) close ( (int) x);
+
 }
 
 
@@ -231,6 +317,7 @@ static void main_signalHandler(
 
 static std::string main_realPath( const char *path )
 {
+    if (path == nullptr) return "";
     char temp[PATH_MAX];
     if (realpath(path, temp) == nullptr) return "";
     return temp;
@@ -283,7 +370,7 @@ void main_parseArguments(
     if (context.rulesFileName.empty())
         main_error("missing rules");
     if (context.externalDNS.empty())
-        main_error("missing extern DNS address");
+        main_error("missing external DNS address");
 }
 
 
@@ -302,7 +389,7 @@ int main( int argc, char** argv )
     context.rulesFileName = main_realPath(context.rulesFileName.c_str());
     if (context.rulesFileName.empty())
     {
-        log_message("Invalid rules file '%s'\n", context.rulesFileName);
+        log_message("Invalid rules file '%s'\n", context.rulesFileName.c_str());
         result = 1;
         goto ESCAPE;
     }
@@ -327,7 +414,7 @@ int main( int argc, char** argv )
             delete context.root;
         }
         else
-            log_message("Unable to load rules from '%s'\n", context.rulesFileName);
+            log_message("Unable to load rules from '%s'\n", context.rulesFileName.c_str());
         main_terminate();
     }
 

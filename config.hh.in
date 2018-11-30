@@ -6,7 +6,6 @@
 #define PATCH_VERSION @DNSB_PATCH_VERSION@
 
 #cmakedefine ENABLE_TIMESTAMP
-#cmakedefine ENABLE_RECURSIVE_DNS
 #define RECURSIVE_DNS                 0x08080404  // 8.8.4.4
 #define BLOCK_ADDRESS                 0x7F000002  // 127.0.0.2
 #define DNS_CACHE_TTL                 300 // 5 minutes
