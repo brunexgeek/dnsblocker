@@ -260,7 +260,8 @@ void DNSCache::cleanup()
              ++it;
     }
 
-    log_message("\nRemoved %d cache entries from %d\n\n", count - cache.size(), count);
+    if (count != cache.size())
+        log_message("\nCache: removed %d entries and kept %d entries\n\n", count - cache.size(), cache.size());
 }
 
 
@@ -308,6 +309,7 @@ void DNSCache::dump( const std::string &path )
     FILE *output = fopen(path.c_str(), "wt");
     if (output != nullptr)
     {
+        int removed = 0;
         char ipv4[16];
         uint32_t now = dns_time();
         for (auto it = cache.begin(); it != cache.end();)
@@ -320,6 +322,7 @@ void DNSCache::dump( const std::string &path )
             {
                 // we use the opportunity to remove expired entries
                 it = cache.erase(it);
+                ++removed;
                 continue;
             }
 
@@ -335,8 +338,13 @@ void DNSCache::dump( const std::string &path )
 
             ++it;
         }
+
+        if (removed > 0)
+            log_message("\nCache: removed %d entries and kept %d entries\n\n", removed, cache.size());
+
         fclose(output);
     }
+
 }
 
 
