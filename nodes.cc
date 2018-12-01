@@ -155,7 +155,9 @@ void Node::print( std::ostream &out )
 
 }
 
-bool Node::load( const std::string &fileName, Node &root )
+bool Node::load(
+    const std::string &fileName,
+    Node &root )
 {
     std::ifstream rules(fileName.c_str());
     if (rules.good())
@@ -173,9 +175,9 @@ bool Node::load( const std::string &fileName, Node &root )
             if (*ptr == '#') continue;
 
             if (root.add(line))
-                log_message("  Added '%s'\n", line.c_str());
+                LOG_MESSAGE("  Added '%s'\n", line.c_str());
             else
-                log_message("  Invalid rule '%s'\n", line.c_str());
+                LOG_MESSAGE("  Invalid rule '%s'\n", line.c_str());
         }
 
         rules.close();

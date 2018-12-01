@@ -31,7 +31,9 @@ struct Node
 
     void print( std::ostream &out );
 
-    static bool load( const std::string &fileName, Node &root );
+    static bool load(
+        const std::string &fileName,
+        Node &root );
 
     static int count();
 

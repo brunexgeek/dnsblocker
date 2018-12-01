@@ -4,12 +4,28 @@
 
 #include <stdio.h>
 #include <string>
+#include <mutex>
 
 
-bool log_initialize( const char *path );
+#define LOG_MESSAGE(...)    Log::instance->write(false, __VA_ARGS__)
+#define LOG_TIMED(...)      Log::instance->write(true, __VA_ARGS__)
 
-void log_terminate();
 
-void log_message( const char *format, ... );
+class Log
+{
+    public:
+        static Log *instance;
+
+        Log( const char *path );
+
+        ~Log();
+
+        void write( bool timed, const char *format, ... );
+
+    private:
+        FILE *output;
+        std::mutex mutex;
+};
+
 
 #endif // DNSB_LOG_HH

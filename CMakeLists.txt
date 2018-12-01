@@ -12,8 +12,6 @@ set_property(CACHE LIBRARY_TYPE PROPERTY STRINGS "STATIC" "SHARED")
 set(CMAKE_BUILD_TYPE "Release"  CACHE STRING  "Specify the build type")
 set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release")
 
-set(ENABLE_RECURSIVE_DNS false CACHE BOOLEAN "Enable resursive query using fallback DNS")
-set(ENABLE_TIMESTAMP true CACHE BOOLEAN "Enable timestamp in log entries")
 set(ENABLE_DNS_CONSOLE true CACHE BOOLEAN "Enable to manage the server using commands in DNS messages")
 
 if (UNIX)

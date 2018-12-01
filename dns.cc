@@ -261,7 +261,7 @@ void DNSCache::cleanup()
     }
 
     if (count != cache.size())
-        log_message("\nCache: removed %d entries and kept %d entries\n\n", count - cache.size(), cache.size());
+        LOG_MESSAGE("\nCache: removed %d entries and kept %d entries\n\n", count - cache.size(), cache.size());
 }
 
 
@@ -340,7 +340,7 @@ void DNSCache::dump( const std::string &path )
         }
 
         if (removed > 0)
-            log_message("\nCache: removed %d entries and kept %d entries\n\n", removed, cache.size());
+            LOG_MESSAGE("\nCache: removed %d entries and kept %d entries\n\n", removed, cache.size());
 
         fclose(output);
     }

@@ -15,6 +15,8 @@
 #include "dns.hh"
 #include "config.hh"
 #include "log.hh"
+#include <mutex>
+#include <condition_variable>
 
 
 struct Endpoint
@@ -40,6 +42,13 @@ static struct
     std::string logPath;
     std::string dumpPath;
     DNSCache *cache = nullptr;
+
+    struct
+    {
+        std::mutex mutex;
+        std::condition_variable cond;
+    } waiting;
+
 } context;
 
 
@@ -60,14 +69,14 @@ static const char* getType( uint16_t type )
 
 static bool main_initialize()
 {
-    log_message("     Address: %s\n        Port: %d\nExternal DNS: %s\n",
+    LOG_MESSAGE("     Address: %s\n        Port: %d\nExternal DNS: %s\n",
         context.bindAddress.c_str(),
         context.port,
         context.externalDNS.c_str());
 
     if (context.port < 0 || context.port > 65535)
     {
-        log_message("Invalid port number %d\n", context.port);
+        LOG_MESSAGE("Invalid port number %d\n", context.port);
         return false;
     }
 
@@ -87,7 +96,7 @@ static bool main_initialize()
     int rbind = bind(socketfd, (struct sockaddr *) & address, sizeof(struct sockaddr_in));
     if (rbind != 0)
     {
-        log_message("Unable to bind to %s: %s\n", context.bindAddress.c_str(), strerror(errno));
+        LOG_MESSAGE("Unable to bind to %s: %s\n", context.bindAddress.c_str(), strerror(errno));
         close(socketfd);
         socketfd = 0;
         return false;
@@ -120,15 +129,15 @@ bool main_loadRules()
 {
     if (context.rulesFileName.empty()) return false;
 
-    log_message("\nLoading rules from '%s'\n", context.rulesFileName.c_str());
+    LOG_MESSAGE("\nLoading rules from '%s'\n", context.rulesFileName.c_str());
 
     Node::counter = 0;
     Node::allocated = 0;
     Node *root = new(std::nothrow) Node();
     if (root == nullptr || !Node::load(context.rulesFileName, *root)) return false;
 
-    log_message("Generated tree with %d nodes\n", Node::count());
-    log_message("Using %2.3f KiB of memory to store the tree\n\n", (float) Node::allocated / 1024.0F);
+    LOG_MESSAGE("Generated tree with %d nodes\n", Node::count());
+    LOG_MESSAGE("Using %2.3f KiB of memory to store the tree\n\n", (float) Node::allocated / 1024.0F);
 
     if (context.root != nullptr) delete context.root;
     context.root = root;
@@ -183,7 +192,7 @@ static void main_control( const std::string &command )
     else
     if (command == "dump@dnsblocker")
     {
-        log_message("\nDumping DNS cache to '%s'\n\n", LOG_CACHE_DUMP);
+        LOG_MESSAGE("\nDumping DNS cache to '%s'\n\n", LOG_CACHE_DUMP);
         context.cache->dump(context.dumpPath);
     }
 }
@@ -201,7 +210,7 @@ static void main_process()
     {
         if (context.signal != 0)
         {
-            log_message("Received signal %d\n", context.signal);
+            LOG_MESSAGE("Received signal %d\n", context.signal);
             if (context.signal == SIGUSR1) main_loadRules();
             if (context.signal == SIGINT) break;
             //if (context.signal == SIGUSR2) dns_cacheInfo();
@@ -279,7 +288,7 @@ static void main_process()
                 DNS_IP_O4(address));
 
             lastName = request.questions[0].qname;
-            log_message("%s  %-15s  %-15s  %s\n",
+            LOG_TIMED("%s  %-15s  %-15s  %s\n",
                 status,
                 source,
                 resolution,
@@ -434,16 +443,15 @@ int main( int argc, char** argv )
     main_parseArguments(argc, argv);
 
     if (context.deamonize) daemonize();
-    if ( !log_initialize( context.logPath.c_str()) )
-        exit(EXIT_FAILURE);
+    Log::instance = new Log( context.logPath.c_str() );
 
-    log_message("DNS Blocker %d.%d.%d\n", MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION);
+    LOG_MESSAGE("DNS Blocker %d.%d.%d\n", MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION);
 
     // get the absolute path of the input file
     context.rulesFileName = main_realPath(context.rulesFileName.c_str());
     if (context.rulesFileName.empty())
     {
-        log_message("Invalid rules file '%s'\n", context.rulesFileName.c_str());
+        LOG_MESSAGE("Invalid rules file '%s'\n", context.rulesFileName.c_str());
         result = 1;
         goto ESCAPE;
     }
@@ -468,13 +476,14 @@ int main( int argc, char** argv )
             delete context.root;
         }
         else
-            log_message("Unable to load rules from '%s'\n", context.rulesFileName.c_str());
+            LOG_MESSAGE("Unable to load rules from '%s'\n", context.rulesFileName.c_str());
         main_terminate();
     }
 
 ESCAPE:
-    log_message("\nTerminated\n");
-    log_terminate();
+    LOG_MESSAGE("\nTerminated\n");
+
+    delete Log::instance;
 
     return result;
 }
