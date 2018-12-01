@@ -192,7 +192,7 @@ static void main_control( const std::string &command )
     else
     if (command == "dump@dnsblocker")
     {
-        LOG_MESSAGE("\nDumping DNS cache to '%s'\n\n", LOG_CACHE_DUMP);
+        LOG_MESSAGE("\nDumping DNS cache to '%s'\n\n", context.dumpPath.c_str());
         context.cache->dump(context.dumpPath);
     }
 }
@@ -413,13 +413,11 @@ void main_parseArguments(
             context.deamonize = true;
             break;
         case 'l':
-            context.logPath = optarg;
-            context.logPath = main_realPath(context.logPath.c_str());
+            context.logPath = main_realPath(optarg);
             context.logPath += '/';
             context.logPath += LOG_FILENAME;
 
-            context.dumpPath = optarg;
-            context.dumpPath = main_realPath(context.logPath.c_str());
+            context.dumpPath = main_realPath(optarg);
             context.dumpPath += '/';
             context.dumpPath += LOG_CACHE_DUMP;
             break;

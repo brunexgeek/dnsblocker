@@ -102,6 +102,7 @@ struct dns_cache_t
 {
     uint32_t timestamp;
     uint32_t address;
+    //uint32_t hits;
 };
 
 struct DNSCache
@@ -128,6 +129,11 @@ struct DNSCache
         int ttl;
         uint32_t dnsAddress;
         std::unordered_map<std::string, dns_cache_t> cache;
+        struct
+        {
+            uint32_t cache;
+            uint32_t external;
+        } hits;
 
         int recursive(
             const std::string &host,

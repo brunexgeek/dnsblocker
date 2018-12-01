@@ -163,6 +163,7 @@ DNSCache::DNSCache(
     uint32_t dnsAddress ) : size(size), ttl(ttl), dnsAddress(dnsAddress)
 {
     socketfd = socket(AF_INET, SOCK_DGRAM, 0);
+    hits.cache = hits.external = 0;
 }
 
 
@@ -282,11 +283,11 @@ int DNSCache::resolve(
         if (currentTime <= it->second.timestamp + DNS_CACHE_TTL)
         {
             *output = it->second.address;
+            //it->second.hits++;
+            ++hits.cache;
             it->second.timestamp = currentTime;
-            //log_message("-- using cache %08X \n", *output);
             return DNSB_STATUS_CACHE;
         }
-        //log_message("-- cache expired\n");
     }
 
     int result = recursive(host, output);
@@ -294,11 +295,12 @@ int DNSCache::resolve(
 
     if (*output != 0)
     {
+        ++hits.external;
         dns_cache_t &entry = cache[host];
         entry.address = *output;
         entry.timestamp = currentTime;
+        //entry.hits = 1;
     }
-    //log_message("-- recursive DNS\n");
 
     return result;
 }
@@ -309,6 +311,9 @@ void DNSCache::dump( const std::string &path )
     FILE *output = fopen(path.c_str(), "wt");
     if (output != nullptr)
     {
+        fprintf(output, "Hits: cache = %d, external = %d\n\n",
+            hits.cache, hits.external);
+
         int removed = 0;
         char ipv4[16];
         uint32_t now = dns_time();
