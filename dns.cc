@@ -214,13 +214,16 @@ int DNSCache::recursive(
     bio.reset();
     socklen_t length = 0;
     nbytes = recvfrom(socketfd, bio.buffer, bio.size, 0, (struct sockaddr *) &address, &length);
-    if (nbytes < 0) return DNSB_STATUS_FAILURE;
+    if (nbytes <= 0) return DNSB_STATUS_FAILURE;
 //log_message("-- message received %d bytes\n", nbytes);
 
     // decode the response
     message.read(bio);
     // use the first 'type A' answer
-    if (message.header.rcode == 0 && message.answers.size() > 0)
+    if (message.header.rcode == 0 &&
+        message.answers.size() > 0 &&
+        message.questions.size() == 1 &&
+        message.questions[0].qname == host)
     {
         for (auto it = message.answers.begin(); it != message.answers.end(); ++it)
             if (it->type == DNS_TYPE_A) *output = it->rdata;
