@@ -14,6 +14,7 @@
 #include "nodes.hh"
 #include "dns.hh"
 #include "config.hh"
+#include "config.pg.hh"
 #include "log.hh"
 #include <mutex>
 #include <condition_variable>
@@ -31,17 +32,22 @@ static int socketfd = 0;
 
 static struct
 {
-    std::string rulesFileName;
-    std::string externalDNS;
-    std::string bindAddress;
+    std::string basePath;
+    std::string blacklistFileName;
+    Tree blacklist;
+    Tree nameserver;
+    /*std::string externalDNS;
+    std::string bindAddress;*/
     uint32_t bindIPv4;
-    int port = 53;
-    Node *root = nullptr;
+    uint32_t dnsIPv4;
+    //int port = 53;
     int signal = 0;
     bool deamonize = false;
     std::string logPath;
     std::string dumpPath;
     DNSCache *cache = nullptr;
+    std::string configFileName;
+    Configuration config;
 
     struct
     {
@@ -67,36 +73,44 @@ static const char* getType( uint16_t type )
 }
 
 
-static bool main_initialize()
+static uint32_t hostToIPv4( const std::string &host )
 {
-    LOG_MESSAGE("     Address: %s\n        Port: %d\nExternal DNS: %s\n",
-        context.bindAddress.c_str(),
-        context.port,
-        context.externalDNS.c_str());
-
-    if (context.port < 0 || context.port > 65535)
-    {
-        LOG_MESSAGE("Invalid port number %d\n", context.port);
-        return false;
-    }
-
-    socketfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (host.empty()) return 0;
 
     struct sockaddr_in address;
     address.sin_family = AF_INET;
-    if (context.bindAddress.empty())
+    inet_pton(AF_INET, host.c_str(), &address.sin_addr);
+    return (uint32_t) address.sin_addr.s_addr;
+}
+
+
+static bool main_initialize()
+{
+    if (context.config.port() > 65535)
+    {
+        LOG_MESSAGE("Invalid port number %d\n", context.config.port());
+        return false;
+    }
+
+    context.dnsIPv4 = hostToIPv4( context.config.external_dns() );
+    printf("%08X\n", context.dnsIPv4);
+
+    socketfd = socket(AF_INET, SOCK_DGRAM, 0);
+    struct sockaddr_in address;
+    address.sin_family = AF_INET;
+    if (context.config.bind_address().empty())
         address.sin_addr.s_addr = INADDR_ANY;
     else
     {
-        inet_pton(AF_INET, context.bindAddress.c_str(), &address.sin_addr);
+        inet_pton(AF_INET, context.config.bind_address().c_str(), &address.sin_addr);
         context.bindIPv4 = address.sin_addr.s_addr;
     }
-    address.sin_port = htons( (uint16_t) context.port);
+    address.sin_port = htons( (uint16_t) context.config.port());
 
     int rbind = bind(socketfd, (struct sockaddr *) & address, sizeof(struct sockaddr_in));
     if (rbind != 0)
     {
-        LOG_MESSAGE("Unable to bind to %s: %s\n", context.bindAddress.c_str(), strerror(errno));
+        LOG_MESSAGE("Unable to bind to %s: %s\n", context.config.bind_address().c_str(), strerror(errno));
         close(socketfd);
         socketfd = 0;
         return false;
@@ -125,22 +139,17 @@ static void *get_in_addr(struct sockaddr *sa)
 }
 
 
-bool main_loadRules()
+bool main_loadRules(
+    const std::string &fileName )
 {
-    if (context.rulesFileName.empty()) return false;
+    if (fileName.empty()) return false;
 
-    LOG_MESSAGE("\nLoading rules from '%s'\n", context.rulesFileName.c_str());
+    LOG_MESSAGE("\nLoading rules from '%s'\n", fileName.c_str());
 
-    Node::counter = 0;
-    Node::allocated = 0;
-    Node *root = new(std::nothrow) Node();
-    if (root == nullptr || !Node::load(context.rulesFileName, *root)) return false;
+    if (!context.blacklist.load(fileName)) return false;
 
-    LOG_MESSAGE("Generated tree with %d nodes\n", Node::count());
-    LOG_MESSAGE("Using %2.3f KiB of memory to store the tree\n\n", (float) Node::allocated / 1024.0F);
-
-    if (context.root != nullptr) delete context.root;
-    context.root = root;
+    LOG_MESSAGE("Generated tree with %d nodes\n", context.blacklist.size());
+    LOG_MESSAGE("Using %2.3f KiB of memory to store the tree\n\n", (float) context.blacklist.memory() / 1024.0F);
 
     return true;
 }
@@ -188,7 +197,7 @@ static bool main_returnError(
 static void main_control( const std::string &command )
 {
     if (command == "reload@dnsblocker")
-        main_loadRules();
+        main_loadRules(context.blacklistFileName);
     else
     if (command == "dump@dnsblocker")
     {
@@ -211,7 +220,7 @@ static void main_process()
         if (context.signal != 0)
         {
             LOG_MESSAGE("Received signal %d\n", context.signal);
-            if (context.signal == SIGUSR1) main_loadRules();
+            if (context.signal == SIGUSR1) main_loadRules(context.blacklistFileName);
             if (context.signal == SIGINT) break;
             //if (context.signal == SIGUSR2) dns_cacheInfo();
             context.signal = 0;
@@ -242,7 +251,7 @@ static void main_process()
         #endif
 
         // check whether the domain is blocked
-        bool isBlocked = context.root->match(request.questions[0].qname);
+        bool isBlocked = context.blacklist.match(request.questions[0].qname);
         uint32_t address = 0;
         int result = 0;
 
@@ -374,11 +383,11 @@ static void main_signalHandler(
 }
 
 
-static std::string main_realPath( const char *path )
+static std::string main_realPath( const std::string &path )
 {
-    if (path == nullptr) return "";
+    if (path.empty()) return "";
     char temp[PATH_MAX];
-    if (realpath(path, temp) == nullptr) return "";
+    if (realpath(path.c_str(), temp) == nullptr) return "";
     return temp;
 }
 
@@ -401,24 +410,12 @@ void main_parseArguments(
     char **argv )
 {
     int c;
-    while ((c = getopt (argc, argv, "r:x:b:p:dl:")) != -1)
+    while ((c = getopt (argc, argv, "c:l:")) != -1)
     {
         switch (c)
         {
-        case 'r':
-            context.rulesFileName = optarg;
-            break;
-        case 'x':
-            context.externalDNS = optarg;
-            break;
-        case 'b':
-            context.bindAddress = optarg;
-            break;
-        case 'p':
-            context.port = atoi(optarg);
-            break;
-        case 'd':
-            context.deamonize = true;
+        case 'c':
+            context.configFileName = optarg;
             break;
         case 'l':
             context.logPath = main_realPath(optarg);
@@ -435,12 +432,69 @@ void main_parseArguments(
         }
     }
 
-    if (context.rulesFileName.empty())
-        main_error("missing rules");
-    if (context.externalDNS.empty())
-        main_error("missing external DNS address");
+    if (context.configFileName.empty())
+        main_error("missing configuration file");
 }
 
+
+Configuration main_defaultConfig()
+{
+    Configuration config;
+    config.demonize(false);
+    config.port(53);
+    config.bind_address("127.0.0.2");
+    config.external_dns("8.8.4.4");
+
+    return config;
+}
+
+
+void main_prepare()
+{
+    // extract the base path from the configuration file name
+    context.basePath = context.configFileName = main_realPath(context.configFileName);
+    if (context.configFileName.empty())
+    {
+        LOG_MESSAGE("Invalid configuration path '%s'\n", context.configFileName.c_str());
+        exit(1);
+    }
+    size_t pos = context.basePath.rfind('/');
+    if (pos == std::string::npos)
+        context.basePath = '/';
+    else
+        context.basePath = context.basePath.substr(0, pos);
+    // change the current path
+    chdir(context.basePath.c_str());
+
+    context.config = main_defaultConfig();
+
+    // load configuration
+    std::ifstream in(context.configFileName.c_str());
+    Configuration::ErrorInfo err;
+    if (!in.good() || !context.config.deserialize(in, false, &err))
+    {
+        LOG_MESSAGE("ERROR: Unable to load configuration from '%s'\n", context.configFileName.c_str());
+        if (!err.message.empty())
+            LOG_MESSAGE("ERROR: %s at %d:%d\n", err.message.c_str(), err.line, err.column);
+        exit(1);
+    }
+    in.close();
+
+    // get the absolute path of the input file
+    context.blacklistFileName = main_realPath(context.config.blacklist());
+    if (context.blacklistFileName.empty())
+    {
+        LOG_MESSAGE("Invalid blacklist file '%s'\n", context.config.blacklist().c_str());
+        exit(1);
+    }
+
+    LOG_MESSAGE("    Base path: %s\n", context.basePath.c_str());
+    LOG_MESSAGE("Configuration: %s\n", context.configFileName.c_str());
+    LOG_MESSAGE("    Blacklist: %s\n", context.blacklistFileName.c_str());
+    LOG_MESSAGE(" External DNS: %s\n", context.config.external_dns().c_str());
+    LOG_MESSAGE("      Address: %s\n", context.config.bind_address().c_str());
+    LOG_MESSAGE("         Port: %d\n", context.config.port());
+}
 
 int main( int argc, char** argv )
 {
@@ -453,14 +507,7 @@ int main( int argc, char** argv )
 
     LOG_MESSAGE("DNS Blocker %d.%d.%d\n", MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION);
 
-    // get the absolute path of the input file
-    context.rulesFileName = main_realPath(context.rulesFileName.c_str());
-    if (context.rulesFileName.empty())
-    {
-        LOG_MESSAGE("Invalid rules file '%s'\n", context.rulesFileName.c_str());
-        result = 1;
-        goto ESCAPE;
-    }
+    main_prepare();
 
     // install the signal handler to stop the server with CTRL + C
     struct sigaction act;
@@ -476,20 +523,16 @@ int main( int argc, char** argv )
 
     if (main_initialize())
     {
-        if (main_loadRules())
+        if (main_loadRules(context.blacklistFileName))
         {
             main_process();
-            delete context.root;
         }
         else
-            LOG_MESSAGE("Unable to load rules from '%s'\n", context.rulesFileName.c_str());
+            LOG_MESSAGE("Unable to load rules from '%s'\n", context.blacklistFileName.c_str());
         main_terminate();
     }
 
-ESCAPE:
     LOG_MESSAGE("\nTerminated\n");
-
     delete Log::instance;
-
-    return result;
+    return 0;
 }

@@ -4,15 +4,13 @@
 #include "log.hh"
 
 
-size_t Node::allocated = 0;
-int Node::counter = 0;
-
 Node::Node()
 {
     memset(slots, 0, sizeof(slots));
+    #ifdef NODE_ENABLE_ID
     id = ++Node::counter;
+    #endif
     flags = 0;
-    Node::allocated += sizeof(Node);
 }
 
 
@@ -23,7 +21,7 @@ Node::~Node()
 }
 
 
-int Node::index( char c )
+int Node::index( char c ) const
 {
     if (c >= 'A' && c <= 'Z')
         return c - 'A'; // 0..25
@@ -47,8 +45,7 @@ char Node::text( int index )
     return '?';
 }
 
-char *Node::prepare(
-    char *host )
+char *Node::prepare( char *host ) const
 {
     if (host == nullptr) return nullptr;
     char *ptr = host;
@@ -69,7 +66,7 @@ char *Node::prepare(
     return ptr;
 }
 
-bool Node::add( const std::string &host )
+bool Node::add( const std::string &host, uint32_t id, size_t *allocated )
 {
     if (host.empty() || host.length() > MAX_HOST_LENGTH) return false;
 
@@ -84,7 +81,7 @@ bool Node::add( const std::string &host )
 
         // if we have a 'double star', add the domain itself
         if (temp[1] == '*' && temp[2] == '.')
-            add(temp + 3);
+            add(temp + 3, id, allocated);
         else
         if (temp[1] != '.')
             return false;
@@ -99,7 +96,10 @@ bool Node::add( const std::string &host )
     {
         int idx = index(*ptr);
         if (next->slots[idx] == nullptr)
+        {
             next = next->slots[idx] = new Node();
+            if (allocated != nullptr) *allocated += sizeof(Node);
+        }
         else
         {
             next = next->slots[idx];
@@ -112,7 +112,7 @@ bool Node::add( const std::string &host )
     return true;
 }
 
-bool Node::match( const std::string &host )
+bool Node::match( const std::string &host ) const
 {
     if (host.empty() || host.length() > MAX_HOST_LENGTH) return false;
 
@@ -123,7 +123,7 @@ bool Node::match( const std::string &host )
     char *ptr = prepare(temp);
     if (ptr == nullptr) return false;
 
-    Node *next = this;
+    const Node *next = this;
     for (;*ptr != 0; ++ptr)
     {
         if (next->flags & Node::WILDCARD) return true;
@@ -138,6 +138,7 @@ bool Node::match( const std::string &host )
     return (next->flags & Node::TERMINAL) != 0;
 }
 
+#ifdef NODE_ENABLE_ID
 void Node::print( std::ostream &out )
 {
     if (this->flags & Node::WILDCARD)
@@ -152,12 +153,20 @@ void Node::print( std::ostream &out )
         out << this->id << " -> " << slots[i]->id << " [label=\"" << text(i) << "\"]" << std::endl;
         slots[i]->print(out);
     }
+}
+#endif
 
+
+Tree::Tree() : counter(0), allocated(0)
+{
 }
 
-bool Node::load(
-    const std::string &fileName,
-    Node &root )
+Tree::~Tree()
+{
+}
+
+bool Tree::load(
+    const std::string &fileName )
 {
     std::ifstream rules(fileName.c_str());
     if (rules.good())
@@ -174,8 +183,10 @@ bool Node::load(
             while (*ptr == ' ') ++ptr;
             if (*ptr == '#') continue;
 
-            if (root.add(line))
+            if (root.add(line, ++counter, &allocated))
+            {
                 LOG_MESSAGE("  Added '%s'\n", line.c_str());
+            }
             else
                 LOG_MESSAGE("  Invalid rule '%s'\n", line.c_str());
         }
@@ -187,7 +198,23 @@ bool Node::load(
     return false;
 }
 
-int Node::count()
+uint32_t Tree::size() const
 {
     return counter;
+}
+
+size_t Tree::memory() const
+{
+    return allocated;
+}
+
+
+bool Tree::add( const std::string &host, uint32_t id )
+{
+    return root.add(host, id);
+}
+
+bool Tree::match( const std::string &host ) const
+{
+    return root.match(host);
 }

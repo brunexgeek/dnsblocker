@@ -10,7 +10,7 @@ Log *Log::instance = nullptr;
 
 Log::Log( const char *path ) : output(nullptr)
 {
-    if (path != nullptr || path[0] != 0) output = fopen(path, "wt");
+    if (path != nullptr && path[0] != 0) output = fopen(path, "wt");
     if (output == nullptr) output = stdout;
 }
 
