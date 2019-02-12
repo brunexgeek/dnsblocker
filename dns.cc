@@ -202,20 +202,24 @@ int DNSCache::recursive(
     address.sin_addr.s_addr = ntohl(dnsAddress);
     address.sin_port = htons(53);
     ssize_t nbytes = sendto(socketfd, bio.buffer, bio.cursor(), 0, (struct sockaddr *) &address, sizeof(address));
-    if (nbytes < 0) return DNSB_STATUS_FAILURE;
+    if (nbytes <= 0) return DNSB_STATUS_FAILURE;
 
     struct pollfd pfd;
     pfd.fd = socketfd;
     pfd.events = POLLIN;
     if (poll(&pfd, 1, 5000) <= 0) return DNSB_STATUS_FAILURE;
 
-//log_message("-- message sent to 0x%08X\n", RECURSIVE_DNS);
+//LOG_MESSAGE("-- message sent to 0x%08X\n", dnsAddress);
     // wait for the response
     bio.reset();
     socklen_t length = 0;
     nbytes = recvfrom(socketfd, bio.buffer, bio.size, 0, (struct sockaddr *) &address, &length);
-    if (nbytes <= 0) return DNSB_STATUS_FAILURE;
-//log_message("-- message received %d bytes\n", nbytes);
+    if (nbytes <= 0)
+    {
+//LOG_MESSAGE("-- message receive failure\n");
+        return DNSB_STATUS_FAILURE;
+    }
+//LOG_MESSAGE("-- message received %d bytes\n", nbytes);
 
     // decode the response
     message.read(bio);
@@ -225,21 +229,25 @@ int DNSCache::recursive(
         message.questions.size() == 1 &&
         message.questions[0].qname == host)
     {
+
         for (auto it = message.answers.begin(); it != message.answers.end(); ++it)
             if (it->type == DNS_TYPE_A) *output = it->rdata;
+        if (*output == 0) LOG_MESSAGE("-- no type A entry found\n");
+    }
+    else
+    {
+        //LOG_MESSAGE("-- response do not met the requirements\n");
     }
 
-    /*if (DNS_GET_RCODE(message.header.fields) == 0)
-        log_message("-- %d.%d.%d.%d tells '%s' is %d.%d.%d.%d\n",
-            DNS_IP_O1(RECURSIVE_DNS),
-            DNS_IP_O2(RECURSIVE_DNS),
-            DNS_IP_O3(RECURSIVE_DNS),
-            DNS_IP_O4(RECURSIVE_DNS),
+#if 0
+    if (message.header.rcode == 0)
+        LOG_MESSAGE("-- tells '%s' is %d.%d.%d.%d\n",
             host.c_str(),
             DNS_IP_O1(*output),
             DNS_IP_O2(*output),
             DNS_IP_O3(*output),
-            DNS_IP_O4(*output));*/
+            DNS_IP_O4(*output));
+#endif
     return (*output == 0) ? DNSB_STATUS_NXDOMAIN : DNSB_STATUS_RECURSIVE;
 }
 

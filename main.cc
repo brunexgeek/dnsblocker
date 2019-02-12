@@ -254,7 +254,10 @@ static void main_process()
             if (request.questions[0].qname.find('.') == std::string::npos)
                 result = DNSB_STATUS_NXDOMAIN;
             else
+            if (request.header.flags & DNS_FLAG_RD)
                 result = context.cache->resolve(request.questions[0].qname, &address);
+            else
+                result = DNSB_STATUS_NXDOMAIN;
         }
         else
             address = DNS_BLOCKED_ADDRESS;
@@ -310,6 +313,11 @@ static void main_process()
             dns_message_t response;
             response.header.id = request.header.id;
             response.header.flags |= DNS_FLAG_QR;
+            if (request.header.flags & DNS_FLAG_RD)
+            {
+                response.header.flags |= DNS_FLAG_RA;
+                response.header.flags |= DNS_FLAG_RD;
+            }
             // copy the request question
             response.questions.push_back(request.questions[0]);
             dns_record_t answer;
