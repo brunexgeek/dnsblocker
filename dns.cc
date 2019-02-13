@@ -159,9 +159,9 @@ void dns_record_t::read(
 
 DNSCache::DNSCache(
     int size ,
-    int ttl ,
-    uint32_t dnsAddress ) : size(size), ttl(ttl), dnsAddress(dnsAddress)
+    int ttl ) : size(size), ttl(ttl)
 {
+    defaultDNS = addressToIPv4("8.8.4.4");
     socketfd = socket(AF_INET, SOCK_DGRAM, 0);
     hits.cache = hits.external = 0;
 }
@@ -175,10 +175,10 @@ DNSCache::~DNSCache()
 
 int DNSCache::recursive(
     const std::string &host,
+    uint32_t dnsAddress,
     uint32_t *output )
 {
     static uint16_t lastId = 0;
-
     *output = 0;
 
     // build the query message
@@ -199,7 +199,7 @@ int DNSCache::recursive(
     // send the query to the recursive DNS
     struct sockaddr_in address;
     address.sin_family = AF_INET;
-    address.sin_addr.s_addr = ntohl(dnsAddress);
+    address.sin_addr.s_addr = dnsAddress;
     address.sin_port = htons(53);
     ssize_t nbytes = sendto(socketfd, bio.buffer, bio.cursor(), 0, (struct sockaddr *) &address, sizeof(address));
     if (nbytes <= 0) return DNSB_STATUS_FAILURE;
@@ -277,13 +277,23 @@ void DNSCache::cleanup()
 }
 
 
+uint32_t DNSCache::nameserver( const std::string &host )
+{
+    const Node *node = targets.match(host);
+    if (node == nullptr) return defaultDNS;
+    return node->value;
+}
+
+
 int DNSCache::resolve(
     const std::string &host,
+    uint32_t *dnsAddress,
     uint32_t *output )
 {
     if (cache.size() > DNS_CACHE_LIMIT) cleanup();
 
     uint32_t currentTime = dns_time();
+    *dnsAddress = defaultDNS;
     *output = 0;
 
     auto it = cache.find(host);
@@ -294,14 +304,16 @@ int DNSCache::resolve(
         if (currentTime <= it->second.timestamp + DNS_CACHE_TTL)
         {
             *output = it->second.address;
-            //it->second.hits++;
             ++hits.cache;
             it->second.timestamp = currentTime;
             return DNSB_STATUS_CACHE;
         }
     }
 
-    int result = recursive(host, output);
+    const Node *node = targets.match(host);
+    if (node != nullptr && node->value != 0) *dnsAddress = node->value;
+
+    int result = recursive(host, *dnsAddress, output);
     if (result != DNSB_STATUS_RECURSIVE) return result;
 
     if (*output != 0)
@@ -310,7 +322,6 @@ int DNSCache::resolve(
         dns_cache_t &entry = cache[host];
         entry.address = *output;
         entry.timestamp = currentTime;
-        //entry.hits = 1;
     }
 
     return result;
@@ -360,7 +371,28 @@ void DNSCache::dump( const std::string &path )
 
         fclose(output);
     }
-
 }
 
+
+uint32_t DNSCache::addressToIPv4( const std::string &host )
+{
+    if (host.empty()) return 0;
+
+    struct sockaddr_in address;
+    address.sin_family = AF_INET;
+    inet_pton(AF_INET, host.c_str(), &address.sin_addr);
+    return (uint32_t) address.sin_addr.s_addr;
+}
+
+
+void DNSCache::setDefaultDNS( const std::string &dns )
+{
+    defaultDNS = addressToIPv4(dns);
+}
+
+
+void DNSCache::addTarget( const std::string &rule, const std::string &dns )
+{
+    targets.add(rule, addressToIPv4(dns));
+}
 

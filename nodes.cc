@@ -4,12 +4,10 @@
 #include "log.hh"
 
 
-Node::Node()
+Node::Node( uint32_t value )
 {
     memset(slots, 0, sizeof(slots));
-    #ifdef NODE_ENABLE_ID
-    id = ++Node::counter;
-    #endif
+    this->value = value;
     flags = 0;
 }
 
@@ -66,7 +64,7 @@ char *Node::prepare( char *host ) const
     return ptr;
 }
 
-bool Node::add( const std::string &host, uint32_t id, size_t *allocated )
+bool Node::add( const std::string &host, uint32_t value, size_t *allocated )
 {
     if (host.empty() || host.length() > MAX_HOST_LENGTH) return false;
 
@@ -81,7 +79,7 @@ bool Node::add( const std::string &host, uint32_t id, size_t *allocated )
 
         // if we have a 'double star', add the domain itself
         if (temp[1] == '*' && temp[2] == '.')
-            add(temp + 3, id, allocated);
+            add(temp + 3, value, allocated);
         else
         if (temp[1] != '.')
             return false;
@@ -107,38 +105,42 @@ bool Node::add( const std::string &host, uint32_t id, size_t *allocated )
         }
     }
     next->flags |= Node::TERMINAL;
+    next->value = value;
     if (isWildcard) next->flags |= Node::WILDCARD;
 
     return true;
 }
 
-bool Node::match( const std::string &host ) const
+const Node *Node::match( const std::string &host ) const
 {
-    if (host.empty() || host.length() > MAX_HOST_LENGTH) return false;
+    if (host.empty() || host.length() > MAX_HOST_LENGTH) return nullptr;
 
     char temp[MAX_HOST_LENGTH + 1] = { 0 };
     strcpy(temp, host.c_str());
 
     // preprocess the host name
     char *ptr = prepare(temp);
-    if (ptr == nullptr) return false;
+    if (ptr == nullptr) return nullptr;
 
     const Node *next = this;
     for (;*ptr != 0; ++ptr)
     {
-        if (next->flags & Node::WILDCARD) return true;
+        if (next->flags & Node::WILDCARD) return next;
 
         int idx = index(*ptr);
         if (next->slots[idx] == nullptr)
-            return false;
+            return nullptr;
         else
             next = next->slots[idx];
     }
 
-    return (next->flags & Node::TERMINAL) != 0;
+    if ((next->flags & Node::TERMINAL) != 0)
+        return next;
+    else
+        return nullptr;
 }
 
-#ifdef NODE_ENABLE_ID
+/*
 void Node::print( std::ostream &out )
 {
     if (this->flags & Node::WILDCARD)
@@ -154,7 +156,7 @@ void Node::print( std::ostream &out )
         slots[i]->print(out);
     }
 }
-#endif
+*/
 
 
 Tree::Tree() : counter(0), allocated(0)
@@ -214,7 +216,7 @@ bool Tree::add( const std::string &host, uint32_t id )
     return root.add(host, id);
 }
 
-bool Tree::match( const std::string &host ) const
+const Node *Tree::match( const std::string &host ) const
 {
     return root.match(host);
 }

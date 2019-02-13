@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include "config.hh"
 #include "log.hh"
+#include "nodes.hh"
 #include "buffer.hh"
 
 
@@ -105,39 +106,37 @@ struct dns_cache_t
     //uint32_t hits;
 };
 
+
 struct DNSCache
 {
     public:
         DNSCache(
             int size = DNS_CACHE_LIMIT,
-            int ttl = DNS_CACHE_TTL,
-            uint32_t dnsAddress = DNS_EXTERNAL );
+            int ttl = DNS_CACHE_TTL );
 
         ~DNSCache();
-
-        int resolve(
-            const std::string &host,
-            uint32_t *address );
-
+        int resolve( const std::string &host, uint32_t *dnsAddress, uint32_t *output );
         void dump( const std::string &path );
-
         void cleanup();
+        void setDefaultDNS( const std::string &dns );
+        void addTarget( const std::string &rule, const std::string &dns );
+        static uint32_t addressToIPv4( const std::string &host );
 
     private:
         int socketfd;
         int size;
         int ttl;
-        uint32_t dnsAddress;
+        uint32_t defaultDNS;
         std::unordered_map<std::string, dns_cache_t> cache;
+        Tree targets;
         struct
         {
             uint32_t cache;
             uint32_t external;
         } hits;
 
-        int recursive(
-            const std::string &host,
-            uint32_t *address );
+        int recursive( const std::string &host, uint32_t dnsAddress, uint32_t *address );
+        uint32_t nameserver( const std::string &host );
 };
 
 

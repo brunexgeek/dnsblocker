@@ -39,7 +39,6 @@ static struct
     /*std::string externalDNS;
     std::string bindAddress;*/
     uint32_t bindIPv4;
-    uint32_t dnsIPv4;
     //int port = 53;
     int signal = 0;
     bool deamonize = false;
@@ -92,9 +91,6 @@ static bool main_initialize()
         return false;
     }
 
-    context.dnsIPv4 = hostToIPv4( context.config.external_dns() );
-    printf("%08X\n", context.dnsIPv4);
-
     socketfd = socket(AF_INET, SOCK_DGRAM, 0);
     struct sockaddr_in address;
     address.sin_family = AF_INET;
@@ -117,6 +113,19 @@ static bool main_initialize()
     }
 
     context.cache = new DNSCache();
+    for (auto it = context.config.external_dns().begin(); it != context.config.external_dns().end(); ++it)
+    {
+        if (it->targets.undefined())
+            context.cache->setDefaultDNS(it->address());
+        else
+        {
+            for (size_t i = 0; i < it->targets().size(); ++i)
+            {
+                context.cache->addTarget(it->targets()[i], it->address());
+            }
+        }
+    }
+
 
     return true;
 }
@@ -251,8 +260,8 @@ static void main_process()
         #endif
 
         // check whether the domain is blocked
-        bool isBlocked = context.blacklist.match(request.questions[0].qname);
-        uint32_t address = 0;
+        bool isBlocked = context.blacklist.match(request.questions[0].qname) != nullptr;
+        uint32_t address = 0, dnsAddress = 0;
         int result = 0;
 
         // if the domain is not blocked, we retrieve the IP address from the cache
@@ -264,7 +273,7 @@ static void main_process()
                 result = DNSB_STATUS_NXDOMAIN;
             else
             if (request.header.flags & DNS_FLAG_RD)
-                result = context.cache->resolve(request.questions[0].qname, &address);
+                result = context.cache->resolve(request.questions[0].qname, &dnsAddress, &address);
             else
                 result = DNSB_STATUS_NXDOMAIN;
         }
@@ -299,10 +308,18 @@ static void main_process()
                 DNS_IP_O3(address),
                 DNS_IP_O4(address));
 
+            char nameserver[INET_ADDRSTRLEN];
+            snprintf(nameserver, INET_ADDRSTRLEN, "%d.%d.%d.%d",
+                DNS_IP_O4(dnsAddress),
+                DNS_IP_O3(dnsAddress),
+                DNS_IP_O2(dnsAddress),
+                DNS_IP_O1(dnsAddress));
+
             lastName = request.questions[0].qname;
-            LOG_TIMED("%s  %-15s  %-15s  %s\n",
-                status,
+            LOG_TIMED("%-15s  %s  %-15s  %-15s  %s\n",
                 source,
+                status,
+                nameserver,
                 resolution,
                 lastName.c_str());
         }
@@ -443,7 +460,6 @@ Configuration main_defaultConfig()
     config.demonize(false);
     config.port(53);
     config.bind_address("127.0.0.2");
-    config.external_dns("8.8.4.4");
 
     return config;
 }
@@ -491,7 +507,10 @@ void main_prepare()
     LOG_MESSAGE("    Base path: %s\n", context.basePath.c_str());
     LOG_MESSAGE("Configuration: %s\n", context.configFileName.c_str());
     LOG_MESSAGE("    Blacklist: %s\n", context.blacklistFileName.c_str());
-    LOG_MESSAGE(" External DNS: %s\n", context.config.external_dns().c_str());
+    LOG_MESSAGE(" External DNS: ");
+    for (auto it = context.config.external_dns().begin(); it != context.config.external_dns().end(); ++it)
+        LOG_MESSAGE("%s ", it->address().c_str());
+    LOG_MESSAGE("\n");
     LOG_MESSAGE("      Address: %s\n", context.config.bind_address().c_str());
     LOG_MESSAGE("         Port: %d\n", context.config.port());
 }

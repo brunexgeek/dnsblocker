@@ -1,8 +1,11 @@
+#ifndef DNSB_NODES_HH
+#define DNSB_NODES_HH
+
 #include <stdint.h>
 #include <iostream>
 #include "log.hh"
 
-//#define NODE_ENABLE_ID 1
+#define NODE_ENABLE_ID 1
 
 struct Node
 {
@@ -13,22 +16,19 @@ struct Node
 
     Node *slots[SLOTS];
     int flags = 0;
-    #ifdef NODE_ENABLE_ID
-    uint id = 0;
-    #endif
+    uint32_t value = 0;
 
-    Node();
+    Node( uint32_t id = 0 );
     ~Node();
     int index( char c ) const;
     char text( int index );
     char *prepare( char *host ) const;
-    bool add( const std::string &host, uint32_t id, size_t *allocated = nullptr );
-    bool match( const std::string &host ) const;
+    bool add( const std::string &host, uint32_t value, size_t *allocated = nullptr );
+    const Node *match( const std::string &host ) const;
     #ifdef NODE_ENABLE_ID
     void print( std::ostream &out );
     #endif
 };
-
 
 
 class Tree
@@ -41,8 +41,8 @@ class Tree
         bool load( const std::string &fileName );
         uint32_t size() const;
         size_t memory() const;
-        bool add( const std::string &host, uint32_t id );
-        bool match( const std::string &host ) const;
+        bool add( const std::string &host, uint32_t value );
+        const Node *match( const std::string &host ) const;
 
     private:
         Node root;
@@ -50,3 +50,5 @@ class Tree
         size_t allocated;
 };
 
+
+#endif // DNSB_NODES_HH
