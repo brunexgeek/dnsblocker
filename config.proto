@@ -7,11 +7,16 @@ message NameServer
     repeated string targets = 2;
 }
 
+message Binding
+{
+    string address = 1;
+    uint32 port = 2;
+}
+
 message Configuration
 {
     repeated NameServer external_dns = 1;
-    uint32 port = 2;
-    string bind_address = 3;
+    Binding binding = 3;
     bool demonize = 4;
     string blacklist = 5;
 }

@@ -85,28 +85,28 @@ static uint32_t hostToIPv4( const std::string &host )
 
 static bool main_initialize()
 {
-    if (context.config.port() > 65535)
+    if (context.config.binding().port() > 65535)
     {
-        LOG_MESSAGE("Invalid port number %d\n", context.config.port());
+        LOG_MESSAGE("Invalid port number %d\n", context.config.binding().port());
         return false;
     }
 
     socketfd = socket(AF_INET, SOCK_DGRAM, 0);
     struct sockaddr_in address;
     address.sin_family = AF_INET;
-    if (context.config.bind_address().empty())
+    if (context.config.binding().address().empty())
         address.sin_addr.s_addr = INADDR_ANY;
     else
     {
-        inet_pton(AF_INET, context.config.bind_address().c_str(), &address.sin_addr);
+        inet_pton(AF_INET, context.config.binding().address().c_str(), &address.sin_addr);
         context.bindIPv4 = address.sin_addr.s_addr;
     }
-    address.sin_port = htons( (uint16_t) context.config.port());
+    address.sin_port = htons( (uint16_t) context.config.binding().port());
 
     int rbind = bind(socketfd, (struct sockaddr *) & address, sizeof(struct sockaddr_in));
     if (rbind != 0)
     {
-        LOG_MESSAGE("Unable to bind to %s: %s\n", context.config.bind_address().c_str(), strerror(errno));
+        LOG_MESSAGE("Unable to bind to %s: %s\n", context.config.binding().address().c_str(), strerror(errno));
         close(socketfd);
         socketfd = 0;
         return false;
@@ -458,8 +458,8 @@ Configuration main_defaultConfig()
 {
     Configuration config;
     config.demonize(false);
-    config.port(53);
-    config.bind_address("127.0.0.2");
+    config.binding().port(53);
+    config.binding().address("127.0.0.2");
 
     return config;
 }
@@ -511,8 +511,8 @@ void main_prepare()
     for (auto it = context.config.external_dns().begin(); it != context.config.external_dns().end(); ++it)
         LOG_MESSAGE("%s ", it->address().c_str());
     LOG_MESSAGE("\n");
-    LOG_MESSAGE("      Address: %s\n", context.config.bind_address().c_str());
-    LOG_MESSAGE("         Port: %d\n", context.config.port());
+    LOG_MESSAGE("      Address: %s\n", context.config.binding().address().c_str());
+    LOG_MESSAGE("         Port: %d\n", context.config.binding().port());
 }
 
 int main( int argc, char** argv )
