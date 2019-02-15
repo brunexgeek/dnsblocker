@@ -6,6 +6,7 @@
 #include <chrono>
 #include <unordered_map>
 #include <poll.h>
+#include <atomic>
 
 
 #define DNS_GET_OPCODE(x)     (uint8_t) (((x) >> 11) & 15)
@@ -194,13 +195,14 @@ int DNSCache::recursive(
     uint32_t dnsAddress,
     uint32_t *output )
 {
-    static uint16_t lastId = 0;
+    static std::atomic<uint16_t> lastId(1);
     *output = 0;
 
     // build the query message
     dns_message_t message;
-    message.header.id = ++lastId;
+    message.header.id = lastId.fetch_add(1);
     message.header.flags |= DNS_FLAG_RD;
+    message.header.flags |= DNS_FLAG_AD;
     dns_question_t question;
     question.qname = host;
     question.type = DNS_TYPE_A;
@@ -248,7 +250,7 @@ int DNSCache::recursive(
 
         for (auto it = message.answers.begin(); it != message.answers.end(); ++it)
             if (it->type == DNS_TYPE_A) *output = it->rdata;
-        if (*output == 0) LOG_MESSAGE("-- no type A entry found\n");
+        //if (*output == 0) LOG_MESSAGE("-- no type A entry found\n");
     }
     else
     {
@@ -275,8 +277,11 @@ static uint32_t dns_time()
 }
 
 
-void DNSCache::cleanup()
+void DNSCache::cleanup( uint32_t ttl )
 {
+    if (ttl <= 0 || ttl <= (DNS_CACHE_TTL / 3))
+        ttl = DNS_CACHE_TTL / 3;
+
     std::lock_guard<std::mutex> raii(lock);
 
     uint32_t currentTime = dns_time();
@@ -284,7 +289,7 @@ void DNSCache::cleanup()
 
     for (auto it = cache.begin(); it != cache.end();)
     {
-        if (currentTime <= it->second.timestamp + (DNS_CACHE_TTL / 2))
+        if (currentTime <= it->second.timestamp + ttl)
             it = cache.erase(it);
         else
              ++it;
@@ -315,7 +320,7 @@ int DNSCache::resolve(
     {
         std::lock_guard<std::mutex> raii(lock);
 
-        if (cache.size() > DNS_CACHE_LIMIT) cleanup();
+        if (cache.size() > DNS_CACHE_LIMIT) cleanup(DNS_CACHE_TTL - DNS_CACHE_TTL / 4);
 
         *dnsAddress = defaultDNS;
         *output = 0;

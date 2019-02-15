@@ -7,7 +7,6 @@
 
 #cmakedefine ENABLE_DNS_CONSOLE
 
-#define DNS_EXTERNAL                  0x08080404  // 8.8.4.4
 #define DNS_BLOCKED_ADDRESS           0x7F000002  // 127.0.0.2
 
 #define DNS_CACHE_TTL                 (10 * 60) // 10 minutes
