@@ -112,7 +112,8 @@ struct DNSCache
     public:
         DNSCache(
             int size = DNS_CACHE_LIMIT,
-            int ttl = DNS_CACHE_TTL );
+            int ttl = DNS_CACHE_TTL,
+            int timeout = DNS_TIMEOUT );
 
         ~DNSCache();
         int resolve( const std::string &host, uint32_t *dnsAddress, uint32_t *output );
@@ -134,6 +135,7 @@ struct DNSCache
             uint32_t cache;
             uint32_t external;
         } hits;
+        int timeout;
 
         int recursive( const std::string &host, uint32_t dnsAddress, uint32_t *address );
         uint32_t nameserver( const std::string &host );

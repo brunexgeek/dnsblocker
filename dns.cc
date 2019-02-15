@@ -159,7 +159,8 @@ void dns_record_t::read(
 
 DNSCache::DNSCache(
     int size ,
-    int ttl ) : size(size), ttl(ttl)
+    int ttl,
+    int timeout ) : size(size), ttl(ttl), timeout(timeout)
 {
     defaultDNS = addressToIPv4("8.8.4.4");
     socketfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -207,7 +208,7 @@ int DNSCache::recursive(
     struct pollfd pfd;
     pfd.fd = socketfd;
     pfd.events = POLLIN;
-    if (poll(&pfd, 1, 5000) <= 0) return DNSB_STATUS_FAILURE;
+    if (poll(&pfd, 1, timeout) <= 0) return DNSB_STATUS_FAILURE;
 
 //LOG_MESSAGE("-- message sent to 0x%08X\n", dnsAddress);
     // wait for the response
@@ -310,11 +311,18 @@ int DNSCache::resolve(
         }
     }
 
+    // check if we have a specific DNS server for this domain
     const Node *node = targets.match(host);
     if (node != nullptr && node->value != 0) *dnsAddress = node->value;
-
+    // try to resolve the domain using the external DNS
     int result = recursive(host, *dnsAddress, output);
     if (result != DNSB_STATUS_RECURSIVE) return result;
+    // if the previous resolution failed, try again using the default DNS server
+    if (result == DNSB_STATUS_FAILURE && *dnsAddress != defaultDNS)
+    {
+        result = recursive(host, defaultDNS, output);
+        if (result != DNSB_STATUS_RECURSIVE) return result;
+    }
 
     if (*output != 0)
     {
