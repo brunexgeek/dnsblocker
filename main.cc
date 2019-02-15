@@ -402,7 +402,6 @@ static void main_loop()
     std::mutex lock;
     std::thread *pool[2];
     std::condition_variable cond;
-    bool running = true;
 
     for (size_t i = 0; i < NUM_THREADS; ++i)
         pool[i] = new std::thread(main_process, i + 1, &pending, &lock, &cond);
@@ -437,133 +436,12 @@ static void main_loop()
         cond.notify_all();
     }
 
-    cond.notify_all();
     for (size_t i = 0; i < NUM_THREADS; ++i)
     {
+        cond.notify_all();
         pool[i]->join();
         delete pool[i];
     }
-
-
-#if 0
-        // ignore messages with the number of questions other than 1
-        if (request.questions.size() != 1 || request.questions[0].type != DNS_TYPE_A)
-        {
-            main_returnError(request, DNS_RCODE_REFUSED, endpoint);
-            continue;
-        }
-
-        #ifdef ENABLE_DNS_CONSOLE
-        // check whether the message carry a remote command
-        if (context.bindIPv4 == endpoint.address.sin_addr.s_addr &&
-            request.questions[0].qname.find("@dnsblocker") != std::string::npos)
-        {
-            main_control(request.questions[0].qname);
-            main_returnError(request, DNS_RCODE_NOERROR, endpoint);
-            continue;
-        }
-        #endif
-
-        // check whether the domain is blocked
-        bool isBlocked = context.blacklist.match(request.questions[0].qname) != nullptr;
-        uint32_t address = 0, dnsAddress = 0;
-        int result = 0;
-
-        // if the domain is not blocked, we retrieve the IP address from the cache
-        if (!isBlocked)
-        {
-            // assume NXDOMAIN for domains without periods (e.g. local host names)
-            // otherwise we try the external DNS
-            if (request.questions[0].qname.find('.') == std::string::npos)
-                result = DNSB_STATUS_NXDOMAIN;
-            else
-            if (request.header.flags & DNS_FLAG_RD)
-                result = context.cache->resolve(request.questions[0].qname, &dnsAddress, &address);
-            else
-                result = DNSB_STATUS_NXDOMAIN;
-        }
-        else
-            address = DNS_BLOCKED_ADDRESS;
-
-        // print some information about the request
-        if (lastName != request.questions[0].qname)
-        {
-            const char *status = "DE";
-            if (result == DNSB_STATUS_CACHE)
-                status = "CA";
-            else
-            if (result == DNSB_STATUS_RECURSIVE)
-                status = "RE";
-            else
-            if (result == DNSB_STATUS_FAILURE)
-                status = "FA";
-            else
-            if (result == DNSB_STATUS_NXDOMAIN)
-                status = "NX";
-
-            // extract the source IPv4 address
-            char source[INET6_ADDRSTRLEN];
-            inet_ntop(endpoint.address.sin_family,
-                get_in_addr((struct sockaddr *)&endpoint.address), source, INET6_ADDRSTRLEN);
-
-            char resolution[INET_ADDRSTRLEN];
-            snprintf(resolution, INET_ADDRSTRLEN, "%d.%d.%d.%d",
-                DNS_IP_O1(address),
-                DNS_IP_O2(address),
-                DNS_IP_O3(address),
-                DNS_IP_O4(address));
-
-            char nameserver[INET_ADDRSTRLEN];
-            snprintf(nameserver, INET_ADDRSTRLEN, "%d.%d.%d.%d",
-                DNS_IP_O4(dnsAddress),
-                DNS_IP_O3(dnsAddress),
-                DNS_IP_O2(dnsAddress),
-                DNS_IP_O1(dnsAddress));
-
-            lastName = request.questions[0].qname;
-            LOG_TIMED("%-15s  %s  %-15s  %-15s  %s\n",
-                source,
-                status,
-                nameserver,
-                resolution,
-                lastName.c_str());
-        }
-
-        // decide whether we have to include an answer
-        if (!isBlocked && result != DNSB_STATUS_CACHE && result != DNSB_STATUS_RECURSIVE)
-        {
-            if (result == DNSB_STATUS_NXDOMAIN)
-                main_returnError(request, DNS_RCODE_NXDOMAIN, endpoint);
-            else
-                main_returnError(request, DNS_RCODE_SERVFAIL, endpoint);
-        }
-        else
-        {
-            // response message
-            bio = BufferIO(buffer, 0, DNS_BUFFER_SIZE);
-            dns_message_t response;
-            response.header.id = request.header.id;
-            response.header.flags |= DNS_FLAG_QR;
-            if (request.header.flags & DNS_FLAG_RD)
-            {
-                response.header.flags |= DNS_FLAG_RA;
-                response.header.flags |= DNS_FLAG_RD;
-            }
-            // copy the request question
-            response.questions.push_back(request.questions[0]);
-            dns_record_t answer;
-            answer.qname = request.questions[0].qname;
-            answer.type = request.questions[0].type;
-            answer.clazz = request.questions[0].clazz;
-            answer.ttl = DNS_ANSWER_TTL;
-            answer.rdata = address;
-            response.answers.push_back(answer);
-
-            response.write(bio);
-            //sendto(socketfd, bio.buffer, bio.cursor(), 0, (struct sockaddr *) &clientAddress, addrLen);
-            main_send(endpoint, bio);
-        }
-#endif
 }
 
 #include <sys/stat.h>
@@ -616,7 +494,7 @@ static std::string main_realPath( const std::string &path )
 
 void main_usage()
 {
-    std::cout << "Usage: ./dnsblocker -r <rules> -x <ipv4> [ -b <ipv4> -p <port> -d ]\n";
+    std::cout << "Usage: ./dnsblocker -c <configuration> [ -l <log directory> ]\n";
     exit(EXIT_FAILURE);
 }
 
@@ -722,8 +600,6 @@ void main_prepare()
 
 int main( int argc, char** argv )
 {
-    int result = 0;
-
     main_parseArguments(argc, argv);
 
     if (context.deamonize) daemonize();

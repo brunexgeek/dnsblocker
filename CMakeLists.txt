@@ -3,8 +3,8 @@ project(dnsblocker)
 cmake_minimum_required(VERSION 2.8)
 
 set(DNSB_MAJOR_VERSION 0)
-set(DNSB_MINOR_VERSION 7)
-set(DNSB_PATCH_VERSION 1)
+set(DNSB_MINOR_VERSION 8)
+set(DNSB_PATCH_VERSION 0)
 
 set(LIBRARY_TYPE "SHARED" CACHE STRING "Specify the type of binary to be generated")
 set_property(CACHE LIBRARY_TYPE PROPERTY STRINGS "STATIC" "SHARED")
