@@ -65,6 +65,9 @@ if (UNIX)
 endif()
 
 
+find_package(Threads)
+
+
 configure_file("config.hh.in" "${CMAKE_CURRENT_LIST_DIR}/config.hh")
 
 add_executable(dnsblocker
@@ -74,6 +77,7 @@ add_executable(dnsblocker
     "${CMAKE_CURRENT_LIST_DIR}/buffer.cc"
     "${CMAKE_CURRENT_LIST_DIR}/dns.cc")
 target_compile_definitions(dnsblocker PRIVATE _DEFAULT_SOURCE)
+target_link_libraries(dnsblocker ${CMAKE_THREAD_LIBS_INIT})
 set_target_properties(dnsblocker PROPERTIES
     OUTPUT_NAME "dnsblocker"
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"

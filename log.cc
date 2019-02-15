@@ -27,7 +27,7 @@ void Log::write(
 {
     if (output == nullptr) return;
 
-    mutex.lock();
+    std::lock_guard<std::mutex> raii(lock);
 
     if (timed)
     {
@@ -46,6 +46,4 @@ void Log::write(
 	vfprintf(output, format, args);
 	va_end(args);
 	fflush(output);
-
-    mutex.unlock();
 }

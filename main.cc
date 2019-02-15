@@ -3,6 +3,7 @@
 #include <iostream>
 #include <cstdlib>
 #include <cstring>
+#include <list>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -17,6 +18,7 @@
 #include "config.pg.hh"
 #include "log.hh"
 #include <mutex>
+#include <thread>
 #include <condition_variable>
 
 
@@ -25,6 +27,42 @@ struct Endpoint
     int socketfd;
     struct sockaddr_in address;
     socklen_t length = sizeof(struct sockaddr_in);
+};
+
+
+struct Job
+{
+    Endpoint endpoint;
+    dns_message_t request;
+
+    Job( Endpoint &endpoint, dns_message_t &request )
+    {
+        this->endpoint = endpoint;
+        this->request.swap(request);
+    }
+};
+
+
+class Queue
+{
+    std::list<Job*> items;
+    std::mutex lock;
+
+    public:
+        void push( Job *job )
+        {
+            std::lock_guard<std::mutex> guard(lock);
+            items.push_back(job);
+        }
+
+        Job *pop()
+        {
+            std::lock_guard<std::mutex> guard(lock);
+            if (items.size() == 0) return nullptr;
+            Job *result = items.front();
+            items.pop_front();
+            return result;
+        }
 };
 
 
@@ -165,7 +203,7 @@ bool main_loadRules(
 
 
 static bool main_send(
-    Endpoint &endpoint,
+    const Endpoint &endpoint,
     BufferIO &bio )
 {
     int result = (int) sendto(endpoint.socketfd, bio.buffer, bio.cursor(), 0,
@@ -186,9 +224,9 @@ static bool main_receive(
 
 
 static bool main_returnError(
-    dns_message_t &request,
+    const dns_message_t &request,
     int rcode,
-    Endpoint &endpoint )
+    const Endpoint &endpoint )
 {
     uint8_t buffer[DNS_BUFFER_SIZE] = { 0 };
     BufferIO bio(buffer, 0, DNS_BUFFER_SIZE);
@@ -217,12 +255,157 @@ static void main_control( const std::string &command )
 #endif
 
 
-static void main_process()
+static void main_process( int num, Queue *pending, std::mutex *lock, std::condition_variable *cond )
+{
+    std::unique_lock<std::mutex> guard(*lock);
+    //std::string lastName;
+
+    while (context.signal != SIGINT)
+    {
+        Job *job = pending->pop();
+        if (job == nullptr)
+        {
+            cond->wait(guard);
+            continue;
+        }
+
+        Endpoint &endpoint = job->endpoint;
+        dns_message_t &request = job->request;
+//LOG_MESSAGE("T%d Got job   %s\n", num, request.questions[0].qname.c_str());
+        uint8_t buffer[DNS_BUFFER_SIZE] = { 0 };
+
+        #ifdef ENABLE_DNS_CONSOLE
+        // check whether the message carry a remote command
+        if (context.bindIPv4 == endpoint.address.sin_addr.s_addr &&
+            request.questions[0].qname.find("@dnsblocker") != std::string::npos)
+        {
+            main_control(request.questions[0].qname);
+            main_returnError(request, DNS_RCODE_NOERROR, endpoint);
+            delete job;
+            continue;
+        }
+        #endif
+
+        // check whether the domain is blocked
+        bool isBlocked = context.blacklist.match(request.questions[0].qname) != nullptr;
+        uint32_t address = 0, dnsAddress = 0;
+        int result = 0;
+
+        // if the domain is not blocked, we retrieve the IP address from the cache
+        if (!isBlocked)
+        {
+            // assume NXDOMAIN for domains without periods (e.g. local host names)
+            // otherwise we try the external DNS
+            if (request.questions[0].qname.find('.') == std::string::npos)
+                result = DNSB_STATUS_NXDOMAIN;
+            else
+            if (request.header.flags & DNS_FLAG_RD)
+                result = context.cache->resolve(request.questions[0].qname, &dnsAddress, &address);
+            else
+                result = DNSB_STATUS_NXDOMAIN;
+        }
+        else
+            address = DNS_BLOCKED_ADDRESS;
+
+        // print some information about the request
+        //if (lastName != request.questions[0].qname)
+        {
+            const char *status = "DE";
+            if (result == DNSB_STATUS_CACHE)
+                status = "CA";
+            else
+            if (result == DNSB_STATUS_RECURSIVE)
+                status = "RE";
+            else
+            if (result == DNSB_STATUS_FAILURE)
+                status = "FA";
+            else
+            if (result == DNSB_STATUS_NXDOMAIN)
+                status = "NX";
+
+            // extract the source IPv4 address
+            char source[INET6_ADDRSTRLEN];
+            inet_ntop(endpoint.address.sin_family,
+                get_in_addr((struct sockaddr *)&endpoint.address), source, INET6_ADDRSTRLEN);
+
+            char resolution[INET_ADDRSTRLEN];
+            snprintf(resolution, INET_ADDRSTRLEN, "%d.%d.%d.%d",
+                DNS_IP_O1(address),
+                DNS_IP_O2(address),
+                DNS_IP_O3(address),
+                DNS_IP_O4(address));
+
+            char nameserver[INET_ADDRSTRLEN];
+            snprintf(nameserver, INET_ADDRSTRLEN, "%d.%d.%d.%d",
+                DNS_IP_O4(dnsAddress),
+                DNS_IP_O3(dnsAddress),
+                DNS_IP_O2(dnsAddress),
+                DNS_IP_O1(dnsAddress));
+
+            //lastName = request.questions[0].qname;
+            LOG_TIMED("T%d  %-15s  %s  %-15s  %-15s  %s\n",
+                num,
+                source,
+                status,
+                nameserver,
+                resolution,
+                request.questions[0].qname.c_str());
+        }
+
+        // decide whether we have to include an answer
+        if (!isBlocked && result != DNSB_STATUS_CACHE && result != DNSB_STATUS_RECURSIVE)
+        {
+            if (result == DNSB_STATUS_NXDOMAIN)
+                main_returnError(request, DNS_RCODE_NXDOMAIN, endpoint);
+            else
+                main_returnError(request, DNS_RCODE_SERVFAIL, endpoint);
+        }
+        else
+        {
+            // response message
+            BufferIO bio = BufferIO(buffer, 0, DNS_BUFFER_SIZE);
+            dns_message_t response;
+            response.header.id = request.header.id;
+            response.header.flags |= DNS_FLAG_QR;
+            if (request.header.flags & DNS_FLAG_RD)
+            {
+                response.header.flags |= DNS_FLAG_RA;
+                response.header.flags |= DNS_FLAG_RD;
+            }
+            // copy the request question
+            response.questions.push_back(request.questions[0]);
+            dns_record_t answer;
+            answer.qname = request.questions[0].qname;
+            answer.type = request.questions[0].type;
+            answer.clazz = request.questions[0].clazz;
+            answer.ttl = DNS_ANSWER_TTL;
+            answer.rdata = address;
+            response.answers.push_back(answer);
+
+            response.write(bio);
+            //sendto(socketfd, bio.buffer, bio.cursor(), 0, (struct sockaddr *) &clientAddress, addrLen);
+            main_send(endpoint, bio);
+        }
+
+        delete job;
+    }
+}
+
+
+static void main_loop()
 {
     std::string lastName;
     uint8_t buffer[DNS_BUFFER_SIZE] = { 0 };
     Endpoint endpoint;
     endpoint.socketfd = socketfd;
+    Queue pending;
+    std::mutex lock;
+    std::thread *pool[2];
+    std::condition_variable cond;
+    bool running = true;
+
+    for (size_t i = 0; i < NUM_THREADS; ++i)
+        pool[i] = new std::thread(main_process, i + 1, &pending, &lock, &cond);
 
     while (true)
     {
@@ -241,6 +424,28 @@ static void main_process()
         // parse the message
         dns_message_t request;
         request.read(bio);
+
+        // ignore messages with the number of questions other than 1
+        if (request.questions.size() != 1 || request.questions[0].type != DNS_TYPE_A)
+        {
+            main_returnError(request, DNS_RCODE_REFUSED, endpoint);
+            continue;
+        }
+
+//LOG_MESSAGE("New job   %s\n", request.questions[0].qname.c_str());
+        pending.push( new Job(endpoint, request) );
+        cond.notify_all();
+    }
+
+    cond.notify_all();
+    for (size_t i = 0; i < NUM_THREADS; ++i)
+    {
+        pool[i]->join();
+        delete pool[i];
+    }
+
+
+#if 0
         // ignore messages with the number of questions other than 1
         if (request.questions.size() != 1 || request.questions[0].type != DNS_TYPE_A)
         {
@@ -358,7 +563,7 @@ static void main_process()
             //sendto(socketfd, bio.buffer, bio.cursor(), 0, (struct sockaddr *) &clientAddress, addrLen);
             main_send(endpoint, bio);
         }
-    }
+#endif
 }
 
 #include <sys/stat.h>
@@ -544,7 +749,7 @@ int main( int argc, char** argv )
     {
         if (main_loadRules(context.blacklistFileName))
         {
-            main_process();
+            main_loop();
         }
         else
             LOG_MESSAGE("Unable to load rules from '%s'\n", context.blacklistFileName.c_str());

@@ -96,6 +96,8 @@ struct dns_message_t
     std::vector<dns_record_t> authority;
     std::vector<dns_record_t> additional;
 
+    dns_message_t();
+    void swap( dns_message_t &that );
     void read( BufferIO &bio );
     void write( BufferIO &bio );
 };

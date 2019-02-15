@@ -85,6 +85,21 @@ void dns_question_t::write(
 }
 
 
+dns_message_t::dns_message_t()
+{
+}
+
+
+void dns_message_t::swap( dns_message_t &that )
+{
+    header = that.header;
+    questions.swap(that.questions);
+    answers.swap(that.answers);
+    authority.swap(that.authority);
+    additional.swap(that.additional);
+}
+
+
 void dns_message_t::read(
     BufferIO &bio )
 {

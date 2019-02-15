@@ -24,7 +24,7 @@ class Log
 
     private:
         FILE *output;
-        std::mutex mutex;
+        std::mutex lock;
 };
 
 
