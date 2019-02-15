@@ -262,6 +262,8 @@ static uint32_t dns_time()
 
 void DNSCache::cleanup()
 {
+    std::lock_guard<std::mutex> raii(lock);
+
     uint32_t currentTime = dns_time();
     size_t count = cache.size();
 
@@ -280,6 +282,8 @@ void DNSCache::cleanup()
 
 uint32_t DNSCache::nameserver( const std::string &host )
 {
+    std::lock_guard<std::mutex> raii(lock);
+
     const Node *node = targets.match(host);
     if (node == nullptr) return defaultDNS;
     return node->value;
@@ -291,29 +295,35 @@ int DNSCache::resolve(
     uint32_t *dnsAddress,
     uint32_t *output )
 {
-    if (cache.size() > DNS_CACHE_LIMIT) cleanup();
-
     uint32_t currentTime = dns_time();
-    *dnsAddress = defaultDNS;
-    *output = 0;
 
-    auto it = cache.find(host);
-    // try to use cache information
-    if (it != cache.end())
     {
-        // check whether the cache entry still valid
-        if (currentTime <= it->second.timestamp + DNS_CACHE_TTL)
+        std::lock_guard<std::mutex> raii(lock);
+
+        if (cache.size() > DNS_CACHE_LIMIT) cleanup();
+
+        *dnsAddress = defaultDNS;
+        *output = 0;
+
+        auto it = cache.find(host);
+        // try to use cache information
+        if (it != cache.end())
         {
-            *output = it->second.address;
-            ++hits.cache;
-            it->second.timestamp = currentTime;
-            return DNSB_STATUS_CACHE;
+            // check whether the cache entry still valid
+            if (currentTime <= it->second.timestamp + DNS_CACHE_TTL)
+            {
+                *output = it->second.address;
+                ++hits.cache;
+                it->second.timestamp = currentTime;
+                return DNSB_STATUS_CACHE;
+            }
         }
+
+        // check if we have a specific DNS server for this domain
+        const Node *node = targets.match(host);
+        if (node != nullptr && node->value != 0) *dnsAddress = node->value;
     }
 
-    // check if we have a specific DNS server for this domain
-    const Node *node = targets.match(host);
-    if (node != nullptr && node->value != 0) *dnsAddress = node->value;
     // try to resolve the domain using the external DNS
     int result = recursive(host, *dnsAddress, output);
     if (result != DNSB_STATUS_RECURSIVE) return result;
@@ -326,6 +336,8 @@ int DNSCache::resolve(
 
     if (*output != 0)
     {
+        std::lock_guard<std::mutex> raii(lock);
+
         ++hits.external;
         dns_cache_t &entry = cache[host];
         entry.address = *output;
@@ -338,6 +350,8 @@ int DNSCache::resolve(
 
 void DNSCache::dump( const std::string &path )
 {
+    std::lock_guard<std::mutex> raii(lock);
+
     FILE *output = fopen(path.c_str(), "wt");
     if (output != nullptr)
     {
@@ -401,6 +415,7 @@ void DNSCache::setDefaultDNS( const std::string &dns )
 
 void DNSCache::addTarget( const std::string &rule, const std::string &dns )
 {
+    std::lock_guard<std::mutex> raii(lock);
     targets.add(rule, addressToIPv4(dns));
 }
 

@@ -10,6 +10,7 @@
 #include "log.hh"
 #include "nodes.hh"
 #include "buffer.hh"
+#include <mutex>
 
 
 #define DNS_FLAG_QR           (1 << 15) // Query/Response
@@ -136,6 +137,7 @@ struct DNSCache
             uint32_t external;
         } hits;
         int timeout;
+        std::mutex lock;
 
         int recursive( const std::string &host, uint32_t dnsAddress, uint32_t *address );
         uint32_t nameserver( const std::string &host );
