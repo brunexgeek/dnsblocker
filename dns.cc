@@ -3,10 +3,16 @@
 #include <string>
 #include <string>
 #include "log.hh"
+#include "socket.hh"
 #include <chrono>
 #include <unordered_map>
-#include <poll.h>
 #include <atomic>
+
+#ifndef __WINDOWS__
+#include <poll.h>
+#else
+typedef int ssize_t;
+#endif
 
 
 #define DNS_GET_OPCODE(x)     (uint8_t) (((x) >> 11) & 15)
@@ -167,10 +173,15 @@ void dns_record_t::read(
 }
 
 
+#ifdef __WINDOWS__
+#include <WinSock2.h>
+#include <WS2tcpip.h>
+#else
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <string.h>
 #include <unistd.h>
+#endif
 
 
 DNSCache::DNSCache(
@@ -178,7 +189,7 @@ DNSCache::DNSCache(
     int ttl,
     int timeout ) : size(size), ttl(ttl), timeout(timeout)
 {
-    defaultDNS = addressToIPv4("8.8.4.4");
+    defaultDNS = UDP::hostToIPv4("8.8.4.4");
     socketfd = socket(AF_INET, SOCK_DGRAM, 0);
     hits.cache = hits.external = 0;
 }
@@ -186,7 +197,14 @@ DNSCache::DNSCache(
 
 DNSCache::~DNSCache()
 {
-    if (socketfd > 0) close(socketfd);
+    if (socketfd > 0)
+	{
+        #ifdef __WINDOWS__
+		closesocket(socketfd);
+		#else
+		close(socketfd);
+		#endif
+	}
 }
 
 
@@ -215,29 +233,37 @@ int DNSCache::recursive(
 
 //log_message("-- message encoded\n");
     // send the query to the recursive DNS
-    struct sockaddr_in address;
+    Endpoint endpoint(dnsAddress, 53);
+	UDP conn;
+	if (!conn.send(endpoint, bio.buffer, bio.cursor())) return DNSB_STATUS_FAILURE;
+	/*struct sockaddr_in address;
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = dnsAddress;
     address.sin_port = htons(53);
-    ssize_t nbytes = sendto(socketfd, bio.buffer, bio.cursor(), 0, (struct sockaddr *) &address, sizeof(address));
-    if (nbytes <= 0) return DNSB_STATUS_FAILURE;
+    ssize_t nbytes = sendto(socketfd, (const char*) bio.buffer, bio.cursor(), 0, (struct sockaddr *) &address, sizeof(address));
+    if (nbytes <= 0) return DNSB_STATUS_FAILURE;*/
 
-    struct pollfd pfd;
+	if (!conn.poll(timeout)) return DNSB_STATUS_FAILURE;
+    /*struct pollfd pfd;
     pfd.fd = socketfd;
     pfd.events = POLLIN;
-    if (poll(&pfd, 1, timeout) <= 0) return DNSB_STATUS_FAILURE;
+    if (poll(&pfd, 1, timeout) <= 0) return DNSB_STATUS_FAILURE;*/
 
 //LOG_MESSAGE("-- message sent to 0x%08X\n", dnsAddress);
     // wait for the response
     bio.reset();
-    socklen_t length = 0;
-    nbytes = recvfrom(socketfd, bio.buffer, bio.size, 0, (struct sockaddr *) &address, &length);
+
+	if (!conn.receive(endpoint, bio.buffer, &bio.size)) return DNSB_STATUS_FAILURE;
+	/*
+	socklen_t length = 0;
+    nbytes = recvfrom(socketfd, (char*) bio.buffer, bio.size, 0, (struct sockaddr *) &address, &length);
     if (nbytes <= 0)
     {
 //LOG_MESSAGE("-- message receive failure\n");
         return DNSB_STATUS_FAILURE;
     }
 //LOG_MESSAGE("-- message received %d bytes\n", nbytes);
+	*/
 
     // decode the response
     message.read(bio);
@@ -272,7 +298,7 @@ int DNSCache::recursive(
 
 static uint32_t dns_time()
 {
-    static std::chrono::system_clock::time_point startTime = std::chrono::high_resolution_clock::now();
+    static std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
     return (uint32_t) std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - startTime).count();
 }
 
@@ -417,7 +443,7 @@ void DNSCache::dump( const std::string &path )
     }
 }
 
-
+/*
 uint32_t DNSCache::addressToIPv4( const std::string &host )
 {
     if (host.empty()) return 0;
@@ -426,18 +452,18 @@ uint32_t DNSCache::addressToIPv4( const std::string &host )
     address.sin_family = AF_INET;
     inet_pton(AF_INET, host.c_str(), &address.sin_addr);
     return (uint32_t) address.sin_addr.s_addr;
-}
+}*/
 
 
 void DNSCache::setDefaultDNS( const std::string &dns )
 {
-    defaultDNS = addressToIPv4(dns);
+    defaultDNS = UDP::hostToIPv4(dns);
 }
 
 
 void DNSCache::addTarget( const std::string &rule, const std::string &dns )
 {
     std::lock_guard<std::mutex> raii(lock);
-    targets.add(rule, addressToIPv4(dns));
+    targets.add(rule, UDP::hostToIPv4(dns));
 }
 

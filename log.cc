@@ -36,7 +36,11 @@ void Log::write(
         char timeStr[12] = { 0 };
 
         time(&rawtime);
+		#ifdef __WINDOWS__
+		localtime_s(&timeinfo, &rawtime);
+		#else
         localtime_r(&rawtime, &timeinfo);
+		#endif
         strftime(timeStr, sizeof(timeStr) - 1, "%H:%M:%S", &timeinfo);
         fprintf(output, "%s  ", timeStr);
     }

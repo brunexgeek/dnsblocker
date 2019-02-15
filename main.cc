@@ -1,33 +1,32 @@
 #define _POSIX_C_SOURCE 200112L
 
+#include "config.hh"
+
 #include <iostream>
 #include <cstdlib>
 #include <cstring>
 #include <list>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <netdb.h>
 #include <fstream>
-#include <unistd.h>
+
 #include <signal.h>
 #include <limits.h>
 #include "nodes.hh"
 #include "dns.hh"
-#include "config.hh"
+#include "socket.hh"
 #include "config.pg.hh"
 #include "log.hh"
 #include <mutex>
 #include <thread>
 #include <condition_variable>
 
-
-struct Endpoint
-{
-    int socketfd;
-    struct sockaddr_in address;
-    socklen_t length = sizeof(struct sockaddr_in);
-};
+#ifdef __WINDOWS__
+#include <Windows.h>
+#define PATH_SEPARATOR '\\'
+#else
+#include <sys/stat.h>
+#include <unistd.h>
+#define PATH_SEPARATOR '/'
+#endif
 
 
 struct Job
@@ -66,7 +65,7 @@ class Queue
 };
 
 
-static int socketfd = 0;
+static UDP *conn = nullptr;
 
 static struct
 {
@@ -78,8 +77,7 @@ static struct
     std::string bindAddress;*/
     uint32_t bindIPv4;
     //int port = 53;
-    int signal = 0;
-    bool deamonize = false;
+    bool signal = false;
     std::string logPath;
     std::string dumpPath;
     DNSCache *cache = nullptr;
@@ -110,17 +108,6 @@ static const char* getType( uint16_t type )
 }
 
 
-static uint32_t hostToIPv4( const std::string &host )
-{
-    if (host.empty()) return 0;
-
-    struct sockaddr_in address;
-    address.sin_family = AF_INET;
-    inet_pton(AF_INET, host.c_str(), &address.sin_addr);
-    return (uint32_t) address.sin_addr.s_addr;
-}
-
-
 static bool main_initialize()
 {
     if (context.config.binding().port() > 65535)
@@ -129,24 +116,16 @@ static bool main_initialize()
         return false;
     }
 
-    socketfd = socket(AF_INET, SOCK_DGRAM, 0);
-    struct sockaddr_in address;
-    address.sin_family = AF_INET;
-    if (context.config.binding().address().empty())
-        address.sin_addr.s_addr = INADDR_ANY;
-    else
+	conn = new UDP();
+	if (!conn->bind(context.config.binding().address(), (uint16_t) context.config.binding().port()))
     {
-        inet_pton(AF_INET, context.config.binding().address().c_str(), &address.sin_addr);
-        context.bindIPv4 = address.sin_addr.s_addr;
-    }
-    address.sin_port = htons( (uint16_t) context.config.binding().port());
-
-    int rbind = bind(socketfd, (struct sockaddr *) & address, sizeof(struct sockaddr_in));
-    if (rbind != 0)
-    {
-        LOG_MESSAGE("Unable to bind to %s: %s\n", context.config.binding().address().c_str(), strerror(errno));
-        close(socketfd);
-        socketfd = 0;
+        #ifdef __WINDOWS__
+		LOG_MESSAGE("Unable to bind to %s\n", context.config.binding().address().c_str());
+		#else
+		LOG_MESSAGE("Unable to bind to %s: %s\n", context.config.binding().address().c_str(), strerror(errno));
+		#endif
+        delete conn;
+		conn = nullptr;
         return false;
     }
 
@@ -171,19 +150,21 @@ static bool main_initialize()
 
 static int main_terminate()
 {
+	conn->close();
+	delete conn;
+	conn = nullptr;
     delete context.cache;
-    if (socketfd != 0) close(socketfd);
-    socketfd = 0;
+	context.cache = nullptr;
     return 0;
 }
 
-
+/*
 static void *get_in_addr(struct sockaddr *sa)
 {
     if (sa->sa_family == AF_INET)
         return &(((struct sockaddr_in*)sa)->sin_addr);
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
-}
+}*/
 
 
 bool main_loadRules(
@@ -201,12 +182,12 @@ bool main_loadRules(
     return true;
 }
 
-
+/*
 static bool main_send(
     const Endpoint &endpoint,
     BufferIO &bio )
 {
-    int result = (int) sendto(endpoint.socketfd, bio.buffer, bio.cursor(), 0,
+    int result = (int) sendto(endpoint.socketfd, (const char*) bio.buffer, bio.cursor(), 0,
         (struct sockaddr *) &endpoint.address, endpoint.length);
     return result >= 0;
 }
@@ -216,11 +197,11 @@ static bool main_receive(
     Endpoint &endpoint,
     BufferIO &bio )
 {
-    int result = (int) recvfrom(endpoint.socketfd, bio.buffer, bio.size, 0,
+    int result = (int) recvfrom(endpoint.socketfd, (char*) bio.buffer, bio.size, 0,
         (struct sockaddr *) &endpoint.address, &endpoint.length);
     if (result >= 0) bio.size = result;
     return result >= 0;
-}
+}*/
 
 
 static bool main_returnError(
@@ -236,7 +217,7 @@ static bool main_returnError(
     response.questions.push_back(request.questions[0]);
     response.header.rcode = (uint8_t) rcode;
     response.write(bio);
-    return main_send(endpoint, bio);
+    return conn->send(endpoint, bio.buffer, bio.cursor());
 }
 
 
@@ -260,7 +241,7 @@ static void main_process( int num, Queue *pending, std::mutex *lock, std::condit
     std::unique_lock<std::mutex> guard(*lock);
     //std::string lastName;
 
-    while (context.signal != SIGINT)
+    while (!context.signal)
     {
         Job *job = pending->pop();
         if (job == nullptr)
@@ -270,13 +251,14 @@ static void main_process( int num, Queue *pending, std::mutex *lock, std::condit
         }
 
         Endpoint &endpoint = job->endpoint;
+//LOG_MESSAGE("T%d Processing request from  %08X\n", num, endpoint.address);
         dns_message_t &request = job->request;
 //LOG_MESSAGE("T%d Got job   %s\n", num, request.questions[0].qname.c_str());
         uint8_t buffer[DNS_BUFFER_SIZE] = { 0 };
 
         #ifdef ENABLE_DNS_CONSOLE
         // check whether the message carry a remote command
-        if (context.bindIPv4 == endpoint.address.sin_addr.s_addr &&
+        if (context.bindIPv4 == endpoint.address &&
             request.questions[0].qname.find("@dnsblocker") != std::string::npos)
         {
             main_control(request.questions[0].qname);
@@ -324,31 +306,34 @@ static void main_process( int num, Queue *pending, std::mutex *lock, std::condit
                 status = "NX";
 
             // extract the source IPv4 address
-            char source[INET6_ADDRSTRLEN];
-            inet_ntop(endpoint.address.sin_family,
-                get_in_addr((struct sockaddr *)&endpoint.address), source, INET6_ADDRSTRLEN);
+            /*char source[24];
+            snprintf(source, sizeof(source), "%d.%d.%d.%d",
+                DNS_IP_O1(endpoint.address),
+                DNS_IP_O2(endpoint.address),
+                DNS_IP_O3(endpoint.address),
+                DNS_IP_O4(endpoint.address));
 
-            char resolution[INET_ADDRSTRLEN];
-            snprintf(resolution, INET_ADDRSTRLEN, "%d.%d.%d.%d",
+            char resolution[24];
+            snprintf(resolution, sizeof(resolution), "%d.%d.%d.%d",
                 DNS_IP_O1(address),
                 DNS_IP_O2(address),
                 DNS_IP_O3(address),
                 DNS_IP_O4(address));
 
-            char nameserver[INET_ADDRSTRLEN];
-            snprintf(nameserver, INET_ADDRSTRLEN, "%d.%d.%d.%d",
-                DNS_IP_O4(dnsAddress),
-                DNS_IP_O3(dnsAddress),
+            char nameserver[24];
+            snprintf(nameserver, sizeof(nameserver), "%d.%d.%d.%d",
+                DNS_IP_O1(dnsAddress),
                 DNS_IP_O2(dnsAddress),
-                DNS_IP_O1(dnsAddress));
+                DNS_IP_O3(dnsAddress),
+                DNS_IP_O4(dnsAddress));*/
 
             //lastName = request.questions[0].qname;
             LOG_TIMED("T%d  %-15s  %s  %-15s  %-15s  %s\n",
                 num,
-                source,
+                Endpoint::addressToString(endpoint.address).c_str(),
                 status,
-                nameserver,
-                resolution,
+                Endpoint::addressToString(dnsAddress).c_str(),
+                Endpoint::addressToString(address).c_str(),
                 request.questions[0].qname.c_str());
         }
 
@@ -384,7 +369,7 @@ static void main_process( int num, Queue *pending, std::mutex *lock, std::condit
 
             response.write(bio);
             //sendto(socketfd, bio.buffer, bio.cursor(), 0, (struct sockaddr *) &clientAddress, addrLen);
-            main_send(endpoint, bio);
+            conn->send(endpoint, bio.buffer, bio.cursor());
         }
 
         delete job;
@@ -397,7 +382,6 @@ static void main_loop()
     std::string lastName;
     uint8_t buffer[DNS_BUFFER_SIZE] = { 0 };
     Endpoint endpoint;
-    endpoint.socketfd = socketfd;
     Queue pending;
     std::mutex lock;
     std::thread *pool[2];
@@ -408,18 +392,16 @@ static void main_loop()
 
     while (true)
     {
-        if (context.signal != 0)
+        if (context.signal)
         {
-            LOG_MESSAGE("Received signal %d\n", context.signal);
-            if (context.signal == SIGUSR1) main_loadRules(context.blacklistFileName);
-            if (context.signal == SIGINT) break;
-            //if (context.signal == SIGUSR2) dns_cacheInfo();
-            context.signal = 0;
+            LOG_MESSAGE("Received signal\n");
+            break;
         }
 
         // receive the UDP message
         BufferIO bio(buffer, 0, DNS_BUFFER_SIZE);
-        if (!main_receive(endpoint, bio)) continue;
+        if (!conn->receive(endpoint, bio.buffer, &bio.size)) continue;
+//LOG_MESSAGE("Request from  %08X\n", endpoint.address);
         // parse the message
         dns_message_t request;
         request.read(bio);
@@ -444,10 +426,58 @@ static void main_loop()
     }
 }
 
-#include <sys/stat.h>
 
-static void daemonize()
+static std::string main_realPath( const std::string &path )
 {
+	if (path.empty()) return "";
+
+	#ifdef __WINDOWS__
+
+	char temp[MAX_PATH];
+	int result = GetFullPathName( path.c_str(), MAX_PATH, temp, NULL);
+	if (result == 0 || result > MAX_PATH) return "";
+	return temp;
+
+	#else
+
+    char temp[PATH_MAX];
+    if (realpath(path.c_str(), temp) == nullptr) return "";
+    return temp;
+
+	#endif
+}
+
+static void daemonize( int argc, char **argv )
+{
+	#ifdef __WINDOWS__
+
+	std::string command = main_realPath(argv[0]);
+	int flags = 0;
+	char arguments[1024];
+	strncpy_s(arguments, command.c_str(), sizeof(arguments));
+	strncat_s(arguments, " ", sizeof(arguments));
+	strncat_s(arguments, argv[1], sizeof(arguments));
+	if (argc == 3)
+	{
+		strncat_s(arguments, " ", sizeof(arguments));
+		strncat_s(arguments, argv[2], sizeof(arguments));
+		flags |= CREATE_NO_WINDOW;
+	}
+	std::cerr << "Running with '" << arguments << "'" << std::endl;
+	STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+	ZeroMemory( &si, sizeof(si) );
+    si.cb = sizeof(si);
+    ZeroMemory( &pi, sizeof(pi) );
+
+	CreateProcessA(command.c_str(), arguments, nullptr, nullptr, FALSE, flags,
+		nullptr, nullptr, &si, &pi);
+	exit(1);
+
+	#else
+
+	(void) argc;
+	(void) argv;
     pid_t pid;
 
     // fork the parent process
@@ -455,46 +485,41 @@ static void daemonize()
     if (pid < 0) exit(EXIT_FAILURE);
     if (pid > 0) exit(EXIT_SUCCESS);
 
-#if 0
-    // turn the child process the session leader
-    if (setsid() < 0) exit(EXIT_FAILURE);
-#endif
     signal(SIGCHLD, SIG_IGN);
     signal(SIGHUP, SIG_IGN);
-#if 0
-    pid = fork();
-    if (pid < 0) exit(EXIT_FAILURE);
-    if (pid > 0) exit(EXIT_SUCCESS);
 
-    umask(0);
-    chdir("/");
-#endif
     // close opened file descriptors
     for (long x = sysconf(_SC_OPEN_MAX); x>=0; x--) close ( (int) x);
 
+	#endif
 }
 
+
+#ifdef __WINDOWS__
+
+static BOOL WINAPI main_signalHandler(
+  _In_ DWORD dwCtrlType )
+{
+	(void) dwCtrlType;
+	context.signal = true;
+	return TRUE;
+}
+
+#else
 
 static void main_signalHandler(
 	int handle )
 {
 	(void) handle;
-	context.signal = handle;
+	context.signal = true;
 }
 
-
-static std::string main_realPath( const std::string &path )
-{
-    if (path.empty()) return "";
-    char temp[PATH_MAX];
-    if (realpath(path.c_str(), temp) == nullptr) return "";
-    return temp;
-}
+#endif
 
 
 void main_usage()
 {
-    std::cout << "Usage: ./dnsblocker -c <configuration> [ -l <log directory> ]\n";
+    std::cout << "Usage: dnsblocker -c <configuration> [ -l <log directory> ]\n";
     exit(EXIT_FAILURE);
 }
 
@@ -509,27 +534,18 @@ void main_parseArguments(
     int argc,
     char **argv )
 {
-    int c;
-    while ((c = getopt (argc, argv, "c:l:")) != -1)
-    {
-        switch (c)
-        {
-        case 'c':
-            context.configFileName = optarg;
-            break;
-        case 'l':
-            context.logPath = main_realPath(optarg);
-            context.logPath += '/';
-            context.logPath += LOG_FILENAME;
+	if (argc != 2 && argc != 3) main_usage();
 
-            context.dumpPath = main_realPath(optarg);
-            context.dumpPath += '/';
-            context.dumpPath += LOG_CACHE_DUMP;
-            break;
-        case '?':
-        default:
-            main_usage();
-        }
+	context.configFileName = argv[1];
+    if (argc == 3)
+	{
+        context.logPath = main_realPath(argv[2]);
+		context.logPath += PATH_SEPARATOR;
+        context.logPath += LOG_FILENAME;
+
+        context.dumpPath = main_realPath(argv[2]);
+        context.dumpPath += PATH_SEPARATOR;
+        context.dumpPath += LOG_CACHE_DUMP;
     }
 
     if (context.configFileName.empty())
@@ -548,6 +564,32 @@ Configuration main_defaultConfig()
 }
 
 
+static std::string main_basePath( const std::string &path )
+{
+	std::string result;
+
+	#ifdef __WINDOWS__
+
+	size_t pos = path.rfind('\\');
+    if (pos == std::string::npos)
+        result = ".\\";
+    else
+        result = path.substr(0, pos);
+
+	#else
+
+	size_t pos = path.rfind('/');
+    if (pos == std::string::npos)
+        result = '/';
+    else
+        result = path.substr(0, pos);
+
+	#endif
+
+    return result;
+}
+
+
 void main_prepare()
 {
     // extract the base path from the configuration file name
@@ -557,13 +599,13 @@ void main_prepare()
         LOG_MESSAGE("Invalid configuration path '%s'\n", context.configFileName.c_str());
         exit(1);
     }
-    size_t pos = context.basePath.rfind('/');
-    if (pos == std::string::npos)
-        context.basePath = '/';
-    else
-        context.basePath = context.basePath.substr(0, pos);
+    context.basePath = main_basePath(context.configFileName);
     // change the current path
-    chdir(context.basePath.c_str());
+	#ifdef __WINDOWS__
+	SetCurrentDirectory(context.basePath.c_str());
+	#else
+	chdir(context.basePath.c_str());
+	#endif
 
     context.config = main_defaultConfig();
 
@@ -602,13 +644,16 @@ int main( int argc, char** argv )
 {
     main_parseArguments(argc, argv);
 
-    if (context.deamonize) daemonize();
+    if (context.config.demonize()) daemonize(argc, argv);
     Log::instance = new Log( context.logPath.c_str() );
 
     LOG_MESSAGE("DNS Blocker %d.%d.%d\n", MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION);
 
     main_prepare();
 
+    #ifdef __WINDOWS__
+    //SetConsoleCtrlHandler(main_signalHandler, TRUE);
+    #else
     // install the signal handler to stop the server with CTRL + C
     struct sigaction act;
     sigemptyset(&act.sa_mask);
@@ -620,6 +665,7 @@ int main( int argc, char** argv )
     sigaction(SIGUSR2, &act, NULL);
     sigaction(SIGUSR1, &act, NULL);
     sigaction(SIGINT, &act, NULL);
+    #endif
 
     if (main_initialize())
     {

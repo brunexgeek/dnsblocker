@@ -71,9 +71,10 @@ find_package(Threads)
 configure_file("config.hh.in" "${CMAKE_CURRENT_LIST_DIR}/config.hh")
 
 add_executable(dnsblocker
-    "${CMAKE_CURRENT_LIST_DIR}/main.cc"
+    "${CMAKE_CURRENT_LIST_DIR}/socket.cc"
+	"${CMAKE_CURRENT_LIST_DIR}/main.cc"
     "${CMAKE_CURRENT_LIST_DIR}/nodes.cc"
-    "${CMAKE_CURRENT_LIST_DIR}/log.cc"
+    "${CMAKE_CURRENT_LIST_DIR}/log.cc"	
     "${CMAKE_CURRENT_LIST_DIR}/buffer.cc"
     "${CMAKE_CURRENT_LIST_DIR}/dns.cc")
 target_compile_definitions(dnsblocker PRIVATE _DEFAULT_SOURCE)
