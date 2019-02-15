@@ -341,10 +341,12 @@ int DNSCache::resolve(
 
     // try to resolve the domain using the external DNS
     int result = recursive(host, *dnsAddress, output);
-    if (result != DNSB_STATUS_RECURSIVE) return result;
+    if (result != DNSB_STATUS_RECURSIVE && *dnsAddress == defaultDNS)
+        return result;
     // if the previous resolution failed, try again using the default DNS server
-    if (result == DNSB_STATUS_FAILURE && *dnsAddress != defaultDNS)
+    if (result == DNSB_STATUS_FAILURE)
     {
+        *dnsAddress = defaultDNS;
         result = recursive(host, defaultDNS, output);
         if (result != DNSB_STATUS_RECURSIVE) return result;
     }
