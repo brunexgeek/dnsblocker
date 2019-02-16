@@ -116,6 +116,7 @@ static bool main_initialize()
         return false;
     }
 
+    context.bindIPv4 = UDP::hostToIPv4(context.config.binding().address());
 	conn = new UDP();
 	if (!conn->bind(context.config.binding().address(), (uint16_t) context.config.binding().port()))
     {

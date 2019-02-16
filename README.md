@@ -18,9 +18,31 @@ cmake ..
 make && sudo make install
 ```
 
-## Rules
+## Configuration
 
-Before starting the DNS server, you need a text file containing rules. Rules are domain names you want to block, one per line. It's possible to use an asterisk (*) to match any subdomains and two asterisks (**) to match any subdomains and the domain itself.
+To configure parameters of `dnsblocker` you use pairs of key-value stored in a JSON file.
+
+* **blacklist** &ndash; Path to the blacklist file.
+* **binding** &ndash; Specify the IPv4 address and port for the program to bind with.
+* **external_dns** &ndash; Specify external DNS servers to be used by recursive queries. The last entry without targets will be the default DNS server. Entries with targets will be used only if the domain name being queried match one of the expressions.
+
+```json
+{
+    "blacklist" : "blacklist.txt",
+    "binding" : {
+        "address": "127.0.0.2",
+        "port" : 53
+    },
+    "external_dns" : [
+        { "address" : "8.8.4.4" },
+        { "address" : "192.168.0.20", "targets" : [ "**.example.com" ] }
+    ]
+}
+```
+
+## Blacklist
+
+The blacklist file contain rules to define blocked domains. Rules are expressions and each line of the blacklist define a singel rule. It's possible to use an asterisk (*) to match any subdomains and two asterisks (**) to match any subdomains and the domain itself.
 
 ```
 google.com
@@ -35,21 +57,34 @@ bing.com
 *.bing.com
 ```
 
-Domain names can contain the following characters: ASCII letters, numbers, dashes (-) and periods (.). Asterisks must appear only at the beginning of the rule and must be followed by a periods.
+Domain names can contain the following characters: ASCII letters, numbers, dashes (-) and periods (.). Asterisks must appear only as the first characters of the rule and must be followed by a periods.
 
 ## Running
 
-Once you have a file with rules, just run ``dnsblocker``:
+Once you have the configuration file and the blacklist, just run ``dnsblocker``:
 
 ```
-# dnsblocker 192.168.0.1 53 rules.txt
+# dnsblocker config.json /var/log/
 ```
 
-The first argument is the IP address the server should bind with; the second argument is the UDP port to be used (53 is the standard DNS port); and the third argument is the path to the file containing the rules.
+The first argument is the path to the configuration file and the second argument is the path where the log file must be written. The second argument is optional.
 
-The program will run as a daemon and output information in a log file at ``/var/log/dnsblocker.log``. To stop the program, send ``SIGTERM`` signal with the command ``kill`` or ``pkill``. You can also send ``SIGUSR1`` signal to reload the rules.
+To stop the program, send ``SIGTERM`` signal with the command ``kill`` or ``pkill``.
+
+## Console
+
+You can use the `dig` or `nslookup` to send the following special *commands* to `nsblocker`. These commands will be executed only if the request comes from the same IP address as the binding address.
+
+* **reload@dnsblocker** &ndash; Reload the blacklist.
+* **dump@dnsblocker** &ndash; Dump the cache entries to the file `dnsblocker.cache` in the same location of the log file.
+
+Example:
+
+```
+# dig reload@dnsblocker
+```
 
 ## Limitations
 
 * This is a prototype code and many exceptional conditions are not properly handled.
-* Only the required parts of DNS protocol as implemented.
+* Only the required parts of DNS protocol are implemented.
