@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
-#include "config.hh"
+#include "defs.hh"
 #include "log.hh"
 #include "nodes.hh"
 #include "buffer.hh"

@@ -1,6 +1,6 @@
 #define _POSIX_C_SOURCE 200112L
 
-#include "config.hh"
+#include "defs.hh"
 
 #include <iostream>
 #include <cstdlib>
@@ -557,7 +557,7 @@ void main_parseArguments(
 Configuration main_defaultConfig()
 {
     Configuration config;
-    config.demonize(false);
+    config.daemon(false);
     config.binding().port(53);
     config.binding().address("127.0.0.2");
 
@@ -645,7 +645,7 @@ int main( int argc, char** argv )
 {
     main_parseArguments(argc, argv);
 
-    if (context.config.demonize()) daemonize(argc, argv);
+    if (context.config.daemon()) daemonize(argc, argv);
     Log::instance = new Log( context.logPath.c_str() );
 
     LOG_MESSAGE("DNS Blocker %d.%d.%d\n", MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION);

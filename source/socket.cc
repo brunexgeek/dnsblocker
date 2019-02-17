@@ -1,4 +1,4 @@
-#include "config.hh"
+#include "defs.hh"
 #include "socket.hh"
 
 #ifndef __WINDOWS__

@@ -1,5 +1,5 @@
 #include "log.hh"
-#include "config.hh"
+#include "defs.hh"
 #include <time.h>
 #include <stdarg.h>
 #include <limits.h>
