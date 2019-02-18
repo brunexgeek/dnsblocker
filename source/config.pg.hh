@@ -1023,6 +1023,8 @@ public:
 	#define PROTOGEN_FN_daemon "daemon"
 	#undef PROTOGEN_FN_blacklist
 	#define PROTOGEN_FN_blacklist "blacklist"
+	#undef PROTOGEN_FN_monitoring
+	#define PROTOGEN_FN_monitoring "monitoring"
 	static const int EXTERNAL_DNS_NO = 1;
 	PROTOGEN_NS::RepeatedField< ::NameServer> external_dns;
 	static const int BINDING_NO = 3;
@@ -1031,6 +1033,8 @@ public:
 	PROTOGEN_NS::Field<bool> daemon;
 	static const int BLACKLIST_NO = 5;
 	PROTOGEN_NS::Field<std::string> blacklist;
+	static const int MONITORING_NO = 6;
+	PROTOGEN_NS::Field<bool> monitoring;
 	Configuration() {}
 	~Configuration() {}
 	Configuration(const Configuration &that) { *this = that; }
@@ -1040,6 +1044,7 @@ public:
 		this->binding.swap(that.binding);
 		this->daemon = that.daemon;
 		this->blacklist = that.blacklist;
+		this->monitoring = that.monitoring;
 	}
 	#endif
 	Configuration &operator=(const Configuration &that) {
@@ -1047,6 +1052,7 @@ public:
 		this->binding = that.binding;
 		this->daemon = that.daemon;
 		this->blacklist = that.blacklist;
+		this->monitoring = that.monitoring;
 		return *this;
 	}
 	void swap(Configuration &that) {
@@ -1054,20 +1060,23 @@ public:
 		this->binding.swap(that.binding);
 		this->daemon.swap(that.daemon);
 		this->blacklist.swap(that.blacklist);
+		this->monitoring.swap(that.monitoring);
 	}
 	bool operator==(const Configuration &that) const {
 		return
 			this->external_dns == that.external_dns &&
 			this->binding == that.binding &&
 			this->daemon == that.daemon &&
-			this->blacklist == that.blacklist;
+			this->blacklist == that.blacklist &&
+			this->monitoring == that.monitoring;
 	}
 	bool undefined() const {
 		return
 			this->external_dns.undefined() &&
 			this->binding.undefined() &&
 			this->daemon.undefined() &&
-			this->blacklist.undefined();
+			this->blacklist.undefined() &&
+			this->monitoring.undefined();
 	}
 	void serialize( std::string &out ) const {
 		std::stringstream ss;
@@ -1091,6 +1100,8 @@ public:
 		if (!this->daemon.undefined()) PROTOGEN_NS::json::write(out, first, PROTOGEN_FN_daemon, this->daemon());
 		// blacklist
 		if (!this->blacklist.undefined()) PROTOGEN_NS::json::write(out, first, PROTOGEN_FN_blacklist, this->blacklist());
+		// monitoring
+		if (!this->monitoring.undefined()) PROTOGEN_NS::json::write(out, first, PROTOGEN_FN_monitoring, this->monitoring());
 		out << '}';
 	}
 	bool deserialize( std::istream &in, bool required = false, PROTOGEN_NS::ErrorInfo *err = NULL ) {
@@ -1123,7 +1134,7 @@ public:
 		if (in.get() != '{') PROTOGEN_REG(err, in, "Invalid object");
 		in.skipws();
 		std::string name;
-		bool hfld[4] = {false};
+		bool hfld[5] = {false};
 		while (true) {
 			if (in.get() == '}') break;
 			in.unget();
@@ -1161,6 +1172,15 @@ public:
 				hfld[3] = true;
 			}
 			else
+			// monitoring
+			if (name == PROTOGEN_FN_monitoring) {
+				bool value;
+				if (!PROTOGEN_NS::traits<bool>::read(in, value)) PROTOGEN_REV(err, in, name, "bool");
+				this->monitoring(value);
+				if (!PROTOGEN_NS::json::next(in)) PROTOGEN_REI(err, in, name);
+				hfld[4] = true;
+			}
+			else
 			// ignore the current field
 			{
 				if (!PROTOGEN_NS::json::ignore(in)) PROTOGEN_REI(err, in, name);
@@ -1172,6 +1192,7 @@ public:
 			if (!hfld[1]) PROTOGEN_REM(err, in, "binding");
 			if (!hfld[2]) PROTOGEN_REM(err, in, "daemon");
 			if (!hfld[3]) PROTOGEN_REM(err, in, "blacklist");
+			if (!hfld[4]) PROTOGEN_REM(err, in, "monitoring");
 		}
 		return true;
 	}
@@ -1180,6 +1201,7 @@ public:
 		this->binding.clear();
 		this->daemon.clear();
 		this->blacklist.clear();
+		this->monitoring.clear();
 	}
 };
 PROTOGEN_TRAIT_MACRO( ::Configuration)
@@ -1188,6 +1210,7 @@ PROTOGEN_FIELD_TEMPLATE( ::Configuration)
 #undef PROTOGEN_FN_binding
 #undef PROTOGEN_FN_daemon
 #undef PROTOGEN_FN_blacklist
+#undef PROTOGEN_FN_monitoring
 #undef PROTOGEN_OBFUSCATE_STRINGS
 #undef PROTOGEN_CPP_ENABLE_PARENT
 #undef PROTOGEN_CPP_ENABLE_ERRORS

@@ -19,4 +19,5 @@ message Configuration
     Binding binding = 3;
     bool daemon = 4;
     string blacklist = 5;
+    bool monitoring = 6;
 }

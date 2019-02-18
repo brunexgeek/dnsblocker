@@ -159,14 +159,6 @@ static int main_terminate()
     return 0;
 }
 
-/*
-static void *get_in_addr(struct sockaddr *sa)
-{
-    if (sa->sa_family == AF_INET)
-        return &(((struct sockaddr_in*)sa)->sin_addr);
-    return &(((struct sockaddr_in6*)sa)->sin6_addr);
-}*/
-
 
 bool main_loadRules(
     const std::string &fileName )
@@ -182,27 +174,6 @@ bool main_loadRules(
 
     return true;
 }
-
-/*
-static bool main_send(
-    const Endpoint &endpoint,
-    BufferIO &bio )
-{
-    int result = (int) sendto(endpoint.socketfd, (const char*) bio.buffer, bio.cursor(), 0,
-        (struct sockaddr *) &endpoint.address, endpoint.length);
-    return result >= 0;
-}
-
-
-static bool main_receive(
-    Endpoint &endpoint,
-    BufferIO &bio )
-{
-    int result = (int) recvfrom(endpoint.socketfd, (char*) bio.buffer, bio.size, 0,
-        (struct sockaddr *) &endpoint.address, &endpoint.length);
-    if (result >= 0) bio.size = result;
-    return result >= 0;
-}*/
 
 
 static bool main_returnError(
@@ -290,52 +261,33 @@ static void main_process( int num, Queue *pending, std::mutex *lock, std::condit
         else
             address = DNS_BLOCKED_ADDRESS;
 
-        // print some information about the request
-        //if (lastName != request.questions[0].qname)
+        if (context.config.monitoring())
         {
-            const char *status = "DE";
-            if (result == DNSB_STATUS_CACHE)
-                status = "CA";
-            else
-            if (result == DNSB_STATUS_RECURSIVE)
-                status = "RE";
-            else
-            if (result == DNSB_STATUS_FAILURE)
-                status = "FA";
-            else
-            if (result == DNSB_STATUS_NXDOMAIN)
-                status = "NX";
+            // print some information about the request
+            //if (lastName != request.questions[0].qname)
+            {
+                const char *status = "DE";
+                if (result == DNSB_STATUS_CACHE)
+                    status = "CA";
+                else
+                if (result == DNSB_STATUS_RECURSIVE)
+                    status = "RE";
+                else
+                if (result == DNSB_STATUS_FAILURE)
+                    status = "FA";
+                else
+                if (result == DNSB_STATUS_NXDOMAIN)
+                    status = "NX";
 
-            // extract the source IPv4 address
-            /*char source[24];
-            snprintf(source, sizeof(source), "%d.%d.%d.%d",
-                DNS_IP_O1(endpoint.address),
-                DNS_IP_O2(endpoint.address),
-                DNS_IP_O3(endpoint.address),
-                DNS_IP_O4(endpoint.address));
-
-            char resolution[24];
-            snprintf(resolution, sizeof(resolution), "%d.%d.%d.%d",
-                DNS_IP_O1(address),
-                DNS_IP_O2(address),
-                DNS_IP_O3(address),
-                DNS_IP_O4(address));
-
-            char nameserver[24];
-            snprintf(nameserver, sizeof(nameserver), "%d.%d.%d.%d",
-                DNS_IP_O1(dnsAddress),
-                DNS_IP_O2(dnsAddress),
-                DNS_IP_O3(dnsAddress),
-                DNS_IP_O4(dnsAddress));*/
-
-            //lastName = request.questions[0].qname;
-            LOG_TIMED("T%d  %-15s  %s  %-15s  %-15s  %s\n",
-                num,
-                Endpoint::addressToString(endpoint.address).c_str(),
-                status,
-                Endpoint::addressToString(dnsAddress).c_str(),
-                Endpoint::addressToString(address).c_str(),
-                request.questions[0].qname.c_str());
+                //lastName = request.questions[0].qname;
+                LOG_TIMED("T%d  %-15s  %s  %-15s  %-15s  %s\n",
+                    num,
+                    Endpoint::addressToString(endpoint.address).c_str(),
+                    status,
+                    Endpoint::addressToString(dnsAddress).c_str(),
+                    Endpoint::addressToString(address).c_str(),
+                    request.questions[0].qname.c_str());
+            }
         }
 
         // decide whether we have to include an answer
@@ -558,6 +510,7 @@ Configuration main_defaultConfig()
 {
     Configuration config;
     config.daemon(false);
+    config.monitoring(false);
     config.binding().port(53);
     config.binding().address("127.0.0.2");
 
