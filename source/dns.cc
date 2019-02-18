@@ -344,9 +344,9 @@ int DNSCache::resolve(
     uint32_t currentTime = dns_time();
 
     {
-        std::lock_guard<std::mutex> raii(lock);
-
         if (cache.size() > DNS_CACHE_LIMIT) cleanup(DNS_CACHE_TTL - DNS_CACHE_TTL / 4);
+
+		std::lock_guard<std::mutex> raii(lock);
 
         *dnsAddress = defaultDNS;
         *output = 0;
