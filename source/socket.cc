@@ -138,11 +138,14 @@ UDP::UDP()
 
 UDP::~UDP()
 {
+	close();
 }
 
 
 void UDP::close()
 {
+	if (CTX.socketfd == 0) return;
+
     #ifdef __WINDOWS__
 	closesocket(CTX.socketfd);
 	#else
