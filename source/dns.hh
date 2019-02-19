@@ -124,10 +124,8 @@ struct DNSCache
         void cleanup( uint32_t ttl );
         void setDefaultDNS( const std::string &dns );
         void addTarget( const std::string &rule, const std::string &dns );
-        //static uint32_t addressToIPv4( const std::string &host );
 
     private:
-        int socketfd;
         int size;
         int ttl;
         uint32_t defaultDNS;

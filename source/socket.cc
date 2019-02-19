@@ -139,6 +139,7 @@ UDP::UDP()
 UDP::~UDP()
 {
 	close();
+	delete (Context*) ctx;
 }
 
 

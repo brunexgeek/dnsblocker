@@ -190,21 +190,12 @@ DNSCache::DNSCache(
     int timeout ) : size(size), ttl(ttl), timeout(timeout)
 {
     defaultDNS = UDP::hostToIPv4("8.8.4.4");
-    socketfd = socket(AF_INET, SOCK_DGRAM, 0);
     hits.cache = hits.external = 0;
 }
 
 
 DNSCache::~DNSCache()
 {
-    if (socketfd > 0)
-	{
-        #ifdef __WINDOWS__
-		closesocket(socketfd);
-		#else
-		close(socketfd);
-		#endif
-	}
 }
 
 
@@ -229,41 +220,18 @@ int DNSCache::recursive(
     // encode the message
     BufferIO bio(DNS_BUFFER_SIZE);
     message.write(bio);
-//log_message("Message encoded in %d bytes \n", bio.cursor());
 
-//log_message("-- message encoded\n");
     // send the query to the recursive DNS
     Endpoint endpoint(dnsAddress, 53);
 	UDP conn;
 	if (!conn.send(endpoint, bio.buffer, bio.cursor())) return DNSB_STATUS_FAILURE;
-	/*struct sockaddr_in address;
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = dnsAddress;
-    address.sin_port = htons(53);
-    ssize_t nbytes = sendto(socketfd, (const char*) bio.buffer, bio.cursor(), 0, (struct sockaddr *) &address, sizeof(address));
-    if (nbytes <= 0) return DNSB_STATUS_FAILURE;*/
 
 	if (!conn.poll(timeout)) return DNSB_STATUS_FAILURE;
-    /*struct pollfd pfd;
-    pfd.fd = socketfd;
-    pfd.events = POLLIN;
-    if (poll(&pfd, 1, timeout) <= 0) return DNSB_STATUS_FAILURE;*/
 
-//LOG_MESSAGE("-- message sent to 0x%08X\n", dnsAddress);
     // wait for the response
     bio.reset();
 
 	if (!conn.receive(endpoint, bio.buffer, &bio.size)) return DNSB_STATUS_FAILURE;
-	/*
-	socklen_t length = 0;
-    nbytes = recvfrom(socketfd, (char*) bio.buffer, bio.size, 0, (struct sockaddr *) &address, &length);
-    if (nbytes <= 0)
-    {
-//LOG_MESSAGE("-- message receive failure\n");
-        return DNSB_STATUS_FAILURE;
-    }
-//LOG_MESSAGE("-- message received %d bytes\n", nbytes);
-	*/
 
     // decode the response
     message.read(bio);
@@ -276,11 +244,6 @@ int DNSCache::recursive(
 
         for (auto it = message.answers.begin(); it != message.answers.end(); ++it)
             if (it->type == DNS_TYPE_A) *output = it->rdata;
-        //if (*output == 0) LOG_MESSAGE("-- no type A entry found\n");
-    }
-    else
-    {
-        //LOG_MESSAGE("-- response do not met the requirements\n");
     }
 
 #if 0
