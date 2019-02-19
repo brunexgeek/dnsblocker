@@ -132,7 +132,7 @@ struct DNSCache
         int ttl;
         uint32_t defaultDNS;
         std::unordered_map<std::string, dns_cache_t> cache;
-        Tree targets;
+        Tree<uint32_t> targets;
         struct
         {
             uint32_t cache;

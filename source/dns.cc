@@ -330,7 +330,7 @@ uint32_t DNSCache::nameserver( const std::string &host )
 {
     std::lock_guard<std::mutex> raii(lock);
 
-    const Node *node = targets.match(host);
+    const Node<uint32_t> *node = targets.match(host);
     if (node == nullptr) return defaultDNS;
     return node->value;
 }
@@ -366,7 +366,7 @@ int DNSCache::resolve(
         }
 
         // check if we have a specific DNS server for this domain
-        const Node *node = targets.match(host);
+        const Node<uint32_t> *node = targets.match(host);
         if (node != nullptr && node->value != 0) *dnsAddress = node->value;
     }
 

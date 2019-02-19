@@ -71,8 +71,8 @@ static struct
 {
     std::string basePath;
     std::string blacklistFileName;
-    Tree blacklist;
-    Tree nameserver;
+    Tree<uint32_t> blacklist;
+    Tree<uint32_t> nameserver;
     /*std::string externalDNS;
     std::string bindAddress;*/
     uint32_t bindIPv4;
