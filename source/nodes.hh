@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <iostream>
 #include <fstream>
+#include <vector>
 #include <cstring>
 #include "log.hh"
 
@@ -12,23 +13,23 @@ int charToIndex( char c );
 char indexToChar( int index );
 char *prepareHostname( char *host );
 
+
 template<typename T>
 struct Node
 {
-    static const int TERMINAL = 1; // this node is a terminal symbol
-    static const int WILDCARD = 2; // denote a wildcard
+    static const uint16_t TERMINAL = 1; // this node is a terminal symbol
+    static const uint16_t WILDCARD = 2; // denote a wildcard
     static const int SLOTS    = 38; // 26 letters, 10 digits, dash and dot
     static const int MAX_HOST_LENGTH = 512;
 
-    Node<T> *slots[SLOTS];
-    int flags = 0;
+    uint16_t slots[SLOTS];
+    uint16_t flags = 0;
     T value;
 
-    Node( T value = 0 );
+    Node();
     ~Node();
-    bool add( const std::string &host, uint32_t value, size_t *allocated = nullptr );
-    const Node<T> *match( const std::string &host ) const;
 };
+
 
 
 template<typename T>
@@ -42,21 +43,19 @@ class Tree
         bool load( const std::string &fileName );
         uint32_t size() const;
         size_t memory() const;
-        bool add( const std::string &host, uint32_t value );
+        bool add( const std::string &target, T value );
         const Node<T> *match( const std::string &host ) const;
 
     private:
-        Node<T> root;
-        uint32_t counter;
-        size_t allocated;
+        Node<T> *root;
+        std::vector< Node<T> > nodes;
 };
 
 
 template<typename T>
-Node<T>::Node( T value )
+Node<T>::Node()
 {
     memset(slots, 0, sizeof(slots));
-    this->value = value;
     flags = 0;
 }
 
@@ -64,94 +63,14 @@ Node<T>::Node( T value )
 template<typename T>
 Node<T>::~Node()
 {
-    for (size_t i = 0; i < SLOTS; ++i)
-    delete slots[i];
 }
 
 
 template<typename T>
-bool Node<T>::add( const std::string &host, uint32_t value, size_t *allocated )
+Tree<T>::Tree()
 {
-    if (host.empty() || host.length() > MAX_HOST_LENGTH) return false;
-
-    char temp[MAX_HOST_LENGTH + 1] = { 0 };
-    strcpy(temp, host.c_str());
-
-    bool isWildcard = false;
-    // '*' and '**' must precede a period
-    if (temp[0] == '*')
-    {
-        isWildcard = true;
-
-        // if we have a 'double star', add the domain itself
-        if (temp[1] == '*' && temp[2] == '.')
-            add(temp + 3, value, allocated);
-        else
-        if (temp[1] != '.')
-            return false;
-    }
-
-    // preprocess the host name
-    char *ptr = prepareHostname(temp);
-    if (ptr == nullptr) return false;
-
-    Node *next = this;
-    for (;*ptr != 0; ++ptr)
-    {
-        int idx = charToIndex(*ptr);
-        if (next->slots[idx] == nullptr)
-        {
-            next = next->slots[idx] = new Node();
-            if (allocated != nullptr) *allocated += sizeof(Node);
-        }
-        else
-        {
-            next = next->slots[idx];
-            if (next->flags & Node::WILDCARD) return true;
-        }
-    }
-    next->flags |= Node::TERMINAL;
-    next->value = value;
-    if (isWildcard) next->flags |= Node::WILDCARD;
-
-    return true;
-}
-
-
-template<typename T>
-const Node<T> *Node<T>::match( const std::string &host ) const
-{
-    if (host.empty() || host.length() > MAX_HOST_LENGTH) return nullptr;
-
-    char temp[MAX_HOST_LENGTH + 1] = { 0 };
-    strcpy(temp, host.c_str());
-
-    // preprocess the host name
-    char *ptr = prepareHostname(temp);
-    if (ptr == nullptr) return nullptr;
-
-    const Node *next = this;
-    for (;*ptr != 0; ++ptr)
-    {
-        if (next->flags & Node::WILDCARD) return next;
-
-        int idx = charToIndex(*ptr);
-        if (next->slots[idx] == nullptr)
-            return nullptr;
-        else
-            next = next->slots[idx];
-    }
-
-    if ((next->flags & Node::TERMINAL) != 0)
-        return next;
-    else
-        return nullptr;
-}
-
-
-template<typename T>
-Tree<T>::Tree() : counter(0), allocated(0)
-{
+    nodes.resize(1);
+    root = &nodes.front();
 }
 
 
@@ -180,7 +99,7 @@ bool Tree<T>::load(
             while (*ptr == ' ') ++ptr;
             if (*ptr == '#') continue;
 
-            if (root.add(line, ++counter, &allocated))
+            if (add(line, 0))
             {
                 LOG_MESSAGE("  Added '%s'\n", line.c_str());
             }
@@ -199,28 +118,102 @@ bool Tree<T>::load(
 template<typename T>
 uint32_t Tree<T>::size() const
 {
-    return counter;
+    return (uint32_t) nodes.size();
 }
 
 
 template<typename T>
 size_t Tree<T>::memory() const
 {
-    return allocated;
+    return sizeof(Node<T>) * nodes.size() + sizeof(Tree<T>);
 }
 
 
 template<typename T>
-bool Tree<T>::add( const std::string &host, uint32_t id )
+bool Tree<T>::add( const std::string &target, T value )
 {
-    return root.add(host, id);
+    if (target.empty() || target.length() > Node<T>::MAX_HOST_LENGTH) return false;
+
+    char temp[Node<T>::MAX_HOST_LENGTH + 1] = { 0 };
+    strcpy(temp, target.c_str());
+
+    bool isWildcard = false;
+    // '*' and '**' must precede a period
+    if (temp[0] == '*')
+    {
+        isWildcard = true;
+
+        // if we have a 'double star', add the domain itself
+        if (temp[1] == '*' && temp[2] == '.')
+            add(temp + 3, value);
+        else
+        if (temp[1] != '.')
+            return false;
+    }
+
+    // preprocess the host name
+    char *ptr = prepareHostname(temp);
+    if (ptr == nullptr) return false;
+
+    uint16_t current = 0;
+    #define CURRENT  (nodes[current])
+
+    for (;*ptr != 0; ++ptr)
+    {
+        int idx = charToIndex(*ptr);
+        if (CURRENT.slots[idx] == 0)
+        {
+            nodes.resize(nodes.size() + 1);
+            uint16_t temp = (uint16_t) (nodes.size() - 1);
+            CURRENT.slots[idx] = temp;
+            current = temp;
+        }
+        else
+        {
+            current = CURRENT.slots[idx];
+            if (CURRENT.flags & Node<T>::WILDCARD) return false;
+        }
+    }
+    CURRENT.flags |= Node<T>::TERMINAL;
+    CURRENT.value = value;
+    if (isWildcard) CURRENT.flags |= Node<T>::WILDCARD;
+
+    #undef CURRENT
+
+    return true;
 }
 
 
 template<typename T>
-const Node<T> *Tree<T>::match( const std::string &host ) const
+const Node<T> *Tree<T>::match( const std::string &target ) const
 {
-    return root.match(host);
+    if (target.empty() || target.length() > Node<T>::MAX_HOST_LENGTH) return nullptr;
+
+    char temp[Node<T>::MAX_HOST_LENGTH + 1] = { 0 };
+    strcpy(temp, target.c_str());
+
+    // preprocess the host name
+    char *ptr = prepareHostname(temp);
+    if (ptr == nullptr) return nullptr;
+
+    uint16_t current = 0;
+    #define CURRENT  (nodes[current])
+
+    for (;*ptr != 0; ++ptr)
+    {
+        if (CURRENT.flags & Node<T>::WILDCARD) return &CURRENT;
+
+        int idx = charToIndex(*ptr);
+        current = CURRENT.slots[idx];
+        if (current == 0) return nullptr;
+    }
+
+    if ((CURRENT.flags & Node<T>::TERMINAL) != 0)
+        return &CURRENT;
+    else
+        return nullptr;
+
+    #undef CURRENT
 }
 
 

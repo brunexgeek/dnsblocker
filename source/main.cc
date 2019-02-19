@@ -71,7 +71,7 @@ static struct
 {
     std::string basePath;
     std::string blacklistFileName;
-    Tree<uint32_t> blacklist;
+    Tree<uint8_t> blacklist;
     Tree<uint32_t> nameserver;
     /*std::string externalDNS;
     std::string bindAddress;*/
@@ -596,6 +596,10 @@ void main_prepare()
 
 int main( int argc, char** argv )
 {
+    /*Node<uint8_t> a;
+    Node<uint32_t> b;
+    std::cerr << sizeof(a) << ' ' << sizeof(b) << std::endl;
+    return 1;*/
     main_parseArguments(argc, argv);
 
     if (context.config.daemon()) daemonize(argc, argv);
