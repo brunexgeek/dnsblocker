@@ -7,6 +7,7 @@
 #include <vector>
 #include <cstring>
 #include "log.hh"
+#include <dns-blocker/errors.hh>
 
 
 int charToIndex( char c );
@@ -23,32 +24,11 @@ struct Node
     static const int MAX_HOST_LENGTH = 512;
 
     uint16_t slots[SLOTS];
-    uint16_t flags = 0;
+    uint16_t flags;
     T value;
 
     Node();
     ~Node();
-};
-
-
-
-template<typename T>
-class Tree
-{
-    public:
-        Tree();
-        ~Tree();
-        Tree( const Tree &that ) = delete;
-        Tree( Tree &&that ) = delete;
-        bool load( const std::string &fileName );
-        uint32_t size() const;
-        size_t memory() const;
-        bool add( const std::string &target, T value );
-        const Node<T> *match( const std::string &host ) const;
-
-    private:
-        Node<T> *root;
-        std::vector< Node<T> > nodes;
 };
 
 
@@ -67,51 +47,35 @@ Node<T>::~Node()
 
 
 template<typename T>
+class Tree
+{
+    public:
+        Tree();
+        ~Tree();
+        Tree( const Tree &that ) = delete;
+        Tree( Tree &&that ) = delete;
+        uint32_t size() const;
+        size_t memory() const;
+        int add( const std::string &target, T value );
+        const Node<T> *match( const std::string &host ) const;
+        void clear();
+
+    private:
+        Node<T> *root;
+        std::vector< Node<T> > nodes;
+};
+
+
+template<typename T>
 Tree<T>::Tree()
 {
-    nodes.resize(1);
-    root = &nodes.front();
+    clear();
 }
 
 
 template<typename T>
 Tree<T>::~Tree()
 {
-}
-
-
-template<typename T>
-bool Tree<T>::load(
-    const std::string &fileName )
-{
-    std::ifstream rules(fileName.c_str());
-    if (rules.good())
-    {
-        std::string line;
-
-        while (!rules.eof())
-        {
-            std::getline(rules, line);
-            if (line.empty()) continue;
-
-            // we have a comment?
-            const char *ptr = line.c_str();
-            while (*ptr == ' ') ++ptr;
-            if (*ptr == '#') continue;
-
-            if (add(line, 0))
-            {
-                LOG_MESSAGE("  Added '%s'\n", line.c_str());
-            }
-            else
-                LOG_MESSAGE("  Invalid rule '%s'\n", line.c_str());
-        }
-
-        rules.close();
-        return true;
-    }
-
-    return false;
 }
 
 
@@ -130,9 +94,9 @@ size_t Tree<T>::memory() const
 
 
 template<typename T>
-bool Tree<T>::add( const std::string &target, T value )
+int Tree<T>::add( const std::string &target, T value )
 {
-    if (target.empty() || target.length() > Node<T>::MAX_HOST_LENGTH) return false;
+    if (target.empty() || target.length() > Node<T>::MAX_HOST_LENGTH) return DNSBERR_INVALID_ARGUMENT;
 
     char temp[Node<T>::MAX_HOST_LENGTH + 1] = { 0 };
     strcpy(temp, target.c_str());
@@ -145,15 +109,18 @@ bool Tree<T>::add( const std::string &target, T value )
 
         // if we have a 'double star', add the domain itself
         if (temp[1] == '*' && temp[2] == '.')
-            add(temp + 3, value);
+        {
+            int result = add(temp + 3, value);
+            if (result != DNSBERR_OK) return result;
+        }
         else
         if (temp[1] != '.')
-            return false;
+            return DNSBERR_INVALID_RULE;
     }
 
     // preprocess the host name
     char *ptr = prepareHostname(temp);
-    if (ptr == nullptr) return false;
+    if (ptr == nullptr) return DNSBERR_INVALID_ARGUMENT;
 
     uint16_t current = 0;
     #define CURRENT  (nodes[current])
@@ -171,7 +138,7 @@ bool Tree<T>::add( const std::string &target, T value )
         else
         {
             current = CURRENT.slots[idx];
-            if (CURRENT.flags & Node<T>::WILDCARD) return false;
+            if (CURRENT.flags & Node<T>::WILDCARD) return DNSBERR_DUPLICATED_RULE;
         }
     }
     CURRENT.flags |= Node<T>::TERMINAL;
@@ -180,7 +147,7 @@ bool Tree<T>::add( const std::string &target, T value )
 
     #undef CURRENT
 
-    return true;
+    return DNSBERR_OK;
 }
 
 
@@ -214,6 +181,15 @@ const Node<T> *Tree<T>::match( const std::string &target ) const
         return nullptr;
 
     #undef CURRENT
+}
+
+
+template<typename T>
+void Tree<T>::clear()
+{
+    nodes.clear();
+    nodes.resize(1);
+    root = &nodes.front();
 }
 
 

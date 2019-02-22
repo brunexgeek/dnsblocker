@@ -44,6 +44,8 @@ add_executable(dnsblocker
     "source/log.cc"
     "source/buffer.cc"
     "source/dns.cc")
+target_include_directories(dnsblocker
+    PUBLIC "include")
 target_compile_definitions(dnsblocker PRIVATE _DEFAULT_SOURCE)
 target_link_libraries(dnsblocker ${CMAKE_THREAD_LIBS_INIT})
 set_target_properties(dnsblocker PROPERTIES

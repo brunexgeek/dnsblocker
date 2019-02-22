@@ -18,6 +18,7 @@
 #include <mutex>
 #include <thread>
 #include <condition_variable>
+#include <dns-blocker/errors.hh>
 
 #ifdef __WINDOWS__
 #include <Windows.h>
@@ -27,6 +28,10 @@
 #include <unistd.h>
 #define PATH_SEPARATOR '/'
 #endif
+
+
+#define IP_EQUIVALENT(addr1,addr2) \
+    ( ( (addr1) == (addr2) ) || ( DNS_IP_O1(addr1) == DNS_IP_O1(addr2) && DNS_IP_O1(addr1) == 127 ) )
 
 
 struct Job
@@ -131,10 +136,14 @@ static bool main_initialize()
     }
 
     context.cache = new DNSCache();
+    bool found = false;
     for (auto it = context.config.external_dns().begin(); it != context.config.external_dns().end(); ++it)
     {
         if (it->targets.undefined())
+        {
             context.cache->setDefaultDNS(it->address());
+            found = true;
+        }
         else
         {
             for (size_t i = 0; i < it->targets().size(); ++i)
@@ -143,7 +152,11 @@ static bool main_initialize()
             }
         }
     }
-
+    if (!found)
+    {
+        LOG_MESSAGE("Missing default external DNS\n");
+        exit(1);
+    }
 
     return true;
 }
@@ -167,10 +180,37 @@ bool main_loadRules(
 
     LOG_MESSAGE("\nLoading rules from '%s'\n", fileName.c_str());
 
-    if (!context.blacklist.load(fileName)) return false;
+    context.blacklist.clear();
 
-    LOG_MESSAGE("Generated tree with %d nodes\n", context.blacklist.size());
-    LOG_MESSAGE("Using %2.3f KiB of memory to store the tree\n\n", (float) context.blacklist.memory() / 1024.0F);
+    std::ifstream rules(fileName.c_str());
+    if (!rules.good()) return false;
+
+    std::string line;
+
+    while (!rules.eof())
+    {
+        std::getline(rules, line);
+        if (line.empty()) continue;
+
+        // we have a comment?
+        const char *ptr = line.c_str();
+        while (*ptr == ' ' || *ptr == '\t') ++ptr;
+        if (*ptr == '#') continue;
+
+        int result = context.blacklist.add(line, 0);
+        if (result == DNSBERR_OK)
+            LOG_MESSAGE("  Added '%s'\n", line.c_str());
+        else
+        if (result == DNSBERR_DUPLICATED_RULE)
+            LOG_MESSAGE("  Duplicated '%s'\n", line.c_str());
+        else
+            LOG_MESSAGE("  Invalid rule '%s'\n", line.c_str());
+    }
+
+    rules.close();
+
+    LOG_MESSAGE("Generated tree with %d nodes (%2.3f KiB)\n\n", context.blacklist.size(),
+        (float) context.blacklist.memory() / 1024.0F);
 
     return true;
 }
@@ -230,7 +270,7 @@ static void main_process( int num, Queue *pending, std::mutex *lock, std::condit
 
         #ifdef ENABLE_DNS_CONSOLE
         // check whether the message carry a remote command
-        if (context.bindIPv4 == endpoint.address &&
+        if (IP_EQUIVALENT(context.bindIPv4, endpoint.address) &&
             request.questions[0].qname.find("@dnsblocker") != std::string::npos)
         {
             main_control(request.questions[0].qname);
@@ -472,7 +512,7 @@ static void main_signalHandler(
 
 void main_usage()
 {
-    std::cout << "Usage: dnsblocker -c <configuration> [ -l <log directory> ]\n";
+    std::cout << "Usage: dnsblocker <configuration> [ <log directory> ]\n";
     exit(EXIT_FAILURE);
 }
 
@@ -580,6 +620,12 @@ void main_prepare()
     if (context.blacklistFileName.empty())
     {
         LOG_MESSAGE("Invalid blacklist file '%s'\n", context.config.blacklist().c_str());
+        exit(1);
+    }
+
+    if (context.config.external_dns.undefined())
+    {
+        LOG_MESSAGE("At least one external DNS is required '%s'\n", context.config.blacklist().c_str());
         exit(1);
     }
 
