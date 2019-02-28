@@ -253,6 +253,17 @@ static void main_process( int num, Queue *pending, std::mutex *lock, std::condit
     std::unique_lock<std::mutex> guard(*lock);
     //std::string lastName;
 
+    const char *COLOR_RED = "\033[31m";
+    const char *COLOR_YELLOW = "\033[33m";
+    const char *COLOR_RESET = "\033[39m";
+
+    if (!isatty(STDIN_FILENO))
+    {
+        COLOR_RED = "";
+        COLOR_YELLOW = "";
+        COLOR_RESET = "";
+    }
+
     while (!context.signal)
     {
         Job *job = pending->pop();
@@ -307,26 +318,41 @@ static void main_process( int num, Queue *pending, std::mutex *lock, std::condit
             //if (lastName != request.questions[0].qname)
             {
                 const char *status = "DE";
+                const char *color = COLOR_RED;
                 if (result == DNSB_STATUS_CACHE)
+                {
                     status = "CA";
+                    color = COLOR_RESET;
+                }
                 else
                 if (result == DNSB_STATUS_RECURSIVE)
+                {
                     status = "RE";
+                    color = COLOR_RESET;
+                }
                 else
                 if (result == DNSB_STATUS_FAILURE)
+                {
                     status = "FA";
+                    color = COLOR_YELLOW;
+                }
                 else
                 if (result == DNSB_STATUS_NXDOMAIN)
+                {
                     status = "NX";
+                    color = COLOR_YELLOW;
+                }
 
                 //lastName = request.questions[0].qname;
-                LOG_TIMED("T%d  %-15s  %s  %-15s  %-15s  %s\n",
+                LOG_TIMED("%sT%d  %-15s  %s  %-15s  %-15s  %s%s\n",
+                    color,
                     num,
                     Endpoint::addressToString(endpoint.address).c_str(),
                     status,
                     Endpoint::addressToString(dnsAddress).c_str(),
                     Endpoint::addressToString(address).c_str(),
-                    request.questions[0].qname.c_str());
+                    request.questions[0].qname.c_str(),
+                    COLOR_RESET);
             }
         }
 
@@ -640,12 +666,9 @@ void main_prepare()
     LOG_MESSAGE("         Port: %d\n", context.config.binding().port());
 }
 
+
 int main( int argc, char** argv )
 {
-    /*Node<uint8_t> a;
-    Node<uint32_t> b;
-    std::cerr << sizeof(a) << ' ' << sizeof(b) << std::endl;
-    return 1;*/
     main_parseArguments(argc, argv);
 
     if (context.config.daemon()) daemonize(argc, argv);
