@@ -41,6 +41,8 @@ struct BufferIO
 
     std::string readQName();
 
+    static uint8_t *readLabels( uint8_t *buffer, uint8_t *ptr, std::string &qname );
+
     void writeQName( const std::string &qname);
 
 };

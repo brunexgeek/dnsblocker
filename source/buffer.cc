@@ -80,53 +80,55 @@ void BufferIO::skip( size_t bytes )
     ptr += bytes;
 }
 
+
+// TODO: include bound checking
+uint8_t *BufferIO::readLabels( uint8_t *buffer, uint8_t *ptr, std::string &qname )
+{
+    while (*ptr != 0)
+    {
+        // check whether the label is a pointer (RFC-1035 4.1.4. Message compression)
+        if ((*ptr & 0xC0) == 0xC0)
+        {
+            size_t offset = ((ptr[0] & 0x3F) << 8) | ptr[1];
+            readLabels(buffer, buffer + offset, qname);
+            return ptr += 2;
+        }
+        
+        int length = (int) (*ptr++) & 0x3F;
+        for (int i = 0; i < length; ++i)
+            qname.push_back( (char) *ptr++ );
+
+        if (*ptr != 0) qname.push_back('.');
+    }
+
+    return ptr + 1;
+}
+
+
 std::string BufferIO::readQName()
 {
     std::string qname;
-
-    // check whether the qname is a pointer (RFC-1035 4.1.4. Message compression)
-    if ((*ptr & 0xC0) == 0xC0)
-    {
-        size_t offset = ((ptr[0] & 0x3F) << 8) | ptr[1];
-        uint8_t *prev = ptr + 2;
-        ptr = buffer + offset;
-        std::string temp = readQName();
-        ptr = prev;
-        return temp;
-    }
-
-    int length = *ptr++;
-    while (length != 0)
-    {
-        for (int i = 0; i < length; i++)
-        {
-            char c = *ptr++;
-            qname.append(1, c);
-        }
-        length = *ptr++;
-        if (length != 0) qname.append(1,'.');
-    }
-
+    ptr = readLabels(buffer, ptr, qname);
     return qname;
 }
 
 void BufferIO::writeQName( const std::string &qname)
 {
-    size_t start(0), end; // indexes
+    size_t start = 0, end; // indexes
 
     while ((end = qname.find('.', start)) != std::string::npos)
     {
         *ptr++ = (uint8_t) (end - start); // label length octet
-        for (size_t i=start; i<end; i++) {
-
+        for (size_t i=start; i<end; i++) 
+        {
             *ptr++ = qname[i]; // label octets
         }
         start = end + 1; // ignore dots
     }
 
     *ptr++ = (uint8_t) (qname.size() - start); // last label length octet
-    for (size_t i=start; i<qname.size(); i++) {
-
+    for (size_t i=start; i<qname.size(); i++) 
+    {
         *ptr++ = qname[i]; // last label octets
     }
 

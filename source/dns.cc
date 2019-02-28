@@ -92,6 +92,13 @@ void dns_question_t::write(
 }
 
 
+void dns_question_t::print() const
+{
+    LOG_MESSAGE("   [qname: '%s', type: %d, class: %d]\n",
+        qname.c_str(), type, clazz);
+}
+
+
 dns_message_t::dns_message_t()
 {
 }
@@ -145,6 +152,17 @@ void dns_message_t::write(
 }
 
 
+void dns_message_t::print() const
+{
+    LOG_MESSAGE("[qdcount: %d, ancount: %d, nscount: %d, arcount: %d]\n",
+        header.qdcount, header.ancount, header.nscount, header.arcount);
+    LOG_MESSAGE("questions:\n");
+    for (auto it = questions.begin(); it != questions.end(); ++it) it->print();
+    LOG_MESSAGE("answers:\n");
+    for (auto it = answers.begin(); it != answers.end(); ++it) it->print();
+}
+
+
 void dns_record_t::write(
     BufferIO &bio )
 {
@@ -163,13 +181,24 @@ void dns_record_t::read(
     type = bio.readU16();
     clazz = bio.readU16();
     ttl = bio.readU32();
-    uint16_t rdlen = bio.readU16();
-    //log_message("%s %d %d %d %d\n", it->qname.c_str(), it->type, it->clazz, it->ttl, rdlen);
+    rdlen = bio.readU16();
     rdata = 0;
     if (rdlen == 4)
         rdata = bio.readU32();
     else
         bio.skip(rdlen);
+}
+
+
+void dns_record_t::print() const
+{
+    if (rdlen != 4)
+        LOG_MESSAGE("   [qname: '%s', type: %d, class: %d, ttl: %d, len: %d]\n",
+            qname.c_str(), type, clazz, ttl, rdlen);
+    else
+        LOG_MESSAGE("   [qname: '%s', type: %d, class: %d, ttl: %d, len: %d, addr: %d.%d.%d.%d]\n",
+            qname.c_str(), type, clazz, ttl, rdlen, DNS_IP_O1(rdata), DNS_IP_O2(rdata),
+            DNS_IP_O3(rdata), DNS_IP_O4(rdata));
 }
 
 
@@ -233,15 +262,22 @@ int DNSCache::recursive(
 
 	if (!conn.receive(endpoint, bio.buffer, &bio.size)) return DNSB_STATUS_FAILURE;
 
+	FILE *temp = fopen("D:\\Users\\bruno\\AppData\\Local\\Temp\\last-udp", "wb+");
+	if (temp != nullptr)
+	{
+		fwrite(bio.buffer, 1, bio.size, temp);
+		fclose(temp);
+	}
+
     // decode the response
     message.read(bio);
+
     // use the first 'type A' answer
     if (message.header.rcode == 0 &&
         message.answers.size() > 0 &&
         message.questions.size() == 1 &&
         message.questions[0].qname == host)
     {
-
         for (auto it = message.answers.begin(); it != message.answers.end(); ++it)
             if (it->type == DNS_TYPE_A) *output = it->rdata;
     }

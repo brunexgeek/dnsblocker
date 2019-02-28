@@ -72,6 +72,7 @@ struct dns_question_t
     dns_question_t( const dns_question_t &obj );
     void read( BufferIO &bio );
     void write( BufferIO &bio );
+    void print() const;
 };
 
 struct dns_record_t
@@ -80,12 +81,13 @@ struct dns_record_t
     uint16_t type;
     uint16_t clazz;
     uint32_t ttl;
-    //uint16_t rdlen;
+    uint16_t rdlen;
     uint32_t rdata;  // IPv4
 
     dns_record_t();
     void read( BufferIO &bio );
     void write( BufferIO &bio );
+    void print() const;
 };
 
 struct dns_message_t
@@ -100,6 +102,7 @@ struct dns_message_t
     void swap( dns_message_t &that );
     void read( BufferIO &bio );
     void write( BufferIO &bio );
+    void print() const;
 };
 
 struct dns_cache_t
