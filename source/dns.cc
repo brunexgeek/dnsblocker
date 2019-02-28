@@ -311,7 +311,7 @@ int DNSCache::resolve(
 
 		std::lock_guard<std::mutex> raii(lock);
 
-        *dnsAddress = defaultDNS;
+        *dnsAddress = 0;
         *output = 0;
 
         auto it = cache.find(host);
@@ -329,9 +329,12 @@ int DNSCache::resolve(
         }
 
         // check if we have a specific DNS server for this domain
+        *dnsAddress = defaultDNS;
         const Node<uint32_t> *node = targets.match(host);
         if (node != nullptr && node->value != 0) *dnsAddress = node->value;
     }
+
+    bool store = true;
 
     // try to resolve the domain using the external DNS
     int result = recursive(host, *dnsAddress, output);
@@ -340,12 +343,13 @@ int DNSCache::resolve(
     // if the previous resolution failed, try again using the default DNS server
     if (result == DNSB_STATUS_FAILURE)
     {
+        store = false;
         *dnsAddress = defaultDNS;
         result = recursive(host, defaultDNS, output);
         if (result != DNSB_STATUS_RECURSIVE) return result;
     }
 
-    if (*output != 0)
+    if (*output != 0 && store)
     {
         std::lock_guard<std::mutex> raii(lock);
 
