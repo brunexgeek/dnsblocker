@@ -262,13 +262,6 @@ int DNSCache::recursive(
 
 	if (!conn.receive(endpoint, bio.buffer, &bio.size)) return DNSB_STATUS_FAILURE;
 
-	FILE *temp = fopen("D:\\Users\\bruno\\AppData\\Local\\Temp\\last-udp", "wb+");
-	if (temp != nullptr)
-	{
-		fwrite(bio.buffer, 1, bio.size, temp);
-		fclose(temp);
-	}
-
     // decode the response
     message.read(bio);
 

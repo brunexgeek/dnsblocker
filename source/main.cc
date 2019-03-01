@@ -257,7 +257,9 @@ static void main_process( int num, Queue *pending, std::mutex *lock, std::condit
     const char *COLOR_YELLOW = "\033[33m";
     const char *COLOR_RESET = "\033[39m";
 
+#if !defined(_WIN32) && !defined(_WIN64)
     if (!isatty(STDIN_FILENO))
+#endif
     {
         COLOR_RED = "";
         COLOR_YELLOW = "";
