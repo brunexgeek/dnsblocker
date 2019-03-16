@@ -125,6 +125,7 @@ struct DNSCache
         int resolve( const std::string &host, uint32_t *dnsAddress, uint32_t *output );
         void dump( const std::string &path );
         void cleanup( uint32_t ttl );
+        void reset();
         void setDefaultDNS( const std::string &dns );
         void addTarget( const std::string &rule, const std::string &dns );
 

@@ -295,6 +295,13 @@ static uint32_t dns_time()
 }
 
 
+void DNSCache::reset()
+{
+    std::lock_guard<std::mutex> raii(lock);
+    cache.clear();
+}
+
+
 void DNSCache::cleanup( uint32_t ttl )
 {
     if (ttl <= 0 || ttl <= (DNS_CACHE_TTL / 3))

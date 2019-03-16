@@ -3,8 +3,8 @@ project(dnsblocker)
 cmake_minimum_required(VERSION 2.8)
 
 set(DNSB_MAJOR_VERSION 0)
-set(DNSB_MINOR_VERSION 9)
-set(DNSB_PATCH_VERSION 1)
+set(DNSB_MINOR_VERSION 10)
+set(DNSB_PATCH_VERSION 0)
 
 
 set(CMAKE_BUILD_TYPE "Release"  CACHE STRING  "Specify the build type")
@@ -43,6 +43,7 @@ add_executable(dnsblocker
     "source/nodes.cc"
     "source/log.cc"
     "source/buffer.cc"
+    "source/process.cc"
     "source/dns.cc")
 target_include_directories(dnsblocker
     PUBLIC "include")
