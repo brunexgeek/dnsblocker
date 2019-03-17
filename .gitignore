@@ -32,3 +32,4 @@
 *.app
 
 /config.hh
+/source/defs.hh

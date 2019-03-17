@@ -114,12 +114,12 @@ bool Processor::loadRules(
         std::getline(rules, line);
         if (line.empty()) continue;
 
-        // we have a comment?
-        const char *ptr = line.c_str();
-        while (*ptr == ' ' || *ptr == '\t') ++ptr;
-        if (*ptr == '#') continue;
+        // remove comments
+        size_t pos = line.find('#');
+        if (pos != std::string::npos) line = line.substr(0, pos);
 
-        int result = blacklist_.add(line, 0);
+        int result = blacklist_.add(line, 0, &line);
+        if (line.empty()) continue;
         if (result == DNSBERR_OK)
             LOG_MESSAGE("  Added '%s'\n", line.c_str());
         else

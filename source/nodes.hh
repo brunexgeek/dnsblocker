@@ -56,7 +56,7 @@ class Tree
         Tree( Tree &&that ) = delete;
         uint32_t size() const;
         size_t memory() const;
-        int add( const std::string &target, T value );
+        int add( const std::string &target, const T &value, std::string *clean = nullptr );
         const Node<T> *match( const std::string &host ) const;
         void clear();
 
@@ -94,12 +94,22 @@ size_t Tree<T>::memory() const
 
 
 template<typename T>
-int Tree<T>::add( const std::string &target, T value )
+int Tree<T>::add( const std::string &target, const T &value, std::string *clean )
 {
     if (target.empty() || target.length() > Node<T>::MAX_HOST_LENGTH) return DNSBERR_INVALID_ARGUMENT;
 
     char temp[Node<T>::MAX_HOST_LENGTH + 1] = { 0 };
-    strcpy(temp, target.c_str());
+    // copy ignoring leading and trailing whitespaces
+    for (size_t i = 0, j = 0; j < target.length(); ++j)
+    {
+        if (target[j] != ' ' && target[j] != '\t')
+            temp[i++] = target[j];
+        else
+        {
+            if (temp[0] != 0) break;
+        }
+    }
+    if (clean != nullptr) *clean = temp;
 
     bool isWildcard = false;
     // '*' and '**' must precede a period
