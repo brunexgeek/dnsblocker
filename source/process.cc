@@ -100,12 +100,12 @@ bool Processor::loadRules(
 {
     if (fileNames.empty()) return false;
 
+    blacklist_.clear();
+
     for (auto it = fileNames.begin(); it != fileNames.end(); ++it)
     {
         int c = 0;
         LOG_MESSAGE("\nLoading rules from '%s'\n", it->c_str());
-
-        blacklist_.clear();
 
         std::ifstream rules(it->c_str());
         if (!rules.good()) return false;
@@ -182,6 +182,8 @@ bool Processor::sendError(
     return conn_->send(endpoint, bio.buffer, bio.cursor());
 }
 
+#define MONITOR_SHOW_ALLOWED   1
+#define MONITOR_SHOW_DENIED    2
 
 void Processor::process(
     Processor *object,
@@ -204,6 +206,16 @@ void Processor::process(
         COLOR_YELLOW = "";
         COLOR_RESET = "";
     }
+
+    int flags = 0;
+    if (object->config_.monitoring() == "allowed")
+        flags = MONITOR_SHOW_ALLOWED;
+    else
+    if (object->config_.monitoring() == "denied")
+        flags = MONITOR_SHOW_DENIED;
+    else
+    if (object->config_.monitoring() == "all")
+        flags = MONITOR_SHOW_ALLOWED | MONITOR_SHOW_DENIED;
 
     while (object->running_)
     {
@@ -253,7 +265,7 @@ void Processor::process(
         else
             address = DNS_BLOCKED_ADDRESS;
 
-        if (object->config_.monitoring())
+        if ((isBlocked && flags & MONITOR_SHOW_DENIED) || (!isBlocked && flags & MONITOR_SHOW_ALLOWED))
         {
             // print some information about the request
             //if (lastName != request.questions[0].qname)

@@ -193,7 +193,7 @@ Configuration main_defaultConfig()
 {
     Configuration config;
     config.daemon(false);
-    config.monitoring(false);
+    config.monitoring("none");
     config.binding().port(53);
     config.binding().address("127.0.0.2");
 

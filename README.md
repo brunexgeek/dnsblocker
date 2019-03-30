@@ -21,14 +21,14 @@ make && sudo make install
 
 To configure `dnsblocker` you use pairs of key-value stored in a JSON file.
 
-* **blacklist** &ndash; Path to the blacklist file, relative to the configuration file path.
+* **blacklist** &ndash; Array of blacklist file names, relative to the configuration file path.
 * **binding** &ndash; Specify the address and port for the program to bind with.
   * **address** &ndash; IPv4 address. The default value is `127.0.0.2`.
   * **port** &ndash; Port number (0-65535). The default value is `53`.
 * **external_dns** &ndash; Specify external DNS servers to be used by recursive queries.
   * **address** &ndash; IPv4 address of the external name server.
   * **targets** &ndash; Optional array of expressions (same syntax as blacklists). When the requested domain matches with on of the expressions, this name server will be used. If the name server is unavaiable, the default name server will be used. If this option is omited, this entry will be set as default external name server.
-* **monitoring** &ndash; Enabled (`true`) or disable (`false`) logging of name resolutions in real-time. The default value is `false`.
+* **monitoring** &ndash; `allowed` to show allowed requests; `denied` to show blocked requests; `all` to show everything; `none` or any other value to disable monitoring.
 
 ```json
 {

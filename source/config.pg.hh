@@ -1046,7 +1046,7 @@ public:
 	static const int BLACKLIST_NO = 5;
 	PROTOGEN_NS::RepeatedField<std::string> blacklist;
 	static const int MONITORING_NO = 6;
-	PROTOGEN_NS::Field<bool> monitoring;
+	PROTOGEN_NS::Field<std::string> monitoring;
 	Configuration() {}
 	~Configuration() {}
 	Configuration(const Configuration &that) { *this = that; }
@@ -1186,8 +1186,8 @@ public:
 			else
 			// monitoring
 			if (name == PROTOGEN_FN_monitoring) {
-				bool value;
-				if (!PROTOGEN_NS::traits<bool>::read(in, value, required, err)) PROTOGEN_REV(err, in, name, "bool");
+				std::string value;
+				if (!PROTOGEN_NS::traits<std::string>::read(in, value, required, err)) PROTOGEN_REV(err, in, name, "string");
 				this->monitoring(value);
 				if (!PROTOGEN_NS::json::next(in)) PROTOGEN_REI(err, in, name);
 				hfld[4] = true;
