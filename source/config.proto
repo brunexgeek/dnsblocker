@@ -18,6 +18,6 @@ message Configuration
     repeated NameServer external_dns = 1;
     Binding binding = 3;
     bool daemon = 4;
-    string blacklist = 5;
+    repeated string blacklist = 5;
     bool monitoring = 6;
 }

@@ -1044,7 +1044,7 @@ public:
 	static const int DAEMON_NO = 4;
 	PROTOGEN_NS::Field<bool> daemon;
 	static const int BLACKLIST_NO = 5;
-	PROTOGEN_NS::Field<std::string> blacklist;
+	PROTOGEN_NS::RepeatedField<std::string> blacklist;
 	static const int MONITORING_NO = 6;
 	PROTOGEN_NS::Field<bool> monitoring;
 	Configuration() {}
@@ -1055,7 +1055,7 @@ public:
 		this->external_dns.swap(that.external_dns);
 		this->binding.swap(that.binding);
 		this->daemon = that.daemon;
-		this->blacklist = that.blacklist;
+		this->blacklist.swap(that.blacklist);
 		this->monitoring = that.monitoring;
 	}
 	#endif
@@ -1179,9 +1179,7 @@ public:
 			else
 			// blacklist
 			if (name == PROTOGEN_FN_blacklist) {
-				std::string value;
-				if (!PROTOGEN_NS::traits<std::string>::read(in, value, required, err)) PROTOGEN_REV(err, in, name, "string");
-				this->blacklist(value);
+				if (!PROTOGEN_NS::traits< std::vector<std::string> >::read(in, this->blacklist(), required, err)) PROTOGEN_REV(err, in, name, "repeated string");
 				if (!PROTOGEN_NS::json::next(in)) PROTOGEN_REI(err, in, name);
 				hfld[3] = true;
 			}

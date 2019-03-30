@@ -259,22 +259,31 @@ void main_prepare()
     in.close();
 
     // get the absolute path of the input file
-    context.config.blacklist( main_realPath(context.config.blacklist()) );
-    if (context.config.blacklist().empty())
+    for (auto it = context.config.blacklist().begin(); it != context.config.blacklist().end();)
     {
-        LOG_MESSAGE("Invalid blacklist file '%s'\n", context.config.blacklist().c_str());
+        *it = main_realPath(*it);
+        if (it->empty())
+            it = context.config.blacklist().erase(it);
+        else
+            ++it;
+    }
+    if (context.config.blacklist.undefined())
+    {
+        LOG_MESSAGE("No valid blacklist specified\n");
         exit(1);
     }
 
     if (context.config.external_dns.undefined())
     {
-        LOG_MESSAGE("At least one external DNS is required '%s'\n", context.config.blacklist().c_str());
+        LOG_MESSAGE("The default external DNS is required\n");
         exit(1);
     }
 
     LOG_MESSAGE("    Base path: %s\n", context.basePath.c_str());
     LOG_MESSAGE("Configuration: %s\n", context.configFileName.c_str());
-    LOG_MESSAGE("    Blacklist: %s\n", context.config.blacklist().c_str());
+    LOG_MESSAGE("    Blacklist: %s\n", context.config.blacklist()[0].c_str());
+    for (auto it = context.config.blacklist().begin() + 1; it != context.config.blacklist().end(); ++it)
+        LOG_MESSAGE("               %s\n", it->c_str());
     LOG_MESSAGE(" External DNS: ");
     for (auto it = context.config.external_dns().begin(); it != context.config.external_dns().end(); ++it)
         LOG_MESSAGE("%s ", it->address().c_str());

@@ -51,8 +51,7 @@ class Processor
             const dns_message_t &request,
             int rcode,
             const Endpoint &endpoint );
-        bool loadRules(
-            const std::string &fileName );
+        bool loadRules( const std::vector<std::string> &fileNames );
         static std::string realPath( const std::string &path );
 };
 

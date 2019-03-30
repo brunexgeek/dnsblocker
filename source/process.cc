@@ -96,40 +96,50 @@ Job *Processor::pop()
 
 
 bool Processor::loadRules(
-    const std::string &fileName )
+    const std::vector<std::string> &fileNames )
 {
-    if (fileName.empty()) return false;
+    if (fileNames.empty()) return false;
 
-    LOG_MESSAGE("\nLoading rules from '%s'\n", fileName.c_str());
-
-    blacklist_.clear();
-
-    std::ifstream rules(fileName.c_str());
-    if (!rules.good()) return false;
-
-    std::string line;
-
-    while (!rules.eof())
+    for (auto it = fileNames.begin(); it != fileNames.end(); ++it)
     {
-        std::getline(rules, line);
-        if (line.empty()) continue;
+        int c = 0;
+        LOG_MESSAGE("\nLoading rules from '%s'\n", it->c_str());
 
-        // remove comments
-        size_t pos = line.find('#');
-        if (pos != std::string::npos) line = line.substr(0, pos);
+        blacklist_.clear();
 
-        int result = blacklist_.add(line, 0, &line);
-        if (line.empty()) continue;
-        if (result == DNSBERR_OK)
-            LOG_MESSAGE("  Added '%s'\n", line.c_str());
-        else
-        if (result == DNSBERR_DUPLICATED_RULE)
-            LOG_MESSAGE("  Duplicated '%s'\n", line.c_str());
-        else
-            LOG_MESSAGE("  Invalid rule '%s'\n", line.c_str());
+        std::ifstream rules(it->c_str());
+        if (!rules.good()) return false;
+
+        std::string line;
+
+        while (!rules.eof())
+        {
+            std::getline(rules, line);
+            if (line.empty()) continue;
+
+            // remove comments
+            size_t pos = line.find('#');
+            if (pos != std::string::npos) line = line.substr(0, pos);
+
+            int result = blacklist_.add(line, 0, &line);
+            if (line.empty()) continue;
+
+            if (result == DNSBERR_OK)
+            {
+                //LOG_MESSAGE("  Added '%s'\n", line.c_str());
+                ++c;
+                continue;
+            }
+            else
+            if (result == DNSBERR_DUPLICATED_RULE)
+                LOG_MESSAGE("  [!] Duplicated '%s'\n", line.c_str());
+            else
+                LOG_MESSAGE("  [!] Invalid rule '%s'\n", line.c_str());
+        }
+
+        rules.close();
+        LOG_MESSAGE("  Loaded %d rules\n", c);
     }
-
-    rules.close();
 
     LOG_MESSAGE("Generated tree with %d nodes (%2.3f KiB)\n\n", blacklist_.size(),
         (float) blacklist_.memory() / 1024.0F);
