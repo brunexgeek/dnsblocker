@@ -15,6 +15,9 @@ char indexToChar( int index );
 char *prepareHostname( char *host );
 
 
+typedef uint32_t NodeIndex;
+
+
 template<typename T>
 struct Node
 {
@@ -23,27 +26,20 @@ struct Node
     static const int SLOTS    = 38; // 26 letters, 10 digits, dash and dot
     static const int MAX_HOST_LENGTH = 512;
 
-    uint16_t slots[SLOTS];
-    uint16_t flags;
+    NodeIndex slots[SLOTS];
+    uint32_t flags;
     T value;
 
-    Node();
-    ~Node();
+    Node()
+    {
+        memset(slots, 0, sizeof(slots));
+        flags = 0;
+    }
+
+    ~Node()
+    {
+    }
 };
-
-
-template<typename T>
-Node<T>::Node()
-{
-    memset(slots, 0, sizeof(slots));
-    flags = 0;
-}
-
-
-template<typename T>
-Node<T>::~Node()
-{
-}
 
 
 template<typename T>
@@ -132,7 +128,7 @@ int Tree<T>::add( const std::string &target, const T &value, std::string *clean 
     char *ptr = prepareHostname(temp);
     if (ptr == nullptr) return DNSBERR_INVALID_ARGUMENT;
 
-    uint16_t current = 0;
+    NodeIndex current = 0;
     #define CURRENT  (nodes[current])
 
     for (;*ptr != 0; ++ptr)
@@ -141,7 +137,7 @@ int Tree<T>::add( const std::string &target, const T &value, std::string *clean 
         if (CURRENT.slots[idx] == 0)
         {
             nodes.resize(nodes.size() + 1);
-            uint16_t temp = (uint16_t) (nodes.size() - 1);
+            NodeIndex temp = (NodeIndex) (nodes.size() - 1);
             CURRENT.slots[idx] = temp;
             current = temp;
         }
@@ -173,16 +169,15 @@ const Node<T> *Tree<T>::match( const std::string &target ) const
     char *ptr = prepareHostname(temp);
     if (ptr == nullptr) return nullptr;
 
-    uint16_t current = 0;
+    NodeIndex current = 0;
     #define CURRENT  (nodes[current])
 
     for (;*ptr != 0; ++ptr)
     {
-        if (CURRENT.flags & Node<T>::WILDCARD) return &CURRENT;
-
         int idx = charToIndex(*ptr);
         current = CURRENT.slots[idx];
         if (current == 0) return nullptr;
+        if (CURRENT.flags & Node<T>::WILDCARD) return &CURRENT;
     }
 
     if ((CURRENT.flags & Node<T>::TERMINAL) != 0)

@@ -41,7 +41,7 @@ To configure `dnsblocker` you use pairs of key-value stored in a JSON file.
         { "address" : "8.8.4.4" },
         { "address" : "192.168.0.20", "targets" : [ "**.example.com" ] }
     ],
-    "monitoring" : true
+    "monitoring" : "allowed"
 }
 ```
 
