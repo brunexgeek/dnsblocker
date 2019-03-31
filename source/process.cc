@@ -359,7 +359,7 @@ void Processor::run()
     std::condition_variable cond;
 
     running_ = true;
-    for (size_t i = 0; i < NUM_THREADS; ++i)
+    for (int i = 0; i < NUM_THREADS; ++i)
         pool[i] = new std::thread(process, this, i + 1, &lock, &cond);
 
     while (running_)

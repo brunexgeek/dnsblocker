@@ -31,6 +31,10 @@ if (UNIX)
     set(CMAKE_CXX_FLAGS_DEBUG  "${CMAKE_C_FLAGS_DEBUG} -g -O0")
 endif()
 
+if (MSVC)
+	add_definitions(-D_CRT_SECURE_NO_WARNINGS)
+endif()
+
 
 find_package(Threads)
 
