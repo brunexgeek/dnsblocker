@@ -10,6 +10,12 @@
 #include <dns-blocker/errors.hh>
 
 
+#define NODE_TERMINAL          1   // this node is a terminal symbol
+#define NODE_WILDCARD          2   // denote a wildcard
+#define NODE_SLOTS             38  // 26 letters, 10 digits, dash and dot
+#define NODE_MAX_HOST_LENGTH   512
+
+
 int charToIndex( char c );
 char indexToChar( int index );
 char *prepareHostname( char *host );
@@ -21,14 +27,27 @@ typedef uint32_t NodeIndex;
 template<typename T>
 struct Node
 {
-    static const uint16_t TERMINAL = 1; // this node is a terminal symbol
-    static const uint16_t WILDCARD = 2; // denote a wildcard
-    static const int SLOTS    = 38; // 26 letters, 10 digits, dash and dot
-    static const int MAX_HOST_LENGTH = 512;
-
-    NodeIndex slots[SLOTS];
+    NodeIndex slots[NODE_SLOTS];
     uint32_t flags;
     T value;
+
+    Node()
+    {
+        memset(slots, 0, sizeof(slots));
+        flags = 0;
+    }
+
+    ~Node()
+    {
+    }
+};
+
+
+template<>
+struct Node<void>
+{
+    NodeIndex slots[NODE_SLOTS];
+    uint32_t flags;
 
     Node()
     {
@@ -92,9 +111,9 @@ size_t Tree<T>::memory() const
 template<typename T>
 int Tree<T>::add( const std::string &target, const T &value, std::string *clean )
 {
-    if (target.empty() || target.length() > Node<T>::MAX_HOST_LENGTH) return DNSBERR_INVALID_ARGUMENT;
+    if (target.empty() || target.length() > NODE_MAX_HOST_LENGTH) return DNSBERR_INVALID_ARGUMENT;
 
-    char temp[Node<T>::MAX_HOST_LENGTH + 1] = { 0 };
+    char temp[NODE_MAX_HOST_LENGTH + 1] = { 0 };
     // copy ignoring leading and trailing whitespaces
     for (size_t i = 0, j = 0; j < target.length(); ++j)
     {
@@ -144,12 +163,13 @@ int Tree<T>::add( const std::string &target, const T &value, std::string *clean 
         else
         {
             current = CURRENT.slots[idx];
-            if (CURRENT.flags & Node<T>::WILDCARD) return DNSBERR_DUPLICATED_RULE;
+            if (CURRENT.flags & NODE_WILDCARD) return DNSBERR_DUPLICATED_RULE;
         }
     }
-    CURRENT.flags |= Node<T>::TERMINAL;
+    if (CURRENT.flags & NODE_TERMINAL) return DNSBERR_DUPLICATED_RULE;
+    CURRENT.flags |= NODE_TERMINAL;
     CURRENT.value = value;
-    if (isWildcard) CURRENT.flags |= Node<T>::WILDCARD;
+    if (isWildcard) CURRENT.flags |= NODE_WILDCARD;
 
     #undef CURRENT
 
@@ -160,9 +180,9 @@ int Tree<T>::add( const std::string &target, const T &value, std::string *clean 
 template<typename T>
 const Node<T> *Tree<T>::match( const std::string &target ) const
 {
-    if (target.empty() || target.length() > Node<T>::MAX_HOST_LENGTH) return nullptr;
+    if (target.empty() || target.length() > NODE_MAX_HOST_LENGTH) return nullptr;
 
-    char temp[Node<T>::MAX_HOST_LENGTH + 1] = { 0 };
+    char temp[NODE_MAX_HOST_LENGTH + 1] = { 0 };
     strcpy(temp, target.c_str());
 
     // preprocess the host name
@@ -177,10 +197,10 @@ const Node<T> *Tree<T>::match( const std::string &target ) const
         int idx = charToIndex(*ptr);
         current = CURRENT.slots[idx];
         if (current == 0) return nullptr;
-        if (CURRENT.flags & Node<T>::WILDCARD) return &CURRENT;
+        if (CURRENT.flags & NODE_WILDCARD) return &CURRENT;
     }
 
-    if ((CURRENT.flags & Node<T>::TERMINAL) != 0)
+    if ((CURRENT.flags & NODE_TERMINAL) != 0)
         return &CURRENT;
     else
         return nullptr;

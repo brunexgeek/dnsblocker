@@ -59,4 +59,17 @@ set_target_properties(dnsblocker PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}" )
 
+add_executable(optimize
+    "source/optimize.cc"
+    "source/nodes.cc")
+target_include_directories(optimize
+    PUBLIC "include")
+target_compile_definitions(optimize PRIVATE _DEFAULT_SOURCE)
+target_link_libraries(optimize ${CMAKE_THREAD_LIBS_INIT})
+set_target_properties(optimize PROPERTIES
+    OUTPUT_NAME "optimize"
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}" )
+
 install(TARGETS dnsblocker DESTINATION bin)
