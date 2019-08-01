@@ -108,9 +108,7 @@ static void main_signalHandler(
 
 void main_usage()
 {
-    std::cerr << "dnsblocker " << ('0' + MAJOR_VERSION)
-        << '.' << ('0' + MINOR_VERSION)
-        << '.' << ('0' + PATCH_VERSION) << std::endl;
+    std::cerr << "dnsblocker " << DNSB_VERSION << std::endl;
     std::cout << "Usage: dnsblocker <configuration> [ <log directory> ]\n";
     exit(EXIT_FAILURE);
 }
@@ -238,6 +236,7 @@ void main_prepare()
         exit(1);
     }
 
+    LOG_MESSAGE("\ndnsblocker %s\n", DNSB_VERSION);
     LOG_MESSAGE("    Base path: %s\n", context.basePath.c_str());
     LOG_MESSAGE("Configuration: %s\n", context.configFileName.c_str());
     LOG_MESSAGE("    Blacklist: %s\n", context.config.blacklist()[0].c_str());
