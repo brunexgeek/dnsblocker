@@ -42,7 +42,7 @@ Processor::Processor( const Configuration &config ) : config_(config), running_(
         throw std::runtime_error("Unable to bind");
     }
 
-    cache_ = new DNSCache();
+    cache_ = new DNSCache(config.cache().limit(), config.cache().ttl());
     bool found = false;
     for (auto it = config.external_dns().begin(); it != config.external_dns().end(); ++it)
     {

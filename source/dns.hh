@@ -130,18 +130,18 @@ struct DNSCache
         void addTarget( const std::string &rule, const std::string &dns );
 
     private:
-        int size;
-        int ttl;
-        uint32_t defaultDNS;
-        std::unordered_map<std::string, dns_cache_t> cache;
-        Tree<uint32_t> targets;
+        int size_;
+        int ttl_;
+        uint32_t defaultDNS_;
+        std::unordered_map<std::string, dns_cache_t> cache_;
+        Tree<uint32_t> targets_;
         struct
         {
             uint32_t cache;
             uint32_t external;
-        } hits;
-        int timeout;
-        std::mutex lock;
+        } hits_;
+        int timeout_;
+        std::mutex lock_;
 
         int recursive( const std::string &host, uint32_t dnsAddress, uint32_t *address );
         uint32_t nameserver( const std::string &host );
