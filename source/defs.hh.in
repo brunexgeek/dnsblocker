@@ -18,6 +18,7 @@
 #define DNS_ANSWER_TTL                (3 * 60) // 3 minutes
 #define DNS_BUFFER_SIZE               1024
 #define DNS_TIMEOUT                   2000 // ms
+#define DNS_BUFFER_SIZE               1024 // bytes
 
 #define NUM_THREADS                   2
 

@@ -13,11 +13,18 @@ message Binding
     uint32 port = 2;
 }
 
+message Cache
+{
+    int32 ttl = 1;
+    int32 limit = 2;
+}
+
 message Configuration
 {
     repeated NameServer external_dns = 1;
-    Binding binding = 3;
-    bool daemon = 4;
-    repeated string blacklist = 5;
-    string monitoring = 6;
+    Binding binding = 2;
+    repeated string blacklist = 3;
+    string monitoring = 4;
+    int32 threads = 5;
+    Cache cache = 6;
 }
