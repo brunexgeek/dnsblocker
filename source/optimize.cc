@@ -1,6 +1,13 @@
 #include "nodes.hh"
 
 
+int main_usage()
+{
+    std::cerr << "Usage: optimize <target blacklist> <base blacklist>" << std::endl;
+    std::cerr << "       optimize <target blacklist>" << std::endl;
+    return 1;
+}
+
 void loadRules( const std::string &fileName, std::vector<std::string> &values )
 {
     std::ifstream rules(fileName.c_str());
@@ -17,7 +24,7 @@ void loadRules( const std::string &fileName, std::vector<std::string> &values )
 
 int main( int argc, char **argv )
 {
-    if (argc < 2 || argc > 3) return 1;
+    if (argc < 2 || argc > 3) return main_usage();
 
     Tree<uint8_t> blacklist;
     std::vector<std::string> entries;

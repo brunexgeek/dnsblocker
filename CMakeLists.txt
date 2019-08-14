@@ -3,8 +3,8 @@ project(dnsblocker)
 cmake_minimum_required(VERSION 2.8)
 
 set(DNSB_MAJOR_VERSION 0)
-set(DNSB_MINOR_VERSION 11)
-set(DNSB_PATCH_VERSION 1)
+set(DNSB_MINOR_VERSION 12)
+set(DNSB_PATCH_VERSION 0)
 
 
 set(CMAKE_BUILD_TYPE "Release"  CACHE STRING  "Specify the build type")
