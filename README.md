@@ -1,6 +1,6 @@
 # dns-blocker
 
-Experimental Windows and GNU/Linux DNS server to filter domains using blacklist. The ideia is to block TCP/UDP communication to specific domains/subdomains by manipulating DNS answers. This program enables you to use wildcards and you don't have to know all subdomains a priori, as you would when using ``iptables`` or *hosts* file.
+Simple DNS server to filter domains using blacklist. The ideia is to block TCP/UDP communication to specific domains/subdomains by manipulating DNS answers. This program enables you to use wildcards and you don't have to know all subdomains a priori, as you would when using ``iptables`` or *hosts* file. This program is compatible with GNU/Linux and Windows.
 
 For every query of type ``A`` (i.e. returns an IPv4 address for a given domain name), the server will do the following:
 
@@ -25,14 +25,17 @@ To configure `dnsblocker` you use pairs of key-value stored in a JSON file.
 * **binding** &ndash; Specify the address and port for the program to bind with.
   * **address** &ndash; IPv4 address. The default value is `127.0.0.2`.
   * **port** &ndash; Port number (0-65535). The default value is `53`.
-* **external_dns** &ndash; Specify external DNS servers to be used by recursive queries.
-  * **address** &ndash; IPv4 address of the external name server.
-  * **targets** &ndash; Optional array of expressions (same syntax as blacklists). When the requested domain matches with on of the expressions, this name server will be used. If the name server is unavaiable, the default name server will be used. If this option is omited, this entry will be set as default external name server.
+* **external_dns** &ndash; Array of objects containing external DNS servers to be used by recursive queries. Each object has the following fields:
+  * **address** &ndash; Required IPv4 address of the external name server.
+  * **targets** &ndash; Optional array of expressions (same syntax as blacklists). When the requested domain matches with one of those expressions, this name server will be used. If the name server is unavaiable, the default name server will be used instead. If this option is omited, this entry will be set as default external name server.
 * **monitoring** &ndash; `allowed` to show allowed requests; `denied` to show blocked requests; `all` to show everything; `none` or any other value to disable monitoring.
+* **cache** &ndash; Cache configuration.
+  * **ttl** &ndash; TTL (time to live) for DNS responses. The default value is 10 minutes.
+  * **limit** &ndash; Maximum number of entries in the cache. The default value is 1000.
 
 ```json
 {
-    "blacklist" : "blacklist.txt",
+    "blacklist" : [ "blacklist.txt" ],
     "binding" : {
         "address": "127.0.0.2",
         "port" : 53
