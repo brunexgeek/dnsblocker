@@ -29,6 +29,9 @@ Processor::Processor( const Configuration &config ) : config_(config), running_(
     }
 
     bindIPv4_ = UDP::hostToIPv4(config.binding().address());
+    #ifdef ENABLE_DNS_CONSOLE
+    if (bindIPv4_ == 0) LOG_MESSAGE("Console only available for requests from 127.0.0.1");
+    #endif
 	conn_ = new UDP();
 	if (!conn_->bind(config.binding().address(), (uint16_t) config.binding().port()))
     {
@@ -242,7 +245,7 @@ void Processor::process(
 
         #ifdef ENABLE_DNS_CONSOLE
         // check whether the message carry a remote command
-        if (IP_EQUIVALENT(object->bindIPv4_, endpoint.address) &&
+        if ((endpoint.address == 0x7F000001 || IP_EQUIVALENT(object->bindIPv4_, endpoint.address)) &&
             request.questions[0].qname.find("@dnsblocker") != std::string::npos)
         {
             object->console(request.questions[0].qname);
