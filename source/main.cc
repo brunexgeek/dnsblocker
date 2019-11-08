@@ -10,6 +10,7 @@
 
 #include <signal.h>
 #include <limits.h>
+#include "defs.hh"
 #include "nodes.hh"
 #include "dns.hh"
 #include "socket.hh"
@@ -251,6 +252,9 @@ void main_prepare()
 }
 
 
+#ifndef __WINDOWS__
+
+
 int main( int argc, char** argv )
 {
     main_parseArguments(argc, argv);
@@ -284,3 +288,102 @@ int main( int argc, char** argv )
     delete Log::instance;
     return 0;
 }
+
+#else
+
+static SERVICE_STATUS serviceStatus = { 0 };
+static SERVICE_STATUS_HANDLE statusHandle = NULL;
+
+
+static VOID WINAPI serviceCtrlHandler (
+	DWORD CtrlCode )
+{
+	if (CtrlCode == SERVICE_CONTROL_STOP && serviceStatus.dwCurrentState == SERVICE_RUNNING)
+	{
+		LOG_MESSAGE("Stopping...\n");
+		serviceStatus.dwControlsAccepted = 0;
+		serviceStatus.dwCurrentState = SERVICE_STOP_PENDING;
+		serviceStatus.dwWin32ExitCode = 0;
+		serviceStatus.dwCheckPoint = 4;
+		if (SetServiceStatus (statusHandle, &serviceStatus) == FALSE)
+			LOG_MESSAGE("ERROR: SetServiceStatus returned error");
+		context.processor->finish();
+	}
+}
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+VOID WINAPI serviceMain( DWORD argc, LPSTR *argv )
+{
+	statusHandle = RegisterServiceCtrlHandlerA("dnsblocker", serviceCtrlHandler);
+	if (statusHandle == NULL) return;
+
+	ZeroMemory(&serviceStatus, sizeof (serviceStatus));
+	serviceStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
+	serviceStatus.dwControlsAccepted = 0;
+	serviceStatus.dwCurrentState = SERVICE_START_PENDING;
+	serviceStatus.dwWin32ExitCode = 0;
+	serviceStatus.dwServiceSpecificExitCode = 0;
+	serviceStatus.dwCheckPoint = 0;
+
+	if (SetServiceStatus(statusHandle , &serviceStatus) == FALSE)
+	{
+		LOG_MESSAGE("ERROR: SetServiceStatus returned error");
+		return;
+	}
+
+	serviceStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP;
+	serviceStatus.dwCurrentState = SERVICE_RUNNING;
+	serviceStatus.dwWin32ExitCode = 0;
+	serviceStatus.dwCheckPoint = 0;
+	if (SetServiceStatus(statusHandle, &serviceStatus) == FALSE)
+	{
+		LOG_MESSAGE("ERROR: SetServiceStatus returned error");
+		return;
+	}
+
+	LOG_MESSAGE("DNS Blocker %d.%d.%d (Windows Service)\n", MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION);
+
+	main_prepare();
+	context.processor = new Processor(context.config);
+    context.processor->run();
+
+    LOG_MESSAGE("\nTerminated\n");
+    delete Log::instance;
+
+	serviceStatus.dwControlsAccepted = 0;
+	serviceStatus.dwCurrentState = SERVICE_STOPPED;
+	serviceStatus.dwWin32ExitCode = 0;
+	serviceStatus.dwCheckPoint = 3;
+	if (SetServiceStatus (statusHandle, &serviceStatus) == FALSE)
+		LOG_MESSAGE("ERROR: SetServiceStatus returned error");
+}
+
+
+int main(int argc, char **argv)
+{
+	main_parseArguments(argc, argv);
+	Log::instance = new Log( context.logPath.c_str() );
+
+	for (int i = 0; i < argc; ++i)
+		LOG_MESSAGE("argv[%d] = %s\n", i, argv[i]);
+
+	SERVICE_TABLE_ENTRYA table[] =
+    {
+        { "dnsblocker", (LPSERVICE_MAIN_FUNCTIONA) serviceMain },
+        { NULL, NULL }
+    };
+	StartServiceCtrlDispatcher(table);
+	return 0;
+}
+
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

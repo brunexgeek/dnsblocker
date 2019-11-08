@@ -31,7 +31,7 @@ class UDP
 		~UDP();
 
 		bool send( const Endpoint &endpoint, const uint8_t *data, size_t size );
-		bool receive( Endpoint &endpoint, uint8_t *data, size_t *size );
+		bool receive( Endpoint &endpoint, uint8_t *data, size_t *size, int timeout = 10000 );
 		bool poll( int timeout );
 		static uint32_t hostToIPv4( const std::string &host );
 		void close();

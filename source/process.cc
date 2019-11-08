@@ -188,9 +188,6 @@ bool Processor::sendError(
 #define MONITOR_SHOW_ALLOWED   1
 #define MONITOR_SHOW_DENIED    2
 
-#ifdef __WINDOWS__
-bool serviceStopped();
-#endif
 
 void Processor::process(
     Processor *object,
@@ -224,11 +221,7 @@ void Processor::process(
     if (object->config_.monitoring() == "all")
         flags = MONITOR_SHOW_ALLOWED | MONITOR_SHOW_DENIED;
 
-	#ifdef __WINDOWS__
-    while (object->running_ && !serviceStopped())
-	#else
-	while (object->running_)
-	#endif
+    while (object->running_)
     {
         Job *job = object->pop();
         if (job == nullptr)
@@ -373,15 +366,11 @@ void Processor::run()
     for (int i = 0; i < NUM_THREADS; ++i)
         pool[i] = new std::thread(process, this, i + 1, &lock, &cond);
 
-	#ifdef __WINDOWS__
-    while (running_ && !serviceStopped())
-	#else
-	while (running_)
-	#endif
+    while (running_)
     {
         // receive the UDP message
         BufferIO bio(buffer, 0, DNS_BUFFER_SIZE);
-        if (!conn_->receive(endpoint, bio.buffer, &bio.size)) continue;
+        if (!conn_->receive(endpoint, bio.buffer, &bio.size, 2000)) continue;
 
         // parse the message
         dns_message_t request;

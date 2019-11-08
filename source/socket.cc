@@ -172,10 +172,12 @@ bool UDP::send( const Endpoint &endpoint, const uint8_t *data, size_t size )
     return result > 0;
 }
 
-bool UDP::receive( Endpoint &endpoint, uint8_t *data, size_t *size )
+bool UDP::receive( Endpoint &endpoint, uint8_t *data, size_t *size, int timeout )
 {
     struct sockaddr_in address;
 	TYPE_SOCKETLEN length = sizeof(address);
+
+	if (!poll(timeout)) return false;
 
     int result = (int) recvfrom(CTX.socketfd, (char*) data, (int) *size, 0,
         (struct sockaddr *) &address, &length);
