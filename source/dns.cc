@@ -366,6 +366,9 @@ int DNSCache::resolve(
 {
     uint32_t currentTime = dns_time();
 
+    std::string key = host;
+    key += (type == ADDR_TYPE_AAAA) ? ":6" : ":4";
+
     {
         if ((int) cache_.size() > size_) cleanup( (int) ((float)ttl_ * 0.75) );
 
@@ -374,17 +377,14 @@ int DNSCache::resolve(
         *dnsAddress = 0;
         *output = 0;
 
-        auto it = cache_.find(host);
+        auto it = cache_.find(key);
         // try to use cache information
         if (it != cache_.end())
         {
             // check whether the cache entry still valid
             if (currentTime <= it->second.timestamp + ttl_)
             {
-                if (type == ADDR_TYPE_A)
-                    *output = it->second.ipv4;
-                else
-                    *output = it->second.ipv6;
+                *output = it->second.address;
                 if (!output->invalid())
                 {
                     ++hits_.cache;
@@ -419,12 +419,12 @@ int DNSCache::resolve(
     {
         std::lock_guard<std::mutex> raii(lock_);
 
+        std::string key = host;
+        key += (type == ADDR_TYPE_AAAA) ? ":6" : ":4";
+
         ++hits_.external;
-        dns_cache_t &entry = cache_[host];
-        if (type == ADDR_TYPE_A)
-            entry.ipv4 = *output;
-        else
-            entry.ipv6 = *output;
+        dns_cache_t &entry = cache_[key];
+        entry.address = *output;
         entry.timestamp = currentTime;
     }
 
@@ -459,7 +459,7 @@ void DNSCache::dump( const std::string &path )
             }
 
             fprintf(output, "%-16s  %6d  %s\n",
-                it->second.ipv4.toString().c_str(),
+                it->second.address.toString().c_str(),
                 rt,
                 it->first.c_str());
 

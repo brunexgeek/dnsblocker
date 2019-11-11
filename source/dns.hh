@@ -110,9 +110,7 @@ struct dns_message_t
 struct dns_cache_t
 {
     uint32_t timestamp;
-    Address ipv4;
-    Address ipv6;
-    //uint32_t hits;
+    Address address;
 };
 
 
