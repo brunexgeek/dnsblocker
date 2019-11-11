@@ -43,24 +43,6 @@ struct Node
 };
 
 
-template<>
-struct Node<void>
-{
-    NodeIndex slots[NODE_SLOTS];
-    uint32_t flags;
-
-    Node()
-    {
-        memset(slots, 0, sizeof(slots));
-        flags = 0;
-    }
-
-    ~Node()
-    {
-    }
-};
-
-
 template<typename T>
 class Tree
 {

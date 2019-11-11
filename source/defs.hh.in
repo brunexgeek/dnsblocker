@@ -11,7 +11,8 @@
 #define __WINDOWS__
 #endif
 
-#define DNS_BLOCKED_ADDRESS           0x7F000002  // 127.0.0.2
+#define DNS_BLOCKED_IPV4_ADDRESS           0x7F000002  // 127.0.0.2
+#define DNS_BLOCKED_IPV6_ADDRESS           { 0, 0, 0, 0, 0, 0, 0, 2 }  // ::2
 
 #define DNS_CACHE_TTL                 (10 * 60) // 10 minutes
 #define DNS_CACHE_LIMIT               1000

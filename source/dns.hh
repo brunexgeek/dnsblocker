@@ -10,6 +10,7 @@
 #include "log.hh"
 #include "nodes.hh"
 #include "buffer.hh"
+#include "socket.hh"
 #include <mutex>
 
 
@@ -44,6 +45,7 @@
 #define DNS_RCODE_SERVFAIL       2
 #define DNS_RCODE_NXDOMAIN       3
 #define DNS_RCODE_REFUSED        5
+
 
 struct dns_header_t
 {
@@ -82,7 +84,7 @@ struct dns_record_t
     uint16_t clazz;
     uint32_t ttl;
     uint16_t rdlen;
-    uint32_t rdata;  // IPv4
+    Address rdata;  // IPv4 or IPv6
 
     dns_record_t();
     void read( BufferIO &bio );
@@ -108,7 +110,8 @@ struct dns_message_t
 struct dns_cache_t
 {
     uint32_t timestamp;
-    uint32_t address;
+    Address ipv4;
+    Address ipv6;
     //uint32_t hits;
 };
 
@@ -122,7 +125,7 @@ struct DNSCache
             int timeout = DNS_TIMEOUT );
 
         ~DNSCache();
-        int resolve( const std::string &host, uint32_t *dnsAddress, uint32_t *output );
+        int resolve( const std::string &host, int type, Address *dnsAddress, Address *output );
         void dump( const std::string &path );
         void cleanup( uint32_t ttl );
         void reset();
@@ -132,7 +135,7 @@ struct DNSCache
     private:
         int size_;
         int ttl_;
-        uint32_t defaultDNS_;
+        Address defaultDNS_;
         std::unordered_map<std::string, dns_cache_t> cache_;
         Tree<uint32_t> targets_;
         struct
@@ -143,8 +146,8 @@ struct DNSCache
         int timeout_;
         std::mutex lock_;
 
-        int recursive( const std::string &host, uint32_t dnsAddress, uint32_t *address );
-        uint32_t nameserver( const std::string &host );
+        int recursive( const std::string &host, int type, Address dnsAddress, Address *address );
+        Address nameserver( const std::string &host );
 };
 
 

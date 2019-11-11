@@ -1,5 +1,6 @@
 #include "defs.hh"
 #include "socket.hh"
+#include <cstring>
 
 #ifndef __WINDOWS__
 #include <netinet/in.h>
@@ -100,7 +101,77 @@ struct Context
 };
 
 
-Endpoint::Endpoint() : address(0), port(0)
+Address::Address() : type(ADDR_TYPE_A)
+{
+	ipv4 = 0;
+}
+
+Address::Address( uint32_t ipv4 ) : type(ADDR_TYPE_A), ipv4(ipv4)
+{
+}
+
+Address::Address( const Address &that ) : type(that.type)
+{
+	memcpy(ipv6, that.ipv6, sizeof(ipv6));
+}
+
+std::string Address::toString() const
+{
+	char output[48] = { 0 };
+
+	if (type == ADDR_TYPE_A)
+	{
+		snprintf(output, sizeof(output), "%d.%d.%d.%d",
+			SOCKET_IP_O1(ipv4),
+			SOCKET_IP_O2(ipv4),
+			SOCKET_IP_O3(ipv4),
+			SOCKET_IP_O4(ipv4));
+	}
+	else
+	if (type == ADDR_TYPE_AAAA)
+	{
+		snprintf(output, sizeof(output), "%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
+			ipv6[0], ipv6[1], ipv6[2], ipv6[3], ipv6[4], ipv6[5], ipv6[6],ipv6[7]);
+	}
+
+	return output;
+}
+
+bool Address::equivalent( const Address &that ) const
+{
+	if (type == that.type && type == ADDR_TYPE_A)
+		return ipv4 == that.ipv4 || ( SOCKET_IP_O1(ipv4) == 127 && SOCKET_IP_O1(that.ipv4) == 127 );
+	else
+		return false;
+}
+
+bool Address::operator==( const Address &that ) const
+{
+	if (type != that.type) return false;
+	if (type == ADDR_TYPE_A)
+		return ipv4 == that.ipv4;
+	else
+	if (type == ADDR_TYPE_AAAA)
+		return memcmp(ipv6, ipv6, sizeof(ipv6)) == 0;
+	else
+		return false;
+}
+
+bool Address::invalid() const
+{
+	if (type == ADDR_TYPE_A)
+		return ipv4 == 0;
+	else
+	if (type == ADDR_TYPE_AAAA)
+	{
+		for (int i = 0; i < 8; ++i)
+			if (ipv6[i] != 0) return false;
+	}
+
+	return true;
+}
+
+Endpoint::Endpoint() : port(0)
 {
 }
 
@@ -108,25 +179,17 @@ Endpoint::Endpoint( const Endpoint &that ) : address(that.address), port(that.po
 {
 }
 
-Endpoint::Endpoint( uint32_t ipv4, uint16_t port ) : address(ipv4), port(port)
+Endpoint::Endpoint( const Address &address, uint16_t port ) : address(address), port(port)
+{
+}
+
+Endpoint::Endpoint( const uint32_t &ipv4, uint16_t port ) : address(Address(ipv4)), port(port)
 {
 }
 
 Endpoint::Endpoint( const std::string &ipv4, uint16_t port ) : port(port)
 {
 	inet_pton(AF_INET, ipv4.c_str(), &address);
-}
-
-
-std::string Endpoint::addressToString( uint32_t address )
-{
-	char output[16];
-	snprintf(output, sizeof(output), "%d.%d.%d.%d",
-        SOCKET_IP_O1(address),
-        SOCKET_IP_O2(address),
-        SOCKET_IP_O3(address),
-        SOCKET_IP_O4(address));
-	return output;
 }
 
 
@@ -161,9 +224,9 @@ bool UDP::send( const Endpoint &endpoint, const uint8_t *data, size_t size )
     struct sockaddr_in address;
 	address.sin_family = AF_INET;
 	#ifdef __WINDOWS__
-    address.sin_addr.S_un.S_addr = htonl(endpoint.address);
+    address.sin_addr.S_un.S_addr = htonl(endpoint.address.ipv4);
 	#else
-	address.sin_addr.s_addr = htonl(endpoint.address);
+	address.sin_addr.s_addr = htonl(endpoint.address.ipv4);
 	#endif
     address.sin_port = htons(endpoint.port);
 
@@ -185,9 +248,9 @@ bool UDP::receive( Endpoint &endpoint, uint8_t *data, size_t *size, int timeout 
 	{
 		*size = result;
 		#ifdef __WINDOWS__
-		endpoint.address = ntohl(address.sin_addr.S_un.S_addr);
+		endpoint.address.ipv4 = ntohl(address.sin_addr.S_un.S_addr);
 		#else
-		endpoint.address = ntohl(address.sin_addr.s_addr);
+		endpoint.address.ipv4 = ntohl(address.sin_addr.s_addr);
 		#endif
 		endpoint.port = ntohs(address.sin_port);
 	}

@@ -14,11 +14,6 @@
 #endif
 
 
-#define IP_EQUIVALENT(addr1,addr2) \
-    ( ( (addr1) == (addr2) ) || ( DNS_IP_O1(addr1) == DNS_IP_O1(addr2) && DNS_IP_O1(addr1) == 127 ) )
-
-
-
 Processor::Processor( const Configuration &config ) : config_(config), running_(false),
     dumpPath_(".")
 {
@@ -28,9 +23,10 @@ Processor::Processor( const Configuration &config ) : config_(config), running_(
         throw std::runtime_error("Invalid port number");
     }
 
-    bindIPv4_ = UDP::hostToIPv4(config.binding().address());
+    bindIP_.type = ADDR_TYPE_A;
+    bindIP_.ipv4 = UDP::hostToIPv4(config.binding().address());
     #ifdef ENABLE_DNS_CONSOLE
-    if (bindIPv4_ == 0) LOG_MESSAGE("Console only available for requests from 127.0.0.1");
+    if (bindIP_.ipv4 == 0) LOG_MESSAGE("Console only available for requests from 127.0.0.1");
     #endif
 	conn_ = new UDP();
 	if (!conn_->bind(config.binding().address(), (uint16_t) config.binding().port()))
@@ -169,6 +165,17 @@ void Processor::console( const std::string &command )
 #endif
 
 
+static void blockAddress( int type, Address &address )
+{
+    static const uint16_t IPV6_ADDRESS[] = DNS_BLOCKED_IPV6_ADDRESS;
+    address.type = type;
+    if (type == DNS_TYPE_A)
+        address.ipv4 = DNS_BLOCKED_IPV4_ADDRESS;
+    else
+        memcpy(address.ipv6, IPV6_ADDRESS, sizeof(IPV6_ADDRESS));
+}
+
+
 bool Processor::sendError(
     const dns_message_t &request,
     int rcode,
@@ -238,7 +245,7 @@ void Processor::process(
 
         #ifdef ENABLE_DNS_CONSOLE
         // check whether the message carry a remote command
-        if ((endpoint.address == 0x7F000001 || IP_EQUIVALENT(object->bindIPv4_, endpoint.address)) &&
+        if ((/*endpoint.address == 0x7F000001 ||*/ object->bindIP_.equivalent(endpoint.address)) &&
             request.questions[0].qname.find("@dnsblocker") != std::string::npos)
         {
             object->console(request.questions[0].qname);
@@ -250,7 +257,7 @@ void Processor::process(
 
         // check whether the domain is blocked
         bool isBlocked = object->blacklist_.match(request.questions[0].qname) != nullptr;
-        uint32_t address = 0, dnsAddress = 0;
+        Address address, dnsAddress;
         int result = 0;
 
         // if the domain is not blocked, we retrieve the IP address from the cache
@@ -262,12 +269,14 @@ void Processor::process(
                 result = DNSB_STATUS_NXDOMAIN;
             else
             if (request.header.flags & DNS_FLAG_RD)
-                result = object->cache_->resolve(request.questions[0].qname, &dnsAddress, &address);
+                result = object->cache_->resolve(request.questions[0].qname, request.questions[0].type, &dnsAddress, &address);
             else
                 result = DNSB_STATUS_NXDOMAIN;
         }
         else
-            address = DNS_BLOCKED_ADDRESS;
+        {
+            blockAddress(request.questions[0].type, address);
+        }
 
         if ((isBlocked && flags & MONITOR_SHOW_DENIED) || (!isBlocked && flags & MONITOR_SHOW_ALLOWED))
         {
@@ -304,10 +313,10 @@ void Processor::process(
                 LOG_TIMED("%sT%d  %-15s  %s  %-15s  %-15s  %s%s\n",
                     color,
                     num,
-                    Endpoint::addressToString(endpoint.address).c_str(),
+                    endpoint.address.toString().c_str(),
                     status,
-                    Endpoint::addressToString(dnsAddress).c_str(),
-                    Endpoint::addressToString(address).c_str(),
+                    dnsAddress.toString().c_str(),
+                    address.toString().c_str(),
                     request.questions[0].qname.c_str(),
                     COLOR_RESET);
             }
@@ -377,7 +386,8 @@ void Processor::run()
         request.read(bio);
 
         // ignore messages with the number of questions other than 1
-        if (request.questions.size() != 1 || request.questions[0].type != DNS_TYPE_A)
+        int type = request.questions[0].type;
+        if (request.questions.size() != 1 || (type != DNS_TYPE_A && type != DNS_TYPE_AAAA))
         {
             sendError(request, DNS_RCODE_REFUSED, endpoint);
             continue;

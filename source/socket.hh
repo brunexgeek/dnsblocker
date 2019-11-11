@@ -11,16 +11,44 @@
 #define SOCKET_IP_O3(x)          (((x) & 0x0000FF00) >> 8)
 #define SOCKET_IP_O4(x)          ((x) & 0x000000FF)
 
+#define SOCKET_IP_O1(x)          (((x) & 0xFF000000) >> 24)
+#define SOCKET_IP_O2(x)          (((x) & 0x00FF0000) >> 16)
+#define SOCKET_IP_O3(x)          (((x) & 0x0000FF00) >> 8)
+#define SOCKET_IP_O4(x)          ((x) & 0x000000FF)
+
+#define ADDR_TYPE_A            (uint16_t) 1
+#define ADDR_TYPE_AAAA         (uint16_t) 28
+
+
+struct Address
+{
+    int type;
+    union
+    {
+        uint32_t ipv4;
+        uint16_t ipv6[8];
+    };
+
+	Address();
+	Address( uint32_t ipv4 );
+	Address( const Address &that );
+	std::string toString() const;
+	bool equivalent( const Address &address ) const;
+	bool operator==( const Address &that ) const;
+	bool invalid() const;
+};
+
+
 struct Endpoint
 {
-	uint32_t address;
+	Address address;
 	uint16_t port;
 
 	Endpoint();
 	Endpoint( const Endpoint &that );
-	Endpoint( uint32_t ipv4, uint16_t port );
+	Endpoint( const Address &address, uint16_t port );
+	Endpoint( const uint32_t &ipv4, uint16_t port );
 	Endpoint( const std::string &ipv4, uint16_t port );
-	static std::string addressToString( uint32_t address );
 };
 
 

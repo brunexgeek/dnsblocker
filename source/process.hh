@@ -37,7 +37,7 @@ class Processor
         std::list<Job*> pending_;
         std::mutex mutex_;
         UDP *conn_;
-        uint32_t bindIPv4_;
+        Address bindIP_;
         DNSCache *cache_;
         Configuration config_;
         Tree<uint8_t> blacklist_;

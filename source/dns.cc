@@ -170,8 +170,24 @@ void dns_record_t::write(
     bio.writeU16(type);
     bio.writeU16(clazz);
     bio.writeU32(ttl);
-    bio.writeU16(4);
-    bio.writeU32(rdata);
+    if (rdata.type == ADDR_TYPE_A)
+    {
+        bio.writeU16(4);
+        bio.writeU32(rdata.ipv4);
+    }
+    else
+    if (rdata.type == ADDR_TYPE_AAAA)
+    {
+        bio.writeU16(16);
+        for (int i = 0; i < 8; ++i)
+            bio.writeU16(rdata.ipv6[i]);
+    }
+    else
+    {
+        // never should get here!
+        bio.writeU16(4);
+        bio.writeU32(0);
+    }
 }
 
 void dns_record_t::read(
@@ -182,23 +198,39 @@ void dns_record_t::read(
     clazz = bio.readU16();
     ttl = bio.readU32();
     rdlen = bio.readU16();
-    rdata = 0;
     if (rdlen == 4)
-        rdata = bio.readU32();
+    {
+        rdata.type = ADDR_TYPE_A;
+        rdata.ipv4 = bio.readU32();
+    }
     else
+    if (rdlen == 16)
+    {
+        rdata.type = ADDR_TYPE_AAAA;
+        for (int i = 0; i < 8; ++i)
+            rdata.ipv6[i] = bio.readU16();
+    }
+    else
+    {
+        rdata.type = 0;
+        memset(rdata.ipv6, 0, sizeof(rdata.ipv6));
         bio.skip(rdlen);
+    }
 }
 
 
 void dns_record_t::print() const
 {
-    if (rdlen != 4)
+    if (rdata.type == ADDR_TYPE_A || rdata.type == ADDR_TYPE_AAAA)
+    {
+        LOG_MESSAGE("   [qname: '%s', type: %d, class: %d, ttl: %d, len: %d, addr: %d.%d.%d.%d]\n",
+            qname.c_str(), type, clazz, ttl, rdlen, rdata.toString().c_str());
+    }
+    else
+    {
         LOG_MESSAGE("   [qname: '%s', type: %d, class: %d, ttl: %d, len: %d]\n",
             qname.c_str(), type, clazz, ttl, rdlen);
-    else
-        LOG_MESSAGE("   [qname: '%s', type: %d, class: %d, ttl: %d, len: %d, addr: %d.%d.%d.%d]\n",
-            qname.c_str(), type, clazz, ttl, rdlen, DNS_IP_O1(rdata), DNS_IP_O2(rdata),
-            DNS_IP_O3(rdata), DNS_IP_O4(rdata));
+    }
 }
 
 
@@ -230,8 +262,9 @@ DNSCache::~DNSCache()
 
 int DNSCache::recursive(
     const std::string &host,
-    uint32_t dnsAddress,
-    uint32_t *output )
+    int type,
+    Address dnsAddress,
+    Address *output )
 {
     static std::atomic<uint16_t> lastId(1);
     *output = 0;
@@ -243,7 +276,7 @@ int DNSCache::recursive(
     message.header.flags |= DNS_FLAG_AD;
     dns_question_t question;
     question.qname = host;
-    question.type = DNS_TYPE_A;
+    question.type = (uint16_t) type;
     question.clazz = 1;
     message.questions.push_back(question);
     // encode the message
@@ -265,26 +298,17 @@ int DNSCache::recursive(
     // decode the response
     message.read(bio);
 
-    // use the first 'type A' answer
+    // use the first compatible answer
     if (message.header.rcode == 0 &&
         message.answers.size() > 0 &&
         message.questions.size() == 1 &&
         message.questions[0].qname == host)
     {
         for (auto it = message.answers.begin(); it != message.answers.end(); ++it)
-            if (it->type == DNS_TYPE_A) *output = it->rdata;
+            if (it->type == type) *output = it->rdata;
     }
 
-#if 0
-    if (message.header.rcode == 0)
-        LOG_MESSAGE("-- tells '%s' is %d.%d.%d.%d\n",
-            host.c_str(),
-            DNS_IP_O1(*output),
-            DNS_IP_O2(*output),
-            DNS_IP_O3(*output),
-            DNS_IP_O4(*output));
-#endif
-    return (*output == 0) ? DNSB_STATUS_NXDOMAIN : DNSB_STATUS_RECURSIVE;
+    return (output->invalid()) ? DNSB_STATUS_NXDOMAIN : DNSB_STATUS_RECURSIVE;
 }
 
 
@@ -324,7 +348,7 @@ void DNSCache::cleanup( uint32_t ttl )
 }
 
 
-uint32_t DNSCache::nameserver( const std::string &host )
+Address DNSCache::nameserver( const std::string &host )
 {
     std::lock_guard<std::mutex> raii(lock_);
 
@@ -336,8 +360,9 @@ uint32_t DNSCache::nameserver( const std::string &host )
 
 int DNSCache::resolve(
     const std::string &host,
-    uint32_t *dnsAddress,
-    uint32_t *output )
+    int type,
+    Address *dnsAddress,
+    Address *output )
 {
     uint32_t currentTime = dns_time();
 
@@ -356,10 +381,16 @@ int DNSCache::resolve(
             // check whether the cache entry still valid
             if (currentTime <= it->second.timestamp + ttl_)
             {
-                *output = it->second.address;
-                ++hits_.cache;
-                it->second.timestamp = currentTime;
-                return DNSB_STATUS_CACHE;
+                if (type == ADDR_TYPE_A)
+                    *output = it->second.ipv4;
+                else
+                    *output = it->second.ipv6;
+                if (!output->invalid())
+                {
+                    ++hits_.cache;
+                    it->second.timestamp = currentTime;
+                    return DNSB_STATUS_CACHE;
+                }
             }
         }
 
@@ -372,7 +403,7 @@ int DNSCache::resolve(
     bool store = true;
 
     // try to resolve the domain using the external DNS
-    int result = recursive(host, *dnsAddress, output);
+    int result = recursive(host, type, *dnsAddress, output);
     if (result != DNSB_STATUS_RECURSIVE && *dnsAddress == defaultDNS_)
         return result;
     // if the previous resolution failed, try again using the default DNS server
@@ -380,17 +411,20 @@ int DNSCache::resolve(
     {
         store = false;
         *dnsAddress = defaultDNS_;
-        result = recursive(host, defaultDNS_, output);
+        result = recursive(host, type, defaultDNS_, output);
         if (result != DNSB_STATUS_RECURSIVE) return result;
     }
 
-    if (*output != 0 && store)
+    if (!output->invalid() && store)
     {
         std::lock_guard<std::mutex> raii(lock_);
 
         ++hits_.external;
         dns_cache_t &entry = cache_[host];
-        entry.address = *output;
+        if (type == ADDR_TYPE_A)
+            entry.ipv4 = *output;
+        else
+            entry.ipv6 = *output;
         entry.timestamp = currentTime;
     }
 
@@ -409,7 +443,6 @@ void DNSCache::dump( const std::string &path )
             hits_.cache, hits_.external);
 
         int removed = 0;
-        char ipv4[16];
         uint32_t now = dns_time();
         for (auto it = cache_.begin(); it != cache_.end();)
         {
@@ -425,13 +458,8 @@ void DNSCache::dump( const std::string &path )
                 continue;
             }
 
-            sprintf(ipv4, "%d.%d.%d.%d",
-                DNS_IP_O1(it->second.address),
-                DNS_IP_O2(it->second.address),
-                DNS_IP_O3(it->second.address),
-                DNS_IP_O4(it->second.address));
             fprintf(output, "%-16s  %6d  %s\n",
-                ipv4,
+                it->second.ipv4.toString().c_str(),
                 rt,
                 it->first.c_str());
 
