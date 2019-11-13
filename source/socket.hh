@@ -36,6 +36,7 @@ struct Address
 	bool equivalent( const Address &address ) const;
 	bool operator==( const Address &that ) const;
 	bool invalid() const;
+	bool local() const;
 };
 
 

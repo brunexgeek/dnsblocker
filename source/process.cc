@@ -245,7 +245,7 @@ void Processor::process(
 
         #ifdef ENABLE_DNS_CONSOLE
         // check whether the message carry a remote command
-        if ((/*endpoint.address == 0x7F000001 ||*/ object->bindIP_.equivalent(endpoint.address)) &&
+        if ((endpoint.address.local() || object->bindIP_.equivalent(endpoint.address)) &&
             request.questions[0].qname.find("@dnsblocker") != std::string::npos)
         {
             object->console(request.questions[0].qname);

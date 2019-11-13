@@ -171,6 +171,15 @@ bool Address::invalid() const
 	return true;
 }
 
+bool Address::local() const
+{
+	if (type == ADDR_TYPE_A && SOCKET_IP_O1(ipv4) == 127)
+		return true;
+	if (type == ADDR_TYPE_AAAA && ipv6[0] == 0)
+		return true;
+	return false;
+}
+
 Endpoint::Endpoint() : port(0)
 {
 }
