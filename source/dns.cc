@@ -250,7 +250,7 @@ DNSCache::DNSCache(
     int ttl,
     int timeout ) : size_(size), ttl_(ttl), timeout_(timeout)
 {
-    defaultDNS_ = UDP::hostToIPv4("8.8.4.4");
+    defaultDNS_ = Address( UDP::hostToIPv4("8.8.4.4") );
     hits_.cache = hits_.external = 0;
 }
 
@@ -267,7 +267,7 @@ int DNSCache::recursive(
     Address *output )
 {
     static std::atomic<uint16_t> lastId(1);
-    *output = 0;
+    *output = Address();
 
     // build the query message
     dns_message_t message;
@@ -352,7 +352,7 @@ Address DNSCache::nameserver( const std::string &host )
 {
     std::lock_guard<std::mutex> raii(lock_);
 
-    const Node<uint32_t> *node = targets_.match(host);
+    const Node<Address> *node = targets_.match(host);
     if (node == nullptr) return defaultDNS_;
     return node->value;
 }
@@ -374,8 +374,8 @@ int DNSCache::resolve(
 
 		std::lock_guard<std::mutex> raii(lock_);
 
-        *dnsAddress = 0;
-        *output = 0;
+        *dnsAddress = Address();;
+        *output = Address();;
 
         auto it = cache_.find(key);
         // try to use cache information
@@ -396,8 +396,8 @@ int DNSCache::resolve(
 
         // check if we have a specific DNS server for this domain
         *dnsAddress = defaultDNS_;
-        const Node<uint32_t> *node = targets_.match(host);
-        if (node != nullptr && node->value != 0) *dnsAddress = node->value;
+        const Node<Address> *node = targets_.match(host);
+        if (node != nullptr && !node->value.invalid()) *dnsAddress = node->value;
     }
 
     bool store = true;
@@ -485,15 +485,15 @@ uint32_t DNSCache::addressToIPv4( const std::string &host )
 }*/
 
 
-void DNSCache::setDefaultDNS( const std::string &dns )
+void DNSCache::setDefaultDNS( const std::string &dns, const std::string &name )
 {
-    defaultDNS_ = UDP::hostToIPv4(dns);
+    defaultDNS_ = Address(UDP::hostToIPv4(dns), name);
 }
 
 
-void DNSCache::addTarget( const std::string &rule, const std::string &dns )
+void DNSCache::addTarget( const std::string &rule, const std::string &dns, const std::string &name )
 {
     std::lock_guard<std::mutex> raii(lock_);
-    targets_.add(rule, UDP::hostToIPv4(dns));
+    targets_.add(rule, Address(UDP::hostToIPv4(dns), name) );
 }
 

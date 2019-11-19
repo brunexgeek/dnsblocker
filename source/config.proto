@@ -5,6 +5,7 @@ message NameServer
 {
     string address = 1;
     repeated string targets = 2;
+    string name = 3;
 }
 
 message Binding

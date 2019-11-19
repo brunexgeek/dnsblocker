@@ -22,6 +22,7 @@
 
 struct Address
 {
+	std::string name;
     int type;
     union
     {
@@ -30,7 +31,7 @@ struct Address
     };
 
 	Address();
-	Address( uint32_t ipv4 );
+	explicit Address( uint32_t ipv4, const std::string &name = "" );
 	Address( const Address &that );
 	std::string toString() const;
 	bool equivalent( const Address &address ) const;

@@ -47,14 +47,14 @@ Processor::Processor( const Configuration &config ) : config_(config), running_(
     {
         if (it->targets.undefined())
         {
-            cache_->setDefaultDNS(it->address());
+            cache_->setDefaultDNS(it->address(), it->name());
             found = true;
         }
         else
         {
             for (size_t i = 0; i < it->targets().size(); ++i)
             {
-                cache_->addTarget(it->targets()[i], it->address());
+                cache_->addTarget(it->targets()[i], it->address(), it->name());
             }
         }
     }
@@ -310,12 +310,12 @@ void Processor::process(
                 }
 
                 //lastName = request.questions[0].qname;
-                LOG_TIMED("%sT%d  %-15s  %s  %-15s  %-15s  %s%s\n",
+                LOG_TIMED("%sT%d  %-40s  %s  %-8s  %-40s  %s%s\n",
                     color,
                     num,
                     endpoint.address.toString().c_str(),
                     status,
-                    dnsAddress.toString().c_str(),
+                    dnsAddress.name.c_str(),
                     address.toString().c_str(),
                     request.questions[0].qname.c_str(),
                     COLOR_RESET);

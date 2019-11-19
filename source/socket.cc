@@ -106,7 +106,7 @@ Address::Address() : type(ADDR_TYPE_A)
 	ipv4 = 0;
 }
 
-Address::Address( uint32_t ipv4 ) : type(ADDR_TYPE_A), ipv4(ipv4)
+Address::Address( uint32_t ipv4, const std::string &name ) : name(name), type(ADDR_TYPE_A), ipv4(ipv4)
 {
 }
 
@@ -130,7 +130,7 @@ std::string Address::toString() const
 	else
 	if (type == ADDR_TYPE_AAAA)
 	{
-		snprintf(output, sizeof(output), "%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
+		snprintf(output, sizeof(output), "%x:%x:%x:%x:%x:%x:%x:%x",
 			ipv6[0], ipv6[1], ipv6[2], ipv6[3], ipv6[4], ipv6[5], ipv6[6],ipv6[7]);
 	}
 

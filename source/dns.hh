@@ -127,15 +127,15 @@ struct DNSCache
         void dump( const std::string &path );
         void cleanup( uint32_t ttl );
         void reset();
-        void setDefaultDNS( const std::string &dns );
-        void addTarget( const std::string &rule, const std::string &dns );
+        void setDefaultDNS( const std::string &dns, const std::string &name );
+        void addTarget( const std::string &rule, const std::string &dns, const std::string &name );
 
     private:
         int size_;
         int ttl_;
         Address defaultDNS_;
         std::unordered_map<std::string, dns_cache_t> cache_;
-        Tree<uint32_t> targets_;
+        Tree<Address> targets_;
         struct
         {
             uint32_t cache;
