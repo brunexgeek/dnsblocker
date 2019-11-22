@@ -269,7 +269,7 @@ void Processor::process(
                 result = DNSB_STATUS_NXDOMAIN;
             else
             if (request.header.flags & DNS_FLAG_RD)
-                result = object->cache_->resolve(request.questions[0].qname, request.questions[0].type, &dnsAddress, &address);
+                result = object->cache_->resolve(request.questions[0].qname, request.questions[0].type, dnsAddress, address);
             else
                 result = DNSB_STATUS_NXDOMAIN;
         }
@@ -310,11 +310,12 @@ void Processor::process(
                 }
 
                 //lastName = request.questions[0].qname;
-                LOG_TIMED("%sT%d  %-40s  %s  %-8s  %-40s  %s%s\n",
+                LOG_TIMED("%sT%d  %-40s  %s %c  %-8s  %-40s  %s%s\n",
                     color,
                     num,
                     endpoint.address.toString().c_str(),
                     status,
+                    (request.questions[0].type == ADDR_TYPE_AAAA) ? '6' : '4',
                     dnsAddress.name.c_str(),
                     address.toString().c_str(),
                     request.questions[0].qname.c_str(),

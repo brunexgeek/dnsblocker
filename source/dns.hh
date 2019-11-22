@@ -123,7 +123,7 @@ struct DNSCache
             int timeout = DNS_TIMEOUT );
 
         ~DNSCache();
-        int resolve( const std::string &host, int type, Address *dnsAddress, Address *output );
+        int resolve( const std::string &host, int type, Address &dnsAddress, Address &output );
         void dump( const std::string &path );
         void cleanup( uint32_t ttl );
         void reset();
@@ -144,7 +144,7 @@ struct DNSCache
         int timeout_;
         std::mutex lock_;
 
-        int recursive( const std::string &host, int type, Address dnsAddress, Address *address );
+        int recursive( const std::string &host, int type, const Address &dnsAddress, Address &address );
         Address nameserver( const std::string &host );
 };
 

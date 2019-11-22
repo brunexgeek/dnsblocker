@@ -263,11 +263,10 @@ DNSCache::~DNSCache()
 int DNSCache::recursive(
     const std::string &host,
     int type,
-    Address dnsAddress,
-    Address *output )
+    const Address &dnsAddress,
+    Address &output )
 {
     static std::atomic<uint16_t> lastId(1);
-    *output = Address();
 
     // build the query message
     dns_message_t message;
@@ -305,10 +304,10 @@ int DNSCache::recursive(
         message.questions[0].qname == host)
     {
         for (auto it = message.answers.begin(); it != message.answers.end(); ++it)
-            if (it->type == type) *output = it->rdata;
+            if (it->type == type) output = it->rdata;
     }
 
-    return (output->invalid()) ? DNSB_STATUS_NXDOMAIN : DNSB_STATUS_RECURSIVE;
+    return (output.invalid()) ? DNSB_STATUS_NXDOMAIN : DNSB_STATUS_RECURSIVE;
 }
 
 
@@ -361,8 +360,8 @@ Address DNSCache::nameserver( const std::string &host )
 int DNSCache::resolve(
     const std::string &host,
     int type,
-    Address *dnsAddress,
-    Address *output )
+    Address &dnsAddress,
+    Address &output )
 {
     uint32_t currentTime = dns_time();
 
@@ -374,8 +373,8 @@ int DNSCache::resolve(
 
 		std::lock_guard<std::mutex> raii(lock_);
 
-        *dnsAddress = Address();;
-        *output = Address();;
+        dnsAddress = Address();
+        output = Address();
 
         auto it = cache_.find(key);
         // try to use cache information
@@ -384,8 +383,8 @@ int DNSCache::resolve(
             // check whether the cache entry still valid
             if (currentTime <= it->second.timestamp + ttl_)
             {
-                *output = it->second.address;
-                if (!output->invalid())
+                output = it->second.address;
+                if (!output.invalid())
                 {
                     ++hits_.cache;
                     it->second.timestamp = currentTime;
@@ -395,27 +394,27 @@ int DNSCache::resolve(
         }
 
         // check if we have a specific DNS server for this domain
-        *dnsAddress = defaultDNS_;
+        dnsAddress = defaultDNS_;
         const Node<Address> *node = targets_.match(host);
-        if (node != nullptr && !node->value.invalid()) *dnsAddress = node->value;
+        if (node != nullptr && !node->value.invalid()) dnsAddress = node->value;
     }
 
     bool store = true;
 
     // try to resolve the domain using the external DNS
-    int result = recursive(host, type, *dnsAddress, output);
-    if (result != DNSB_STATUS_RECURSIVE && *dnsAddress == defaultDNS_)
+    int result = recursive(host, type, dnsAddress, output);
+    if (result != DNSB_STATUS_RECURSIVE && dnsAddress == defaultDNS_)
         return result;
     // if the previous resolution failed, try again using the default DNS server
     if (result == DNSB_STATUS_FAILURE)
     {
         store = false;
-        *dnsAddress = defaultDNS_;
+        dnsAddress = defaultDNS_;
         result = recursive(host, type, defaultDNS_, output);
         if (result != DNSB_STATUS_RECURSIVE) return result;
     }
 
-    if (!output->invalid() && store)
+    if (!output.invalid() && store)
     {
         std::lock_guard<std::mutex> raii(lock_);
 
@@ -424,7 +423,7 @@ int DNSCache::resolve(
 
         ++hits_.external;
         dns_cache_t &entry = cache_[key];
-        entry.address = *output;
+        entry.address = output;
         entry.timestamp = currentTime;
     }
 
