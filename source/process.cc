@@ -385,7 +385,11 @@ void Processor::run()
 
         // ignore messages with the number of questions other than 1
         int type = request.questions[0].type;
+        #ifdef DNS_IPV6_EXPERIMENT
         if (request.questions.size() != 1 || (type != DNS_TYPE_A && type != DNS_TYPE_AAAA))
+        #else
+        if (request.questions.size() != 1 || type != DNS_TYPE_A)
+        #endif
         {
             sendError(request, DNS_RCODE_REFUSED, endpoint);
             continue;

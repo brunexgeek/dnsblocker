@@ -23,7 +23,9 @@
 
 #define NUM_THREADS                   2
 
-#define LOG_FILENAME           "dnsblocker.log"
-#define LOG_CACHE_DUMP         "dnsblocker.cache"
+#define LOG_FILENAME                  "dnsblocker.log"
+#define LOG_CACHE_DUMP                "dnsblocker.cache"
+
+//#define DNS_IPV6_EXPERIMENT
 
 #endif // DNSB_CONFIG_HH
