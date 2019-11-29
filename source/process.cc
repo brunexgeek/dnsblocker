@@ -125,7 +125,6 @@ bool Processor::loadRules(
 
             if (result == DNSBERR_OK)
             {
-                //LOG_MESSAGE("  Added '%s'\n", line.c_str());
                 ++c;
                 continue;
             }
@@ -203,7 +202,6 @@ void Processor::process(
     std::condition_variable *cond )
 {
     std::unique_lock<std::mutex> guard(*mutex);
-    //std::string lastName;
 
     const char *COLOR_RED = "\033[31m";
     const char *COLOR_YELLOW = "\033[33m";
@@ -233,14 +231,12 @@ void Processor::process(
         Job *job = object->pop();
         if (job == nullptr)
         {
-            cond->wait_for(guard, std::chrono::seconds(10));
+            cond->wait_for(guard, std::chrono::seconds(1));
             continue;
         }
 
         Endpoint &endpoint = job->endpoint;
-//LOG_MESSAGE("T%d Processing request from  %08X\n", num, endpoint.address);
         dns_message_t &request = job->request;
-//LOG_MESSAGE("T%d Got job   %s\n", num, request.questions[0].qname.c_str());
         uint8_t buffer[DNS_BUFFER_SIZE] = { 0 };
 
         #ifdef ENABLE_DNS_CONSOLE
@@ -281,46 +277,42 @@ void Processor::process(
         if ((isBlocked && flags & MONITOR_SHOW_DENIED) || (!isBlocked && flags & MONITOR_SHOW_ALLOWED))
         {
             // print some information about the request
-            //if (lastName != request.questions[0].qname)
+            const char *status = "DE";
+            const char *color = COLOR_RED;
+            if (result == DNSB_STATUS_CACHE)
             {
-                const char *status = "DE";
-                const char *color = COLOR_RED;
-                if (result == DNSB_STATUS_CACHE)
-                {
-                    status = "CA";
-                    color = COLOR_RESET;
-                }
-                else
-                if (result == DNSB_STATUS_RECURSIVE)
-                {
-                    status = "RE";
-                    color = COLOR_RESET;
-                }
-                else
-                if (result == DNSB_STATUS_FAILURE)
-                {
-                    status = "FA";
-                    color = COLOR_YELLOW;
-                }
-                else
-                if (result == DNSB_STATUS_NXDOMAIN)
-                {
-                    status = "NX";
-                    color = COLOR_YELLOW;
-                }
-
-                //lastName = request.questions[0].qname;
-                LOG_TIMED("%sT%d  %-40s  %s %c  %-8s  %-40s  %s%s\n",
-                    color,
-                    num,
-                    endpoint.address.toString().c_str(),
-                    status,
-                    (request.questions[0].type == ADDR_TYPE_AAAA) ? '6' : '4',
-                    dnsAddress.name.c_str(),
-                    address.toString().c_str(),
-                    request.questions[0].qname.c_str(),
-                    COLOR_RESET);
+                status = "CA";
+                color = COLOR_RESET;
             }
+            else
+            if (result == DNSB_STATUS_RECURSIVE)
+            {
+                status = "RE";
+                color = COLOR_RESET;
+            }
+            else
+            if (result == DNSB_STATUS_FAILURE)
+            {
+                status = "FA";
+                color = COLOR_YELLOW;
+            }
+            else
+            if (result == DNSB_STATUS_NXDOMAIN)
+            {
+                status = "NX";
+                color = COLOR_YELLOW;
+            }
+
+            LOG_TIMED("%sT%d  %-40s  %s %c  %-8s  %-40s  %s%s\n",
+                color,
+                num,
+                endpoint.address.toString().c_str(),
+                status,
+                (request.questions[0].type == ADDR_TYPE_AAAA) ? '6' : '4',
+                dnsAddress.name.c_str(),
+                address.toString().c_str(),
+                request.questions[0].qname.c_str(),
+                COLOR_RESET);
         }
 
         // decide whether we have to include an answer
@@ -354,7 +346,6 @@ void Processor::process(
             response.answers.push_back(answer);
 
             response.write(bio);
-            //sendto(socketfd, bio.buffer, bio.cursor(), 0, (struct sockaddr *) &clientAddress, addrLen);
             object->conn_->send(endpoint, bio.buffer, bio.cursor());
         }
 
@@ -363,18 +354,24 @@ void Processor::process(
 }
 
 
+struct process_unit_t
+{
+    std::thread *thread;
+    std::mutex mutex;
+};
+
+
 void Processor::run()
 {
     std::string lastName;
     uint8_t buffer[DNS_BUFFER_SIZE] = { 0 };
     Endpoint endpoint;
-    std::mutex lock;
-    std::thread *pool[2];
+    process_unit_t pool[NUM_THREADS];
     std::condition_variable cond;
 
     running_ = true;
     for (int i = 0; i < NUM_THREADS; ++i)
-        pool[i] = new std::thread(process, this, i + 1, &lock, &cond);
+        pool[i].thread = new std::thread(process, this, i + 1, &pool[i].mutex, &cond);
 
     while (running_)
     {
@@ -401,8 +398,8 @@ void Processor::run()
     for (size_t i = 0; i < NUM_THREADS; ++i)
     {
         cond.notify_all();
-        pool[i]->join();
-        delete pool[i];
+        pool[i].thread->join();
+        delete pool[i].thread;
     }
 }
 
