@@ -1,4 +1,4 @@
-# dns-blocker
+# dns-blocker  [![Build Status](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fbrunexgeek%2Fdns-blocker%2Fbadge%3Fref%3Dmaster&label=build&logo=none)](https://actions-badge.atrox.dev/brunexgeek/dns-blocker/goto?ref=master)
 
 Simple DNS server to filter domains using blacklist. The ideia is to block TCP/UDP communication to specific domains/subdomains by manipulating DNS answers. This program enables you to use wildcards and you don't have to know all subdomains a priori, as you would when using ``iptables`` or *hosts* file. This program is compatible with GNU/Linux and Windows.
 
