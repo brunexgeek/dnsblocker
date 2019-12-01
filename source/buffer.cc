@@ -93,10 +93,14 @@ uint8_t *BufferIO::readLabels( uint8_t *buffer, uint8_t *ptr, std::string &qname
             readLabels(buffer, buffer + offset, qname);
             return ptr += 2;
         }
-        
+
         int length = (int) (*ptr++) & 0x3F;
         for (int i = 0; i < length; ++i)
-            qname.push_back( (char) *ptr++ );
+        {
+            char c = (char) *ptr++;
+            if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+            qname.push_back(c);
+        }
 
         if (*ptr != 0) qname.push_back('.');
     }
@@ -119,15 +123,17 @@ void BufferIO::writeQName( const std::string &qname)
     while ((end = qname.find('.', start)) != std::string::npos)
     {
         *ptr++ = (uint8_t) (end - start); // label length octet
-        for (size_t i=start; i<end; i++) 
+        for (size_t i=start; i<end; i++)
         {
-            *ptr++ = qname[i]; // label octets
+            char c = qname[i];
+            if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+            *ptr++ = c; // label octets
         }
         start = end + 1; // ignore dots
     }
 
     *ptr++ = (uint8_t) (qname.size() - start); // last label length octet
-    for (size_t i=start; i<qname.size(); i++) 
+    for (size_t i=start; i<qname.size(); i++)
     {
         *ptr++ = qname[i]; // last label octets
     }
