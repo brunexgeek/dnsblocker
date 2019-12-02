@@ -303,7 +303,12 @@ void Processor::process(
                 color = COLOR_YELLOW;
             }
 
-            LOG_TIMED("%sT%d  %-40s  %s %c  %-8s  %-40s  %s%s\n",
+            #ifdef DNS_IPV6_EXPERIMENT
+            static const char *FORMAT = "%sT%d  %-40s  %s %c  %-8s  %-40s  %s%s\n";
+            #else
+            static const char *FORMAT = "%sT%d  %-15s  %s %c  %-8s  %-15s  %s%s\n";
+            #endif
+            LOG_TIMED(FORMAT,
                 color,
                 num,
                 endpoint.address.toString().c_str(),
