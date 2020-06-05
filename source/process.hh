@@ -44,6 +44,7 @@ class Processor
         Tree<uint32_t> nameserver_;
         bool running_;
         std::string dumpPath_;
+        bool useHeuristics_;
 
         static void process( Processor *object, int num, std::mutex *mutex, std::condition_variable *cond );
         void console( const std::string &command );

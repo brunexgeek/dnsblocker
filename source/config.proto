@@ -28,4 +28,5 @@ message Configuration
     string monitoring = 4;
     int32 threads = 5;
     Cache cache = 6;
+    bool use_heuristics = 7;
 }

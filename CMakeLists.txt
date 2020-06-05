@@ -3,7 +3,7 @@ project(dnsblocker)
 cmake_minimum_required(VERSION 2.8)
 
 set(DNSB_MAJOR_VERSION 0)
-set(DNSB_MINOR_VERSION 13)
+set(DNSB_MINOR_VERSION 14)
 set(DNSB_PATCH_VERSION 1)
 
 add_definitions(-DDNSB_VERSION="${DNSB_MAJOR_VERSION}.${DNSB_MINOR_VERSION}.${DNSB_PATCH_VERSION}")
@@ -27,7 +27,7 @@ endif()
 
 
 if (UNIX)
-    set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -Wfatal-errors -fvisibility=hidden -Wfatal-errors -pedantic -std=c++11 -Wl,--no-undefined -fPIC -Wall -Wextra -Wconversion -Werror=int-conversion -Werror=return-type -Werror=implicit-function-declaration -Werror=incompatible-pointer-types -Werror=discarded-qualifiers")
+    set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -Wfatal-errors -fvisibility=hidden -Wfatal-errors -pedantic -std=c++11 -Wl,--no-undefined -fPIC -Wall -Wextra -Wconversion -Werror=return-type")
     set(CMAKE_CXX_FLAGS_RELEASE  "${CMAKE_C_FLAGS_RELEASE} -s -O3")
     set(CMAKE_CXX_FLAGS_DEBUG  "${CMAKE_C_FLAGS_DEBUG} -g -O0")
 endif()

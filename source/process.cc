@@ -15,13 +15,14 @@
 
 
 Processor::Processor( const Configuration &config ) : config_(config), running_(false),
-    dumpPath_(".")
+    dumpPath_("."), useHeuristics_(false)
 {
     if (config.binding().port() > 65535)
     {
         LOG_MESSAGE("Invalid port number %d\n", config.binding().port());
         throw std::runtime_error("Invalid port number");
     }
+    useHeuristics_ = config.use_heuristics();
 
     bindIP_.type = ADDR_TYPE_A;
     bindIP_.ipv4 = UDP::hostToIPv4(config.binding().address());
@@ -191,9 +192,48 @@ bool Processor::sendError(
     return conn_->send(endpoint, bio.buffer, bio.cursor());
 }
 
+static bool isRandomDomain( std::string name )
+{
+    if (name.find("cloudfront") == std::string::npos)
+    {
+        int i = 0;
+        for (char c : name) if (c == '.') ++i;
+        if (i > 1) return false;
+    }
+
+    auto pos = name.find('.');
+    if (pos == std::string::npos) return false;
+    name = name.substr(0, pos);
+
+    if (name.length() < 10) return false;
+
+    int gon = 0; // group of numbers a0bc32de1 = 3
+    char gs = 0; // group size
+    char bgs = 0; // biggest group size
+
+    const char *c = name.c_str();
+    while (*c != 0)
+    {
+        if (isdigit(*c))
+            ++gs;
+        else
+        if (gs > 0)
+        {
+            ++gon;
+            if (bgs < gs) bgs = gs;
+            gs = 0;
+        }
+        ++c;
+    }
+
+    if (gon == 0) return false; // require digits
+    if (bgs > 4) return true; // at least 5 digits in the biggest group
+    if (gon > 1) return true; // at least 2 groups
+    return false;
+}
+
 #define MONITOR_SHOW_ALLOWED   1
 #define MONITOR_SHOW_DENIED    2
-
 
 void Processor::process(
     Processor *object,
@@ -252,7 +292,12 @@ void Processor::process(
         #endif
 
         // check whether the domain is blocked
-        bool isBlocked = object->blacklist_.match(request.questions[0].qname) != nullptr;
+        bool isHeuristic = false;
+        bool isBlocked = false;
+        if (object->useHeuristics_)
+            isBlocked = isHeuristic = isRandomDomain(request.questions[0].qname);
+        if (!isBlocked)
+            isBlocked = object->blacklist_.match(request.questions[0].qname) != nullptr;
         Address address, dnsAddress;
         int result = 0;
 
@@ -314,7 +359,7 @@ void Processor::process(
                 endpoint.address.toString().c_str(),
                 status,
                 (request.questions[0].type == ADDR_TYPE_AAAA) ? '6' : '4',
-                dnsAddress.name.c_str(),
+                (isHeuristic) ? "*" : dnsAddress.name.c_str(),
                 address.toString().c_str(),
                 request.questions[0].qname.c_str(),
                 COLOR_RESET);
