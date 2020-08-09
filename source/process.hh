@@ -34,6 +34,7 @@ class Processor
         Job *pop();
         void run();
         bool finish();
+        static bool isRandomDomain( std::string name );
 
     private:
         std::list<Job*> pending_;

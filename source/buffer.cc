@@ -9,7 +9,7 @@ buffer::buffer( size_t size ) : std::vector<uint8_t>(size)
 
 uint16_t buffer::readU16()
 {
-    uint16_t value = static_cast<uint16_t>(cursor_[0] << 8) | static_cast<uint16_t>(cursor_[1]);
+    uint16_t value = static_cast<uint16_t>((cursor_[0] << 8) | cursor_[1]);
     cursor_ += sizeof(uint16_t);
     return value;
 }

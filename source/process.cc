@@ -192,8 +192,10 @@ bool Processor::sendError(
     return conn_->send(endpoint, bio.data(), bio.cursor());
 }
 
-static bool isRandomDomain( std::string name )
+bool Processor::isRandomDomain( std::string name )
 {
+    if (name.find("www.") == 0)
+        name = name.c_str() + 4;
     if (name.find("cloudfront") == std::string::npos)
     {
         int i = 0;
@@ -210,6 +212,8 @@ static bool isRandomDomain( std::string name )
     int gon = 0; // group of numbers a0bc32de1 = 3
     char gs = 0; // group size
     char bgs = 0; // biggest group size
+    int vc = 0; // vowel count
+    int cc = 0; // consonant count
 
     const char *c = name.c_str();
     while (*c != 0)
@@ -217,6 +221,10 @@ static bool isRandomDomain( std::string name )
         if (isdigit(*c))
             ++gs;
         else
+        if (strchr("aeiouAEIOU", *c) != nullptr)
+            ++vc;
+        else
+            ++cc;
         if (gs > 0)
         {
             ++gon;
@@ -226,9 +234,10 @@ static bool isRandomDomain( std::string name )
         ++c;
     }
 
-    if (gon == 0) return false; // require digits
+    //if (gon == 0) return false; // require digits
     if (bgs > 4) return true; // at least 5 digits in the biggest group
     if (gon > 1) return true; // at least 2 groups
+    if ((float) vc < (float) cc * 0.3F) return true; // less than 30% of vowels
     return false;
 }
 
