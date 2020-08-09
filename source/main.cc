@@ -31,6 +31,7 @@
 #define PATH_SEPARATOR '/'
 #endif
 
+using namespace dnsblocker;
 
 static struct
 {

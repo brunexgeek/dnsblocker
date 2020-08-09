@@ -1,51 +1,30 @@
 #ifndef DNSB_BUFFER_HH
 #define DNSB_BUFFER_HH
 
-
 #include <stdint.h>
 #include <string>
+#include <vector>
 
+namespace dnsblocker {
 
-struct BufferIO
+struct buffer : public std::vector<uint8_t>
 {
-    uint8_t *buffer;
-    uint8_t *ptr;
-    size_t size;
-    bool release;
+    uint8_t *cursor_;
 
-    BufferIO(
-        size_t size );
-
-    BufferIO(
-        uint8_t *buffer,
-        size_t cursor,
-        size_t size );
-
-    ~BufferIO();
-
+    buffer( size_t size = 1024 );
     uint16_t readU16();
-
     void writeU16( uint16_t value );
-
     uint32_t readU32();
-
     void writeU32( uint32_t value );
-
     void reset();
-
     size_t remaining() const;
-
     size_t cursor() const;
-
     void skip( size_t bytes );
-
     std::string readQName();
-
-    static uint8_t *readLabels( uint8_t *buffer, uint8_t *ptr, std::string &qname );
-
+    uint8_t *readLabels( uint8_t *ptr, std::string &qname );
     void writeQName( const std::string &qname);
-
 };
 
+}
 
 #endif // DNSB_BUFFER_HH

@@ -46,6 +46,7 @@
 #define DNS_RCODE_NXDOMAIN       3
 #define DNS_RCODE_REFUSED        5
 
+namespace dnsblocker {
 
 struct dns_header_t
 {
@@ -59,8 +60,8 @@ struct dns_header_t
     uint16_t arcount; // additional record count
 
     dns_header_t();
-    void read( BufferIO &bio );
-    void write( BufferIO &bio );
+    void read( buffer &bio );
+    void write( buffer &bio );
 };
 
 
@@ -72,8 +73,8 @@ struct dns_question_t
 
     dns_question_t();
     dns_question_t( const dns_question_t &obj );
-    void read( BufferIO &bio );
-    void write( BufferIO &bio );
+    void read( buffer &bio );
+    void write( buffer &bio );
     void print() const;
 };
 
@@ -87,8 +88,8 @@ struct dns_record_t
     Address rdata;  // IPv4 or IPv6
 
     dns_record_t();
-    void read( BufferIO &bio );
-    void write( BufferIO &bio );
+    void read( buffer &bio );
+    void write( buffer &bio );
     void print() const;
 };
 
@@ -102,8 +103,8 @@ struct dns_message_t
 
     dns_message_t();
     void swap( dns_message_t &that );
-    void read( BufferIO &bio );
-    void write( BufferIO &bio );
+    void read( buffer &bio );
+    void write( buffer &bio );
     void print() const;
 };
 
@@ -148,5 +149,7 @@ struct DNSCache
         Address nameserver( const std::string &host );
 };
 
+}
 
 #endif
+

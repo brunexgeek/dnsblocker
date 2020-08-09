@@ -13,6 +13,7 @@
 #define PATH_SEPARATOR '/'
 #endif
 
+namespace dnsblocker {
 
 Processor::Processor( const Configuration &config ) : config_(config), running_(false),
     dumpPath_("."), useHeuristics_(false)
@@ -33,9 +34,9 @@ Processor::Processor( const Configuration &config ) : config_(config), running_(
 	if (!conn_->bind(config.binding().address(), (uint16_t) config.binding().port()))
     {
         #ifdef __WINDOWS__
-		LOG_MESSAGE("Unable to bind to %s\n", config.binding().address().c_str());
+		LOG_MESSAGE("Unable to bind to %s:%d\n", config.binding().address().c_str(), config.binding().port());
 		#else
-		LOG_MESSAGE("Unable to bind to %s: %s\n", config.binding().address().c_str(), strerror(errno));
+		LOG_MESSAGE("Unable to bind to %s:%d: %s\n", config.binding().address().c_str(), config.binding().port(), strerror(errno));
 		#endif
         delete conn_;
 		conn_ = nullptr;
@@ -181,15 +182,14 @@ bool Processor::sendError(
     int rcode,
     const Endpoint &endpoint )
 {
-    uint8_t buffer[DNS_BUFFER_SIZE] = { 0 };
-    BufferIO bio(buffer, 0, DNS_BUFFER_SIZE);
+    buffer bio;
     dns_message_t response;
     response.header.id = request.header.id;
     response.header.flags |= DNS_FLAG_QR;
     response.questions.push_back(request.questions[0]);
     response.header.rcode = (uint8_t) rcode;
     response.write(bio);
-    return conn_->send(endpoint, bio.buffer, bio.cursor());
+    return conn_->send(endpoint, bio.data(), bio.cursor());
 }
 
 static bool isRandomDomain( std::string name )
@@ -277,7 +277,6 @@ void Processor::process(
 
         Endpoint &endpoint = job->endpoint;
         dns_message_t &request = job->request;
-        uint8_t buffer[DNS_BUFFER_SIZE] = { 0 };
 
         #ifdef ENABLE_DNS_CONSOLE
         // check whether the message carry a remote command
@@ -376,7 +375,7 @@ void Processor::process(
         else
         {
             // response message
-            BufferIO bio = BufferIO(buffer, 0, DNS_BUFFER_SIZE);
+            buffer bio;
             dns_message_t response;
             response.header.id = request.header.id;
             response.header.flags |= DNS_FLAG_QR;
@@ -396,7 +395,7 @@ void Processor::process(
             response.answers.push_back(answer);
 
             response.write(bio);
-            object->conn_->send(endpoint, bio.buffer, bio.cursor());
+            object->conn_->send(endpoint, bio.data(), bio.cursor());
         }
 
         delete job;
@@ -414,7 +413,6 @@ struct process_unit_t
 void Processor::run()
 {
     std::string lastName;
-    uint8_t buffer[DNS_BUFFER_SIZE] = { 0 };
     Endpoint endpoint;
     process_unit_t pool[NUM_THREADS];
     std::condition_variable cond;
@@ -426,8 +424,10 @@ void Processor::run()
     while (running_)
     {
         // receive the UDP message
-        BufferIO bio(buffer, 0, DNS_BUFFER_SIZE);
-        if (!conn_->receive(endpoint, bio.buffer, &bio.size, 2000)) continue;
+        buffer bio;
+        size_t size = bio.size();
+        if (!conn_->receive(endpoint, bio.data(), &size, 2000)) continue;
+        bio.resize(size);
 
         // parse the message
         dns_message_t request;
@@ -463,4 +463,6 @@ bool Processor::finish()
     if (!running_) return true;
     running_ = false;
     return false;
+}
+
 }

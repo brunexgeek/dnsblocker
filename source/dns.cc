@@ -21,6 +21,7 @@ typedef int ssize_t;
 #define DNS_SET_OPCODE(x,v)   ( x = (uint16_t) ( x | ( (v) & 15 ) << 11) )
 #define DNS_SET_RCODE(x,v)    ( x = (uint16_t) ( x | ( (v) & 15 )) )
 
+namespace dnsblocker {
 
 dns_header_t::dns_header_t()
 {
@@ -47,7 +48,7 @@ dns_record_t::dns_record_t()
 }
 
 void dns_header_t::read(
-    BufferIO &bio )
+    buffer &bio )
 {
     id = bio.readU16();
     flags = bio.readU16();
@@ -61,7 +62,7 @@ void dns_header_t::read(
 
 
 void dns_header_t::write(
-    BufferIO &bio )
+    buffer &bio )
 {
     DNS_SET_OPCODE(flags, opcode);
     DNS_SET_RCODE(flags, rcode);
@@ -76,7 +77,7 @@ void dns_header_t::write(
 
 
 void dns_question_t::read(
-    BufferIO &bio )
+    buffer &bio )
 {
     qname = bio.readQName();
     type = bio.readU16();
@@ -84,7 +85,7 @@ void dns_question_t::read(
 }
 
 void dns_question_t::write(
-    BufferIO &bio )
+    buffer &bio )
 {
     bio.writeQName(qname);
     bio.writeU16(type);
@@ -115,7 +116,7 @@ void dns_message_t::swap( dns_message_t &that )
 
 
 void dns_message_t::read(
-    BufferIO &bio )
+    buffer &bio )
 {
     questions.clear();
     answers.clear();
@@ -136,7 +137,7 @@ void dns_message_t::read(
 
 
 void dns_message_t::write(
-    BufferIO &bio )
+    buffer &bio )
 {
     header.qdcount = (uint16_t) questions.size();
     header.ancount = (uint16_t) answers.size();
@@ -164,7 +165,7 @@ void dns_message_t::print() const
 
 
 void dns_record_t::write(
-    BufferIO &bio )
+    buffer &bio )
 {
     bio.writeQName(qname);
     bio.writeU16(type);
@@ -191,7 +192,7 @@ void dns_record_t::write(
 }
 
 void dns_record_t::read(
-    BufferIO &bio )
+    buffer &bio )
 {
     qname = bio.readQName();
     type = bio.readU16();
@@ -279,20 +280,22 @@ int DNSCache::recursive(
     question.clazz = 1;
     message.questions.push_back(question);
     // encode the message
-    BufferIO bio(DNS_BUFFER_SIZE);
+    buffer bio;
     message.write(bio);
 
     // send the query to the recursive DNS
     Endpoint endpoint(dnsAddress, 53);
 	UDP conn;
-	if (!conn.send(endpoint, bio.buffer, bio.cursor())) return DNSB_STATUS_FAILURE;
+	if (!conn.send(endpoint, bio.data(), bio.cursor())) return DNSB_STATUS_FAILURE;
 
 	if (!conn.poll(timeout_)) return DNSB_STATUS_FAILURE;
 
     // wait for the response
     bio.reset();
 
-	if (!conn.receive(endpoint, bio.buffer, &bio.size)) return DNSB_STATUS_FAILURE;
+    size_t size = bio.size();
+	if (!conn.receive(endpoint, bio.data(), &size)) return DNSB_STATUS_FAILURE;
+    bio.resize(size);
 
     // decode the response
     message.read(bio);
@@ -496,3 +499,4 @@ void DNSCache::addTarget( const std::string &rule, const std::string &dns, const
     targets_.add(rule, Address(UDP::hostToIPv4(dns), name) );
 }
 
+}

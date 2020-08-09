@@ -10,6 +10,8 @@
 #include "dns.hh"
 #include "config.pg.hh"
 
+namespace dnsblocker {
+
 struct Job
 {
     Endpoint endpoint;
@@ -56,5 +58,6 @@ class Processor
         static std::string realPath( const std::string &path );
 };
 
+}
 
 #endif // DNSB_PROCESS_HH
