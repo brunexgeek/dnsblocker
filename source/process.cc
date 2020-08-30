@@ -157,6 +157,18 @@ void Processor::console( const std::string &command )
         cache_->reset();
     }
     else
+    if (command == "eh@dnsblocker")
+    {
+        LOG_MESSAGE("\nHeuristics enabled!\n");
+        useHeuristics_ = true;
+    }
+    else
+    if (command == "dh@dnsblocker")
+    {
+        LOG_MESSAGE("\nHeuristics disabled!\n");
+        useHeuristics_ = false;
+    }
+    else
     if (command == "dump@dnsblocker")
     {
         LOG_MESSAGE("\nDumping DNS cache to '%s'\n\n", dumpPath_.c_str());
