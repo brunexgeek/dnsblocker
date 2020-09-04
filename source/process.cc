@@ -18,45 +18,45 @@ namespace dnsblocker {
 Processor::Processor( const Configuration &config ) : config_(config), running_(false),
     dumpPath_("."), useHeuristics_(false)
 {
-    if (config.binding().port() > 65535)
+    if (config.binding.port() > 65535)
     {
-        LOG_MESSAGE("Invalid port number %d\n", config.binding().port());
+        LOG_MESSAGE("Invalid port number %d\n", config.binding.port);
         throw std::runtime_error("Invalid port number");
     }
     useHeuristics_ = config.use_heuristics();
 
     bindIP_.type = ADDR_TYPE_A;
-    bindIP_.ipv4 = UDP::hostToIPv4(config.binding().address());
+    bindIP_.ipv4 = UDP::hostToIPv4(config.binding.address);
     #ifdef ENABLE_DNS_CONSOLE
     if (bindIP_.ipv4 == 0) LOG_MESSAGE("Console only available for requests from 127.0.0.1");
     #endif
 	conn_ = new UDP();
-	if (!conn_->bind(config.binding().address(), (uint16_t) config.binding().port()))
+	if (!conn_->bind(config.binding.address, (uint16_t) config.binding.port))
     {
         #ifdef __WINDOWS__
-		LOG_MESSAGE("Unable to bind to %s:%d\n", config.binding().address().c_str(), config.binding().port());
+		LOG_MESSAGE("Unable to bind to %s:%d\n", config.binding.address.c_str(), config.binding.port());
 		#else
-		LOG_MESSAGE("Unable to bind to %s:%d: %s\n", config.binding().address().c_str(), config.binding().port(), strerror(errno));
+		LOG_MESSAGE("Unable to bind to %s:%d: %s\n", config.binding.address.c_str(), config.binding.port(), strerror(errno));
 		#endif
         delete conn_;
 		conn_ = nullptr;
         throw std::runtime_error("Unable to bind");
     }
 
-    cache_ = new DNSCache(config.cache().limit(), config.cache().ttl());
+    cache_ = new DNSCache(config.cache.limit(), config.cache.ttl);
     bool found = false;
-    for (auto it = config.external_dns().begin(); it != config.external_dns().end(); ++it)
+    for (auto it = config.external_dns.begin(); it != config.external_dns.end(); ++it)
     {
-        if (it->targets.undefined())
+        if (it->targets.empty())
         {
-            cache_->setDefaultDNS(it->address(), it->name());
+            cache_->setDefaultDNS(it->address, it->name);
             found = true;
         }
         else
         {
-            for (size_t i = 0; i < it->targets().size(); ++i)
+            for (size_t i = 0; i < it->targets.size(); ++i)
             {
-                cache_->addTarget(it->targets()[i], it->address(), it->name());
+                cache_->addTarget(it->targets[i], it->address, it->name);
             }
         }
     }
@@ -66,7 +66,7 @@ Processor::Processor( const Configuration &config ) : config_(config), running_(
         throw std::runtime_error("Missing default external DNS");
     }
 
-    loadRules(config_.blacklist());
+    loadRules(config_.blacklist);
 }
 
 
@@ -153,7 +153,7 @@ void Processor::console( const std::string &command )
 {
     if (command == "reload@dnsblocker")
     {
-        loadRules(config_.blacklist());
+        loadRules(config_.blacklist);
         cache_->reset();
     }
     else
@@ -249,12 +249,9 @@ bool Processor::isRandomDomain( std::string name )
     //if (gon == 0) return false; // require digits
     if (bgs > 4) return true; // at least 5 digits in the biggest group
     if (gon > 1) return true; // at least 2 groups
-    if ((float) vc < (float) cc * 0.3F) return true; // less than 30% of vowels
+    if ((float) vc / (float) name.length() < 0.3F) return true; // less than 30% of vowels
     return false;
 }
-
-#define MONITOR_SHOW_ALLOWED   1
-#define MONITOR_SHOW_DENIED    2
 
 void Processor::process(
     Processor *object,
@@ -262,6 +259,7 @@ void Processor::process(
     std::mutex *mutex,
     std::condition_variable *cond )
 {
+    (void) num;
     std::unique_lock<std::mutex> guard(*mutex);
 
     const char *COLOR_RED = "\033[31m";
@@ -276,16 +274,6 @@ void Processor::process(
         COLOR_YELLOW = "";
         COLOR_RESET = "";
     }
-
-    int flags = 0;
-    if (object->config_.monitoring() == "allowed")
-        flags = MONITOR_SHOW_ALLOWED;
-    else
-    if (object->config_.monitoring() == "denied")
-        flags = MONITOR_SHOW_DENIED;
-    else
-    if (object->config_.monitoring() == "all")
-        flags = MONITOR_SHOW_ALLOWED | MONITOR_SHOW_DENIED;
 
     while (object->running_)
     {
@@ -339,43 +327,50 @@ void Processor::process(
             blockAddress(request.questions[0].type, address);
         }
 
-        if ((isBlocked && flags & MONITOR_SHOW_DENIED) || (!isBlocked && flags & MONITOR_SHOW_ALLOWED))
-        {
-            // print some information about the request
-            const char *status = "DE";
-            const char *color = COLOR_RED;
-            if (result == DNSB_STATUS_CACHE)
-            {
-                status = "CA";
-                color = COLOR_RESET;
-            }
-            else
-            if (result == DNSB_STATUS_RECURSIVE)
-            {
-                status = "RE";
-                color = COLOR_RESET;
-            }
-            else
-            if (result == DNSB_STATUS_FAILURE)
-            {
-                status = "FA";
-                color = COLOR_YELLOW;
-            }
-            else
-            if (result == DNSB_STATUS_NXDOMAIN)
-            {
-                status = "NX";
-                color = COLOR_YELLOW;
-            }
+        // print information about the request
+        auto flags = (int32_t) object->config_.monitoring_;
+        const char *status = nullptr;
+        const char *color = COLOR_RED;
 
+        if (isBlocked && flags & MONITOR_SHOW_DENIED)
+        {
+            status = "DE";
+            color = COLOR_RED;
+        }
+        else
+        if (result == DNSB_STATUS_CACHE && flags & MONITOR_SHOW_CACHE)
+        {
+            status = "CA";
+            color = COLOR_RESET;
+        }
+        else
+        if (result == DNSB_STATUS_RECURSIVE && flags & MONITOR_SHOW_RECURSIVE)
+        {
+            status = "RE";
+            color = COLOR_RESET;
+        }
+        else
+        if (result == DNSB_STATUS_FAILURE && flags & MONITOR_SHOW_FAILURE)
+        {
+            status = "FA";
+            color = COLOR_YELLOW;
+        }
+        else
+        if (result == DNSB_STATUS_NXDOMAIN && flags & MONITOR_SHOW_NXDOMAIN)
+        {
+            status = "NX";
+            color = COLOR_YELLOW;
+        }
+
+        if (status != nullptr)
+        {
             #ifdef DNS_IPV6_EXPERIMENT
-            static const char *FORMAT = "%sT%d  %-40s  %s %c  %-8s  %-40s  %s%s\n";
+            static const char *FORMAT = "%s%-40s  %s %c  %-8s  %-40s  %s%s\n";
             #else
-            static const char *FORMAT = "%sT%d  %-15s  %s %c  %-8s  %-15s  %s%s\n";
+            static const char *FORMAT = "%s%-15s  %s %c  %-8s  %-15s  %s%s\n";
             #endif
             LOG_TIMED(FORMAT,
                 color,
-                num,
                 endpoint.address.toString().c_str(),
                 status,
                 (request.questions[0].type == ADDR_TYPE_AAAA) ? '6' : '4',

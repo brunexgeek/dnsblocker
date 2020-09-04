@@ -8,6 +8,7 @@
 #include <condition_variable>
 #include "socket.hh"
 #include "dns.hh"
+#include "protogen.hh"
 #include "config.pg.hh"
 
 namespace dnsblocker {

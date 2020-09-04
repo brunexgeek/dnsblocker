@@ -14,6 +14,7 @@
 #include "nodes.hh"
 #include "dns.hh"
 #include "socket.hh"
+#include "protogen.hh"
 #include "config.pg.hh"
 #include "log.hh"
 #include "process.hh"
@@ -148,11 +149,10 @@ void main_parseArguments(
 Configuration main_defaultConfig()
 {
     Configuration config;
-    config.monitoring("none");
-    config.binding().port(53);
-    config.binding().address("127.0.0.2");
-    config.cache().limit(DNS_CACHE_LIMIT);
-    config.cache().ttl(DNS_CACHE_TTL);
+    config.binding.port = 53;
+    config.binding.address = "127.0.0.2";
+    config.cache.limit = DNS_CACHE_LIMIT;
+    config.cache.ttl = DNS_CACHE_TTL;
     return config;
 }
 
@@ -214,42 +214,67 @@ void main_prepare()
     }
     in.close();
 
-    if (context.config.cache().limit() <= 0) context.config.cache().limit(DNS_CACHE_LIMIT);
-    if (context.config.cache().limit() <= 0) context.config.cache().ttl(DNS_CACHE_TTL);
+    if (context.config.cache.limit <= 0) context.config.cache.limit = DNS_CACHE_LIMIT;
+    if (context.config.cache.limit <= 0) context.config.cache.ttl = DNS_CACHE_TTL;
 
     // get the absolute path of the input file
-    for (auto it = context.config.blacklist().begin(); it != context.config.blacklist().end();)
+    for (auto it = context.config.blacklist.begin(); it != context.config.blacklist.end();)
     {
         *it = main_realPath(*it);
         if (it->empty())
-            it = context.config.blacklist().erase(it);
+            it = context.config.blacklist.erase(it);
         else
             ++it;
     }
-    if (context.config.blacklist.undefined())
+    if (context.config.blacklist.empty())
     {
         LOG_MESSAGE("No valid blacklist specified\n");
         exit(1);
     }
 
-    if (context.config.external_dns.undefined())
+    if (context.config.external_dns.empty())
     {
         LOG_MESSAGE("The default external DNS is required\n");
         exit(1);
     }
 
+    int flags = 0;
+    if (context.config.monitoring.empty())
+        context.config.monitoring.push_back("all");
+    for (auto item : context.config.monitoring)
+    {
+        if (item == "allowed") flags |= MONITOR_SHOW_ALLOWED;
+        else
+        if (item == "denied") flags |= MONITOR_SHOW_DENIED;
+        else
+        if (item == "all") flags |= MONITOR_SHOW_ALLOWED | MONITOR_SHOW_DENIED;
+        else
+        if (item == "cache") flags |= MONITOR_SHOW_CACHE;
+        else
+        if (item == "recursive") flags |= MONITOR_SHOW_RECURSIVE;
+        else
+        if (item == "nxdomain") flags |= MONITOR_SHOW_NXDOMAIN;
+        else
+        if (item == "failure") flags |= MONITOR_SHOW_FAILURE;
+    }
+    context.config.monitoring_ = flags;
+
     LOG_MESSAGE("\ndnsblocker %s\n", DNSB_VERSION);
     LOG_MESSAGE("    Base path: %s\n", context.basePath.c_str());
     LOG_MESSAGE("Configuration: %s\n", context.configFileName.c_str());
-    LOG_MESSAGE("    Blacklist: %s\n", context.config.blacklist()[0].c_str());
-    for (auto it = context.config.blacklist().begin() + 1; it != context.config.blacklist().end(); ++it)
+    LOG_MESSAGE("    Blacklist: %s\n", context.config.blacklist[0].c_str());
+    for (auto it = context.config.blacklist.begin() + 1; it != context.config.blacklist.end(); ++it)
         LOG_MESSAGE("               %s\n", it->c_str());
     LOG_MESSAGE(" External DNS: ");
-    for (auto it = context.config.external_dns().begin(); it != context.config.external_dns().end(); ++it)
-        LOG_MESSAGE("%s ", it->address().c_str());
+    for (auto &dns : context.config.external_dns)
+        LOG_MESSAGE("%s (%s) ", dns.address.c_str(), dns.name.c_str());
     LOG_MESSAGE("\n");
-    LOG_MESSAGE("      Address: %s\n", context.config.binding().address().c_str());
-    LOG_MESSAGE("         Port: %d\n", context.config.binding().port());
+    LOG_MESSAGE("      Address: %s\n", context.config.binding.address.c_str());
+    LOG_MESSAGE("         Port: %d\n", context.config.binding.port());
+    LOG_MESSAGE("   Monitoring: ");
+    for (auto item : context.config.monitoring)
+        LOG_MESSAGE("%s ", item.c_str());
+    LOG_MESSAGE("\n");
 }
 
 

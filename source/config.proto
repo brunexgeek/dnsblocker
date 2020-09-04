@@ -25,7 +25,8 @@ message Configuration
     repeated NameServer external_dns = 1;
     Binding binding = 2;
     repeated string blacklist = 3;
-    string monitoring = 4;
+    repeated string monitoring = 4;
+    int32 monitoring_ = 8 [transient=true];
     int32 threads = 5;
     Cache cache = 6;
     bool use_heuristics = 7;
