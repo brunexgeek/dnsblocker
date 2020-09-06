@@ -1,13 +1,14 @@
 # dns-blocker  [![Build Status](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fbrunexgeek%2Fdns-blocker%2Fbadge%3Fref%3Dmaster&label=build&logo=none)](https://actions-badge.atrox.dev/brunexgeek/dns-blocker/goto?ref=master)
 
-Simple DNS server to filter domains using blacklist. The ideia is to block TCP/UDP communication to specific domains/subdomains by manipulating DNS answers. This program enables you to use wildcards and you don't have to know all subdomains a priori, as you would when using ``iptables`` or *hosts* file. This program is compatible with GNU/Linux and Windows.
+Simple DNS server to filter domains using pattern matching. The ideia is to block TCP/UDP communication to specific domains/subdomains by manipulating DNS answers. This program enables you to use patterns and you don't have to know all subdomains a priori, as you would be if using ``iptables`` or *hosts* file. This program is compatible with GNU/Linux and Windows.
 
 For every query of type ``A`` (or ``AAAA`` if IPv6 is enabled), the server will do the following:
 
-* Return the IP address ``127.0.0.2`` or ``::2`` if the domain **is** in the blacklist; this way the program trying to connect with that domain will fail to communicate;
-* Recursively resolve the domain using one of the configured external name servers if the domain **is not** in the blacklist; the correct IP address will be returned.
+* Return the IP address ``127.0.0.2`` or ``::2`` if the domain **is not** in the whitelist and `use_heuristics` is enabled and the domain looks like random;
+* Return the IP address ``127.0.0.2`` or ``::2`` if the domain **is not** in the whitelist and **is** in the blacklist;
+* Otherwise, recursively resolve the domain using one of the configured external name servers; the correct IP address will be returned.
 
-Any query with type different than ``A`` (and ``AAAA`` if IPv6 is enabled) receives ``Server Failure`` error. Every DNS answer contains only one entry with the resolved IP (usually the first).
+Any query with type different than ``A`` (and ``AAAA`` if IPv6 is enabled) receives ``Server Failure`` error. Every DNS answer contains only one entry with the resolved IP (usually the first `A` or `AAAA` answer).
 
 ## Building
 
@@ -22,13 +23,14 @@ make && sudo make install
 To configure `dnsblocker` you use pairs of key-value stored in a JSON file.
 
 * **blacklist** &ndash; Array of strings with blacklist file names, relative to the configuration file path.
+* **whitelist** &ndash; Array of strings with whitelist file names, relative to the configuration file path.
 * **binding** &ndash; Specify the address and port for the program to bind with.
   * **address** &ndash; IPv4 address. The default value is `127.0.0.2`.
   * **port** &ndash; Port number (0-65535). The default value is `53`.
 * **external_dns** &ndash; Array of objects containing external DNS servers to be used by recursive queries. Each object has the following fields:
   * **name** &ndash; entry name.
   * **address** &ndash; Required IPv4 address of the external name server.
-  * **targets** &ndash; Optional array of expressions (same syntax as blacklists). When the requested domain matches with one of those expressions, this name server will be used. If the name server is unavaiable, the default name server will be used instead. If this option is omited, this entry will be set as default external name server.
+  * **targets** &ndash; Optional array of expressions (see _List of rules_ section below). When the requested domain matches with one of those expressions, this name server will be used. If the name server is unavaiable, the default name server will be used instead. If this option is omited, this entry will be set as default external name server.
 * **use_heuristics** &ndash; Enable (`true`) or disable (`false`) heuristics to detect random domains (used by some tracking and advertising APIs)
 * **monitoring** &ndash; Array of strings indicating the types of entries that should be logged. If no value is specified, the monitoring is disabled. Possible values are zero or more of:
   * `all` - show everything
@@ -45,6 +47,7 @@ To configure `dnsblocker` you use pairs of key-value stored in a JSON file.
 ```json
 {
     "blacklist" : [ "blacklist.txt", "ads.txt" ],
+    "whitelist" : [ "whitelist.txt" ],
     "binding" : {
         "address": "127.0.0.2",
         "port" : 53
@@ -61,9 +64,9 @@ To configure `dnsblocker` you use pairs of key-value stored in a JSON file.
 }
 ```
 
-## Blacklist
+## List of rules
 
-The blacklist file contain rules to define blocked domains. Rules are expressions and each line of the blacklist define a single rule. It's possible to use an asterisk (*) to match any subdomains and two asterisks (**) to match any subdomains and the domain itself.
+The blacklist and whitelist files contain rules to define denied and allowed domains, respectively. Rules are expressions and each line of the list define a single rule. It's possible to use an asterisk (*) to match any subdomains and two asterisks (**) to match any subdomains and the domain itself.
 
 ```
 google.com
@@ -71,7 +74,7 @@ google.com
 **.bing.com
 ```
 
-In the example above, the first rule blocks the domain ``google.com``; the second rule blocks every subdomain of ``microsoft.com``, but not ``microsoft.com`` itself; and the third rule blocks ``bing.com`` and any of its subdomains. The third rule is equivalent to:
+In the example above, the first rule matches the domain ``google.com``; the second rule matches every subdomain of ``microsoft.com``, but not ``microsoft.com`` itself; and the third rule matches ``bing.com`` and any of its subdomains. The third rule is equivalent to:
 
 ```
 bing.com
@@ -88,9 +91,9 @@ Once you have the configuration file and the blacklist, just run ``dnsblocker``:
 # dnsblocker config.json /var/log/
 ```
 
-The first argument is the path to the configuration file and the second argument is the path where the log file must be written. The second argument is optional, in which case the logs will be printed on screen.
+The first argument is the path to the configuration file and the second argument is the path where the log file must be written. The second argument is optional, in which case the logs will be printed on `stdout`.
 
-To stop the program, send ``SIGTERM`` signal with the command ``kill`` or ``pkill``.
+To stop the program, send ``SIGTERM`` signal. You can use the commands ``kill`` or ``pkill`` to send the signal.
 
 ## Running on Windows
 
@@ -109,7 +112,7 @@ Console functionality is enable by default using the CMake option `ENABLE_DNS_CO
 
 You can use the `dig` or `nslookup` to send the following special *commands* to `dnsblocker`. These commands will be executed only if the request comes from the same IP address as the binding address or from 127.0.0.1 in case of binding to `0.0.0.0` (any address).
 
-* **reload@dnsblocker** &ndash; Reload the blacklist.
+* **reload@dnsblocker** &ndash; Reload the blacklist and whitelist.
 * **dump@dnsblocker** &ndash; Dump the cache entries to the file `dnsblocker.cache` in the current directory.
 * **eh@dnsblocker** &ndash; Enable heuristics to detect random domains.
 * **dh@dnsblocker** &ndash; Disable heuristics to detect random domains.

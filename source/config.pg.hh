@@ -246,8 +246,10 @@ PG_ENTITY_SERIALIZER( ::Cache, ::Cache_type,protogen_2_0_0::json< ::Cache_type>)
         std::vector< ::NameServer> external_dns;
          ::Binding binding;
         std::vector<std::string> blacklist;
+        std::vector<std::string> whitelist;
         std::vector<std::string> monitoring;
         protogen_2_0_0::field<int32_t> monitoring_;
+        std::string dump_path_;
         protogen_2_0_0::field<int32_t> threads;
          ::Cache cache;
         protogen_2_0_0::field<bool> use_heuristics;
@@ -261,10 +263,11 @@ template<> struct json< ::Configuration_type>
         PG_DIF_EX(0,external_dns,"external_dns")
         PG_DIF_EX(1,binding,"binding")
         PG_DIF_EX(2,blacklist,"blacklist")
-        PG_DIF_EX(3,monitoring,"monitoring")
-        PG_DIF_EX(5,threads,"threads")
-        PG_DIF_EX(6,cache,"cache")
-        PG_DIF_EX(7,use_heuristics,"use_heuristics")
+        PG_DIF_EX(3,whitelist,"whitelist")
+        PG_DIF_EX(4,monitoring,"monitoring")
+        PG_DIF_EX(7,threads,"threads")
+        PG_DIF_EX(8,cache,"cache")
+        PG_DIF_EX(9,use_heuristics,"use_heuristics")
         return PGR_NIL;
     }
     static void write( json_context &ctx, const  ::Configuration_type &value )
@@ -274,6 +277,7 @@ template<> struct json< ::Configuration_type>
         PG_SIF_EX(external_dns,"external_dns")
         PG_SIF_EX(binding,"binding")
         PG_SIF_EX(blacklist,"blacklist")
+        PG_SIF_EX(whitelist,"whitelist")
         PG_SIF_EX(monitoring,"monitoring")
         PG_SIF_EX(threads,"threads")
         PG_SIF_EX(cache,"cache")
@@ -285,8 +289,10 @@ template<> struct json< ::Configuration_type>
         if (!json<decltype(value.external_dns)>::empty(value.external_dns)) return false;
         if (!json<decltype(value.binding)>::empty(value.binding)) return false;
         if (!json<decltype(value.blacklist)>::empty(value.blacklist)) return false;
+        if (!json<decltype(value.whitelist)>::empty(value.whitelist)) return false;
         if (!json<decltype(value.monitoring)>::empty(value.monitoring)) return false;
         if (!json<decltype(value.monitoring_)>::empty(value.monitoring_)) return false;
+        if (!json<decltype(value.dump_path_)>::empty(value.dump_path_)) return false;
         if (!json<decltype(value.threads)>::empty(value.threads)) return false;
         if (!json<decltype(value.cache)>::empty(value.cache)) return false;
         if (!json<decltype(value.use_heuristics)>::empty(value.use_heuristics)) return false;
@@ -297,8 +303,10 @@ template<> struct json< ::Configuration_type>
         json<decltype(value.external_dns)>::clear(value.external_dns);
         json<decltype(value.binding)>::clear(value.binding);
         json<decltype(value.blacklist)>::clear(value.blacklist);
+        json<decltype(value.whitelist)>::clear(value.whitelist);
         json<decltype(value.monitoring)>::clear(value.monitoring);
         json<decltype(value.monitoring_)>::clear(value.monitoring_);
+        json<decltype(value.dump_path_)>::clear(value.dump_path_);
         json<decltype(value.threads)>::clear(value.threads);
         json<decltype(value.cache)>::clear(value.cache);
         json<decltype(value.use_heuristics)>::clear(value.use_heuristics);
@@ -308,8 +316,10 @@ template<> struct json< ::Configuration_type>
         if (!json<decltype(a.external_dns)>::equal(a.external_dns, b.external_dns)) return false;
         if (!json<decltype(a.binding)>::equal(a.binding, b.binding)) return false;
         if (!json<decltype(a.blacklist)>::equal(a.blacklist, b.blacklist)) return false;
+        if (!json<decltype(a.whitelist)>::equal(a.whitelist, b.whitelist)) return false;
         if (!json<decltype(a.monitoring)>::equal(a.monitoring, b.monitoring)) return false;
         if (!json<decltype(a.monitoring_)>::equal(a.monitoring_, b.monitoring_)) return false;
+        if (!json<decltype(a.dump_path_)>::equal(a.dump_path_, b.dump_path_)) return false;
         if (!json<decltype(a.threads)>::equal(a.threads, b.threads)) return false;
         if (!json<decltype(a.cache)>::equal(a.cache, b.cache)) return false;
         if (!json<decltype(a.use_heuristics)>::equal(a.use_heuristics, b.use_heuristics)) return false;
@@ -320,8 +330,10 @@ template<> struct json< ::Configuration_type>
         json<decltype(a.external_dns)>::swap(a.external_dns, b.external_dns);
         json<decltype(a.binding)>::swap(a.binding, b.binding);
         json<decltype(a.blacklist)>::swap(a.blacklist, b.blacklist);
+        json<decltype(a.whitelist)>::swap(a.whitelist, b.whitelist);
         json<decltype(a.monitoring)>::swap(a.monitoring, b.monitoring);
         json<decltype(a.monitoring_)>::swap(a.monitoring_, b.monitoring_);
+        json<decltype(a.dump_path_)>::swap(a.dump_path_, b.dump_path_);
         json<decltype(a.threads)>::swap(a.threads, b.threads);
         json<decltype(a.cache)>::swap(a.cache, b.cache);
         json<decltype(a.use_heuristics)>::swap(a.use_heuristics, b.use_heuristics);
@@ -332,11 +344,11 @@ template<> struct json< ::Configuration_type>
         if (!(ctx.mask & 1)) { name = "external_dns"; } else
         if (!(ctx.mask & 2)) { name = "binding"; } else
         if (!(ctx.mask & 4)) { name = "blacklist"; } else
-        if (!(ctx.mask & 8)) { name = "monitoring"; } else
-        if (!(ctx.mask & 16)) { name = "monitoring_"; } else
-        if (!(ctx.mask & 32)) { name = "threads"; } else
-        if (!(ctx.mask & 64)) { name = "cache"; } else
-        if (!(ctx.mask & 128)) { name = "use_heuristics"; } else
+        if (!(ctx.mask & 8)) { name = "whitelist"; } else
+        if (!(ctx.mask & 16)) { name = "monitoring"; } else
+        if (!(ctx.mask & 128)) { name = "threads"; } else
+        if (!(ctx.mask & 256)) { name = "cache"; } else
+        if (!(ctx.mask & 512)) { name = "use_heuristics"; } else
         return false;
         ctx.tok->error(PGERR_MISSING_FIELD, std::string("Missing field '") + name + "'");
         return true;

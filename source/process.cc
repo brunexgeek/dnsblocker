@@ -15,8 +15,7 @@
 
 namespace dnsblocker {
 
-Processor::Processor( const Configuration &config ) : config_(config), running_(false),
-    dumpPath_("./dnsblocker.cache"), useHeuristics_(false)
+Processor::Processor( const Configuration &config ) : config_(config), running_(false), useHeuristics_(false)
 {
     if (config.binding.port() > 65535)
     {
@@ -66,7 +65,8 @@ Processor::Processor( const Configuration &config ) : config_(config), running_(
         throw std::runtime_error("Missing default external DNS");
     }
 
-    loadRules(config_.blacklist);
+    loadRules(config_.blacklist, blacklist_);
+    loadRules(config_.whitelist, whitelist_);
 }
 
 
@@ -97,16 +97,17 @@ Job *Processor::pop()
 
 
 bool Processor::loadRules(
-    const std::vector<std::string> &fileNames )
+    const std::vector<std::string> &fileNames,
+    Tree<uint8_t> &tree )
 {
     if (fileNames.empty()) return false;
 
-    blacklist_.clear();
+    tree.clear();
 
     for (auto it = fileNames.begin(); it != fileNames.end(); ++it)
     {
         int c = 0;
-        LOG_MESSAGE("\nLoading rules from '%s'\n", it->c_str());
+        LOG_MESSAGE("Loading rules from '%s'\n", it->c_str());
 
         std::ifstream rules(it->c_str());
         if (!rules.good()) return false;
@@ -122,7 +123,7 @@ bool Processor::loadRules(
             size_t pos = line.find('#');
             if (pos != std::string::npos) line = line.substr(0, pos);
 
-            int result = blacklist_.add(line, 0, &line);
+            int result = tree.add(line, 0, &line);
             if (line.empty()) continue;
 
             if (result == DNSBERR_OK)
@@ -141,8 +142,20 @@ bool Processor::loadRules(
         LOG_MESSAGE("  Loaded %d rules\n", c);
     }
 
-    LOG_MESSAGE("Generated tree with %d nodes (%2.3f KiB)\n\n", blacklist_.size(),
-        (float) blacklist_.memory() / 1024.0F);
+    float mem = (float) tree.memory();
+    const char *unit = "bytes";
+    if (mem > 1024 * 1024)
+    {
+        mem /= 1024 * 1024;
+        unit = "MiB";
+    }
+    else
+    if (mem > 1024)
+    {
+        mem /= 1024;
+        unit = "KiB";
+    }
+    LOG_MESSAGE("Generated tree with %d nodes (%2.3f %s)\n\n", tree.size(), mem, unit);
 
     return true;
 }
@@ -153,8 +166,9 @@ void Processor::console( const std::string &command )
 {
     if (command == "reload@dnsblocker")
     {
-        loadRules(config_.blacklist);
-        cache_->reset();
+        loadRules(config_.blacklist, blacklist_);
+        loadRules(config_.whitelist, whitelist_);
+        cache_->reset(); // TODO: we really need this?
     }
     else
     if (command == "eh@dnsblocker")
@@ -171,8 +185,8 @@ void Processor::console( const std::string &command )
     else
     if (command == "dump@dnsblocker")
     {
-        LOG_MESSAGE("\nDumping DNS cache to '%s'\n\n", dumpPath_.c_str());
-        cache_->dump(dumpPath_);
+        LOG_MESSAGE("\nDumping DNS cache to '%s'\n\n", config_.dump_path_.c_str());
+        cache_->dump(config_.dump_path_);
     }
 }
 #endif
@@ -302,10 +316,13 @@ void Processor::process(
         // check whether the domain is blocked
         bool isHeuristic = false;
         bool isBlocked = false;
-        if (object->useHeuristics_)
-            isBlocked = isHeuristic = isRandomDomain(request.questions[0].qname);
-        if (!isBlocked)
-            isBlocked = object->blacklist_.match(request.questions[0].qname) != nullptr;
+        if (object->whitelist_.match(request.questions[0].qname) == nullptr)
+        {
+            if (object->useHeuristics_)
+                isBlocked = isHeuristic = isRandomDomain(request.questions[0].qname);
+            if (!isBlocked)
+                isBlocked = object->blacklist_.match(request.questions[0].qname) != nullptr;
+        }
         Address address, dnsAddress;
         int result = 0;
 

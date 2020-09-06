@@ -45,9 +45,9 @@ class Processor
         DNSCache *cache_;
         Configuration config_;
         Tree<uint8_t> blacklist_;
+        Tree<uint8_t> whitelist_;
         Tree<uint32_t> nameserver_;
         bool running_;
-        std::string dumpPath_;
         bool useHeuristics_;
 
         static void process( Processor *object, int num, std::mutex *mutex, std::condition_variable *cond );
@@ -56,7 +56,7 @@ class Processor
             const dns_message_t &request,
             int rcode,
             const Endpoint &endpoint );
-        bool loadRules( const std::vector<std::string> &fileNames );
+        bool loadRules( const std::vector<std::string> &fileNames, Tree<uint8_t> &tree );
         static std::string realPath( const std::string &path );
 };
 

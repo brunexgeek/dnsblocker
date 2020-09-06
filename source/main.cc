@@ -42,13 +42,6 @@ static struct
     std::string dumpPath;
     std::string configFileName;
     Configuration config;
-
-    struct
-    {
-        std::mutex mutex;
-        std::condition_variable cond;
-    } waiting;
-
 } context;
 
 /*
@@ -214,6 +207,7 @@ void main_prepare()
     }
     in.close();
 
+    context.config.dump_path_ = context.dumpPath;
     if (context.config.cache.limit <= 0) context.config.cache.limit = DNS_CACHE_LIMIT;
     if (context.config.cache.limit <= 0) context.config.cache.ttl = DNS_CACHE_TTL;
 
@@ -223,6 +217,14 @@ void main_prepare()
         *it = main_realPath(*it);
         if (it->empty())
             it = context.config.blacklist.erase(it);
+        else
+            ++it;
+    }
+    for (auto it = context.config.whitelist.begin(); it != context.config.whitelist.end();)
+    {
+        *it = main_realPath(*it);
+        if (it->empty())
+            it = context.config.whitelist.erase(it);
         else
             ++it;
     }
@@ -265,6 +267,12 @@ void main_prepare()
     LOG_MESSAGE("    Blacklist: %s\n", context.config.blacklist[0].c_str());
     for (auto it = context.config.blacklist.begin() + 1; it != context.config.blacklist.end(); ++it)
         LOG_MESSAGE("               %s\n", it->c_str());
+    if (!context.config.whitelist.empty())
+    {
+        LOG_MESSAGE("    Whitelist: %s\n", context.config.whitelist[0].c_str());
+        for (auto it = context.config.whitelist.begin() + 1; it != context.config.whitelist.end(); ++it)
+            LOG_MESSAGE("               %s\n", it->c_str());
+    }
     LOG_MESSAGE(" External DNS: ");
     for (auto &dns : context.config.external_dns)
         LOG_MESSAGE("%s (%s) ", dns.address.c_str(), dns.name.c_str());
@@ -274,7 +282,7 @@ void main_prepare()
     LOG_MESSAGE("   Monitoring: ");
     for (auto item : context.config.monitoring)
         LOG_MESSAGE("%s ", item.c_str());
-    LOG_MESSAGE("\n");
+    LOG_MESSAGE("\n\n");
 }
 
 
