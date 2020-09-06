@@ -13,7 +13,6 @@ set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release")
 
 set(ENABLE_DNS_CONSOLE true CACHE BOOLEAN "Enable to manage the server using commands in DNS messages")
 
-
 if (CMAKE_BUILD_TYPE STREQUAL "")
     message(STATUS "No build type selected, default to 'Release'")
     set(CMAKE_BUILD_TYPE "Release")

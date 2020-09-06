@@ -16,7 +16,7 @@
 namespace dnsblocker {
 
 Processor::Processor( const Configuration &config ) : config_(config), running_(false),
-    dumpPath_("."), useHeuristics_(false)
+    dumpPath_("./dnsblocker.cache"), useHeuristics_(false)
 {
     if (config.binding.port() > 65535)
     {

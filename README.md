@@ -29,21 +29,35 @@ To configure `dnsblocker` you use pairs of key-value stored in a JSON file.
   * **name** &ndash; entry name.
   * **address** &ndash; Required IPv4 address of the external name server.
   * **targets** &ndash; Optional array of expressions (same syntax as blacklists). When the requested domain matches with one of those expressions, this name server will be used. If the name server is unavaiable, the default name server will be used instead. If this option is omited, this entry will be set as default external name server.
-* **monitoring** &ndash; `allowed` to show allowed requests; `denied` to show blocked requests; `all` to show everything; `none` or any other value to disable monitoring.
+* **use_heuristics** &ndash; Enable (`true`) or disable (`false`) heuristics to detect random domains (used by some tracking and advertising APIs)
+* **monitoring** &ndash; Array of strings indicating the types of entries that should be logged. If no value is specified, the monitoring is disabled. Possible values are zero or more of:
+  * `all` - show everything
+  * `allowed` - show allowed requests (combine `recursive`, `cache`, `failure` and `nxdomain`)
+  * `denied` - show blocked requests
+  * `recursive` - show requests handled by external DNS servers
+  * `cache` - show requests handled by internal cache
+  * `failure` - show requests that failed
+  * `nxdomain` - show requests for unknown domains
 * **cache** &ndash; Cache configuration.
-  * **ttl** &ndash; TTL (time to live) in seconds for DNS responses. The default value is 10 minutes.
+  * **ttl** &ndash; TTL (time to live) in seconds for DNS responses. The default value is 10 minutes (600 seconds).
   * **limit** &ndash; Maximum number of entries in the cache. The default value is 1000.
 
 ```json
 {
-    "blacklist" : [ "blacklist.txt" ],
-    "binding" : { "address": "127.0.0.2", "port" : 53 },
+    "blacklist" : [ "blacklist.txt", "ads.txt" ],
+    "binding" : {
+        "address": "127.0.0.2",
+        "port" : 53
+    },
     "external_dns" : [
         { "address" : "8.8.4.4", "name" : "default" },
         { "address" : "192.168.0.20", "targets" : [ "**.example.com" ], "name" : "enterprise" }
     ],
-    "monitoring" : "allowed",
-    "cache" : { "ttl" : 600, "limit" : 1000 }
+    "monitoring" : ["denied", "recursive"],
+    "cache" : {
+        "ttl" : 600,
+        "limit" : 1000
+    }
 }
 ```
 
@@ -91,17 +105,19 @@ If any path contains spaces, you must use additional escaped quotes between the 
 
 ## Console
 
-Console functionality is enable by default using the macro `ENABLE_DNS_CONSOLE` at `defs.hh.in`.
+Console functionality is enable by default using the CMake option `ENABLE_DNS_CONSOLE`.
 
 You can use the `dig` or `nslookup` to send the following special *commands* to `dnsblocker`. These commands will be executed only if the request comes from the same IP address as the binding address or from 127.0.0.1 in case of binding to `0.0.0.0` (any address).
 
 * **reload@dnsblocker** &ndash; Reload the blacklist.
-* **dump@dnsblocker** &ndash; Dump the cache entries to the file `dnsblocker.cache` in the same location of the log file.
+* **dump@dnsblocker** &ndash; Dump the cache entries to the file `dnsblocker.cache` in the current directory.
+* **eh@dnsblocker** &ndash; Enable heuristics to detect random domains.
+* **dh@dnsblocker** &ndash; Disable heuristics to detect random domains.
 
 Example:
 
 ```
-# dig reload@dnsblocker
+# dig @127.0.0.1 reload@dnsblocker
 ```
 
 ## Limitations
