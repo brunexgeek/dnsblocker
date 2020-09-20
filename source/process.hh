@@ -36,6 +36,7 @@ class Processor
         void run();
         bool finish();
         static bool isRandomDomain( std::string name );
+        void console( const std::string &command );
 
     private:
         std::list<Job*> pending_;
@@ -49,9 +50,9 @@ class Processor
         Tree<uint32_t> nameserver_;
         bool running_;
         bool useHeuristics_;
+        bool useFiltering_;
 
         static void process( Processor *object, int num, std::mutex *mutex, std::condition_variable *cond );
-        void console( const std::string &command );
         bool sendError(
             const dns_message_t &request,
             int rcode,

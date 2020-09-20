@@ -14,6 +14,7 @@
 #include "nodes.hh"
 #include "dns.hh"
 #include "socket.hh"
+#include "console.hh"
 #include "protogen.hh"
 #include "config.pg.hh"
 #include "log.hh"
@@ -282,7 +283,11 @@ void main_prepare()
     LOG_MESSAGE("   Monitoring: ");
     for (auto item : context.config.monitoring)
         LOG_MESSAGE("%s ", item.c_str());
-    LOG_MESSAGE("\n\n");
+    LOG_MESSAGE("\n");
+    #ifdef ENABLE_DNS_CONSOLE
+    LOG_MESSAGE("      Console: UDP at %s:%d\n", CONSOLE_IPV4_ADDRESS, CONSOLE_IPV4_PORT);
+    #endif
+    LOG_MESSAGE("\n");
 }
 
 
@@ -316,7 +321,14 @@ int main( int argc, char** argv )
     #endif
 
     context.processor = new Processor(context.config);
+    #ifdef ENABLE_DNS_CONSOLE
+    Console console("127.0.0.1", 53000, *context.processor);
+    console.start();
+    #endif
     context.processor->run();
+    #ifdef ENABLE_DNS_CONSOLE
+    console.stop();
+    #endif
 
     LOG_MESSAGE("\nTerminated\n");
     delete Log::instance;

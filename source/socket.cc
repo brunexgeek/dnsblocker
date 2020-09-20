@@ -115,9 +115,11 @@ Address::Address( const Address &that ) : type(that.type)
 	memcpy(ipv6, that.ipv6, sizeof(ipv6));
 }
 
-std::string Address::toString() const
+std::string Address::toString( bool empty ) const
 {
 	char output[48] = { 0 };
+
+	if (empty && invalid()) return "";
 
 	if (type == ADDR_TYPE_A)
 	{

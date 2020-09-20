@@ -33,7 +33,7 @@ struct Address
 	Address();
 	explicit Address( uint32_t ipv4, const std::string &name = "" );
 	Address( const Address &that );
-	std::string toString() const;
+	std::string toString( bool empty = false ) const;
 	bool equivalent( const Address &address ) const;
 	bool operator==( const Address &that ) const;
 	bool invalid() const;

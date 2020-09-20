@@ -48,6 +48,7 @@ add_executable(dnsblocker
     "source/log.cc"
     "source/buffer.cc"
     "source/process.cc"
+    "source/console.cc"
     "source/dns.cc")
 target_include_directories(dnsblocker
     PUBLIC "include")

@@ -15,7 +15,8 @@
 
 namespace dnsblocker {
 
-Processor::Processor( const Configuration &config ) : config_(config), running_(false), useHeuristics_(false)
+Processor::Processor( const Configuration &config ) : config_(config), running_(false), useHeuristics_(false),
+    useFiltering_(true)
 {
     if (config.binding.port() > 65535)
     {
@@ -26,9 +27,6 @@ Processor::Processor( const Configuration &config ) : config_(config), running_(
 
     bindIP_.type = ADDR_TYPE_A;
     bindIP_.ipv4 = UDP::hostToIPv4(config.binding.address);
-    #ifdef ENABLE_DNS_CONSOLE
-    if (bindIP_.ipv4 == 0) LOG_MESSAGE("Console only available for requests from 127.0.0.1");
-    #endif
 	conn_ = new UDP();
 	if (!conn_->bind(config.binding.address, (uint16_t) config.binding.port))
     {
@@ -160,30 +158,41 @@ bool Processor::loadRules(
     return true;
 }
 
-
 #ifdef ENABLE_DNS_CONSOLE
 void Processor::console( const std::string &command )
 {
-    if (command == "reload@dnsblocker")
+    if (command == "reload")
     {
         loadRules(config_.blacklist, blacklist_);
         loadRules(config_.whitelist, whitelist_);
         cache_->reset(); // TODO: we really need this?
     }
     else
-    if (command == "eh@dnsblocker")
+    if (command == "ef")
+    {
+        LOG_MESSAGE("\nFiltering enabled!\n");
+        useFiltering_ = true;
+    }
+    else
+    if (command == "df")
+    {
+        LOG_MESSAGE("\nFiltering disabled!\n");
+        useFiltering_ = false;
+    }
+    else
+    if (command == "eh")
     {
         LOG_MESSAGE("\nHeuristics enabled!\n");
         useHeuristics_ = true;
     }
     else
-    if (command == "dh@dnsblocker")
+    if (command == "dh")
     {
         LOG_MESSAGE("\nHeuristics disabled!\n");
         useHeuristics_ = false;
     }
     else
-    if (command == "dump@dnsblocker")
+    if (command == "dump")
     {
         LOG_MESSAGE("\nDumping DNS cache to '%s'\n\n", config_.dump_path_.c_str());
         cache_->dump(config_.dump_path_);
@@ -208,6 +217,7 @@ bool Processor::sendError(
     int rcode,
     const Endpoint &endpoint )
 {
+    if (request.questions.size() == 0) return false;
     buffer bio;
     dns_message_t response;
     response.header.id = request.header.id;
@@ -301,27 +311,18 @@ void Processor::process(
         Endpoint &endpoint = job->endpoint;
         dns_message_t &request = job->request;
 
-        #ifdef ENABLE_DNS_CONSOLE
-        // check whether the message carry a remote command
-        if ((endpoint.address.local() || object->bindIP_.equivalent(endpoint.address)) &&
-            request.questions[0].qname.find("@dnsblocker") != std::string::npos)
-        {
-            object->console(request.questions[0].qname);
-            object->sendError(request, DNS_RCODE_NOERROR, endpoint);
-            delete job;
-            continue;
-        }
-        #endif
-
         // check whether the domain is blocked
         bool isHeuristic = false;
         bool isBlocked = false;
-        if (object->whitelist_.match(request.questions[0].qname) == nullptr)
+        if (object->useFiltering_)
         {
-            if (object->useHeuristics_)
-                isBlocked = isHeuristic = isRandomDomain(request.questions[0].qname);
-            if (!isBlocked)
-                isBlocked = object->blacklist_.match(request.questions[0].qname) != nullptr;
+            if (object->whitelist_.match(request.questions[0].qname) == nullptr)
+            {
+                if (object->useHeuristics_)
+                    isBlocked = isHeuristic = isRandomDomain(request.questions[0].qname);
+                if (!isBlocked)
+                    isBlocked = object->blacklist_.match(request.questions[0].qname) != nullptr;
+            }
         }
         Address address, dnsAddress;
         int result = 0;
@@ -392,7 +393,7 @@ void Processor::process(
                 status,
                 (request.questions[0].type == ADDR_TYPE_AAAA) ? '6' : '4',
                 (isHeuristic) ? "*" : dnsAddress.name.c_str(),
-                address.toString().c_str(),
+                address.toString(true).c_str(),
                 request.questions[0].qname.c_str(),
                 COLOR_RESET);
         }
@@ -467,11 +468,12 @@ void Processor::run()
         request.read(bio);
 
         // ignore messages with the number of questions other than 1
-        int type = request.questions[0].type;
+        int type = 0;
+        if (request.questions.size() == 1) type = request.questions[0].type;
         #ifdef DNS_IPV6_EXPERIMENT
-        if (request.questions.size() != 1 || (type != DNS_TYPE_A && type != DNS_TYPE_AAAA))
+        if (type != DNS_TYPE_A && type != DNS_TYPE_AAAA)
         #else
-        if (request.questions.size() != 1 || type != DNS_TYPE_A)
+        if (type != DNS_TYPE_A)
         #endif
         {
             sendError(request, DNS_RCODE_REFUSED, endpoint);
