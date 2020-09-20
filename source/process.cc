@@ -382,6 +382,9 @@ void Processor::process(
 
         if (status != nullptr)
         {
+            std::string addr;
+            if (!isBlocked) addr = address.toString(true);
+
             #ifdef DNS_IPV6_EXPERIMENT
             static const char *FORMAT = "%s%-40s  %s %c  %-8s  %-40s  %s%s\n";
             #else
@@ -393,7 +396,7 @@ void Processor::process(
                 status,
                 (request.questions[0].type == ADDR_TYPE_AAAA) ? '6' : '4',
                 (isHeuristic) ? "*" : dnsAddress.name.c_str(),
-                address.toString(true).c_str(),
+                addr.c_str(),
                 request.questions[0].qname.c_str(),
                 COLOR_RESET);
         }
