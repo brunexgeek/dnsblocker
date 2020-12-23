@@ -11,7 +11,7 @@
 #include "nodes.hh"
 #include "buffer.hh"
 #include "socket.hh"
-#include <mutex>
+#include <shared_mutex>
 
 
 #define DNS_FLAG_QR           (1 << 15) // Query/Response
@@ -108,45 +108,52 @@ struct dns_message_t
     void print() const;
 };
 
-struct dns_cache_t
+struct CacheEntry
 {
-    uint32_t timestamp;
-    Address address;
+    uint64_t timestamp;
+    ipv6_t ipv6;
+    ipv4_t ipv4;
 };
 
-
-struct DNSCache
+struct Cache
 {
     public:
-        DNSCache(
-            int size = DNS_CACHE_LIMIT,
-            int ttl = DNS_CACHE_TTL,
-            int timeout = DNS_TIMEOUT );
-
-        ~DNSCache();
-        int resolve( const std::string &host, int type, Address &dnsAddress, Address &output );
-        void dump( const std::string &path );
+        Cache( int size = DNS_CACHE_LIMIT, int ttl = DNS_CACHE_TTL );
+        ~Cache();
+        bool find( const std::string &host, ipv4_t *ipv4, ipv6_t *ipv6 );
+        void add( const std::string &host, ipv4_t *ipv4, ipv6_t *ipv6 );
+        void dump( std::ostream &out );
         void cleanup( uint32_t ttl );
         void reset();
-        void setDefaultDNS( const std::string &dns, const std::string &name );
-        void addTarget( const std::string &rule, const std::string &dns, const std::string &name );
 
     private:
         int size_;
         int ttl_;
-        Address defaultDNS_;
-        std::unordered_map<std::string, dns_cache_t> cache_;
-        Tree<Address> targets_;
+        std::unordered_map<std::string, CacheEntry> cache_;
+        std::shared_mutex lock_;
+};
+
+class Resolver
+{
+    public:
+        Resolver( Cache &cache, int timeout = 1000 );
+        ~Resolver();
+        void set_dns( const std::string &dns, const std::string &name );
+        void set_dns( const std::string &dns, const std::string &name, const std::string &rule );
+        int resolve( const std::string &host, int type, Address &dns, Address &addr );
+
+    private:
         struct
         {
             uint32_t cache;
             uint32_t external;
         } hits_;
+        Address default_dns_;
+        Tree<Address> target_dns_;
+        Cache &cache_;
         int timeout_;
-        std::mutex lock_;
 
         int recursive( const std::string &host, int type, const Address &dnsAddress, Address &address );
-        Address nameserver( const std::string &host );
 };
 
 }

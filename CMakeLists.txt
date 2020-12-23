@@ -12,6 +12,7 @@ set(CMAKE_BUILD_TYPE "Release"  CACHE STRING  "Specify the build type")
 set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release")
 
 set(ENABLE_DNS_CONSOLE true CACHE BOOLEAN "Enable to manage the server using commands in DNS messages")
+set(DNS_IPV6_EXPERIMENT false CACHE BOOLEAN "Enable support for IPv6")
 
 if (CMAKE_BUILD_TYPE STREQUAL "")
     message(STATUS "No build type selected, default to 'Release'")
@@ -26,7 +27,7 @@ endif()
 
 
 if (UNIX)
-    set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -Wfatal-errors -fvisibility=hidden -Wfatal-errors -pedantic -std=c++11 -Wl,--no-undefined -fPIC -Wall -Wextra -Wconversion -Werror=return-type")
+    set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -Wfatal-errors -fvisibility=hidden -Wfatal-errors -pedantic -std=c++17 -Wl,--no-undefined -fPIC -Wall -Wextra -Wconversion -Werror=return-type -Werror=init-self")
     set(CMAKE_CXX_FLAGS_RELEASE  "${CMAKE_C_FLAGS_RELEASE} -s -O3")
     set(CMAKE_CXX_FLAGS_DEBUG  "${CMAKE_C_FLAGS_DEBUG} -g -O0")
 endif()
@@ -39,7 +40,7 @@ endif()
 find_package(Threads)
 
 
-configure_file("source/defs.hh.in" "${CMAKE_CURRENT_LIST_DIR}/source/defs.hh")
+configure_file("source/defs.hh.in" "__include/defs.hh")
 
 add_executable(dnsblocker
     "source/socket.cc"
@@ -51,7 +52,8 @@ add_executable(dnsblocker
     "source/console.cc"
     "source/dns.cc")
 target_include_directories(dnsblocker
-    PUBLIC "include")
+    PUBLIC "include"
+    PRIVATE "${CMAKE_BINARY_DIR}/__include/")
 target_compile_definitions(dnsblocker PRIVATE _DEFAULT_SOURCE)
 target_link_libraries(dnsblocker ${CMAKE_THREAD_LIBS_INIT})
 set_target_properties(dnsblocker PROPERTIES

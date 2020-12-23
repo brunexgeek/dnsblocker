@@ -11,7 +11,7 @@
 #define __WINDOWS__
 #endif
 
-#define DNS_BLOCKED_IPV4_ADDRESS           0x7F000002  // 127.0.0.2
+#define DNS_BLOCKED_IPV4_ADDRESS           { 127, 0, 0, 2 } // 127.0.0.2
 #define DNS_BLOCKED_IPV6_ADDRESS           { 0, 0, 0, 0, 0, 0, 0, 1 }  // ::1
 
 #define CONSOLE_IPV4_ADDRESS          "127.0.0.2"

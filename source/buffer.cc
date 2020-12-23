@@ -7,11 +7,22 @@ buffer::buffer( size_t size ) : std::vector<uint8_t>(size)
     cursor_ = data();
 }
 
+uint8_t buffer::readU8()
+{
+    return *cursor_++;
+}
+
 uint16_t buffer::readU16()
 {
     uint16_t value = static_cast<uint16_t>((cursor_[0] << 8) | cursor_[1]);
     cursor_ += sizeof(uint16_t);
     return value;
+}
+
+void buffer::writeU8( uint8_t value )
+{
+    *cursor_ = value;
+    ++cursor_;
 }
 
 void buffer::writeU16( uint16_t value )
@@ -21,6 +32,7 @@ void buffer::writeU16( uint16_t value )
     cursor_ += sizeof(uint16_t);
 }
 
+// Always return little-endian
 uint32_t buffer::readU32()
 {
     uint32_t value = (uint32_t) ( (cursor_[0] << 24) | (cursor_[1] << 16) | (cursor_[2] << 8) | cursor_[3] );
@@ -28,6 +40,7 @@ uint32_t buffer::readU32()
     return value;
 }
 
+// Always expects little-endian
 void buffer::writeU32( uint32_t value )
 {
     cursor_[0] = (uint8_t) (value >> 24);

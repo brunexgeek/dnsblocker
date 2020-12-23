@@ -10,7 +10,7 @@
 
 #include <signal.h>
 #include <limits.h>
-#include "defs.hh"
+#include <defs.hh>
 #include "nodes.hh"
 #include "dns.hh"
 #include "socket.hh"

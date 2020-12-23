@@ -7,9 +7,12 @@
 #include <chrono>
 #include <unordered_map>
 #include <atomic>
+#include <iostream>
+#include <iomanip>
 
 #ifndef __WINDOWS__
 #include <poll.h>
+#include <netinet/in.h>
 #else
 typedef int ssize_t;
 #endif
@@ -157,9 +160,7 @@ void dns_message_t::print() const
 {
     LOG_MESSAGE("[qdcount: %d, ancount: %d, nscount: %d, arcount: %d]\n",
         header.qdcount, header.ancount, header.nscount, header.arcount);
-    LOG_MESSAGE("questions:\n");
     for (auto it = questions.begin(); it != questions.end(); ++it) it->print();
-    LOG_MESSAGE("answers:\n");
     for (auto it = answers.begin(); it != answers.end(); ++it) it->print();
 }
 
@@ -171,17 +172,18 @@ void dns_record_t::write(
     bio.writeU16(type);
     bio.writeU16(clazz);
     bio.writeU32(ttl);
-    if (rdata.type == ADDR_TYPE_A)
+    if (!rdata.ipv4.empty())
     {
         bio.writeU16(4);
-        bio.writeU32(rdata.ipv4);
+        for (int i = 0; i < 4; ++i)
+            bio.writeU8(rdata.ipv4.values[i]);
     }
     else
-    if (rdata.type == ADDR_TYPE_AAAA)
+    if (!rdata.ipv6.empty())
     {
         bio.writeU16(16);
         for (int i = 0; i < 8; ++i)
-            bio.writeU16(rdata.ipv6[i]);
+            bio.writeU16(rdata.ipv6.values[i]);
     }
     else
     {
@@ -201,31 +203,28 @@ void dns_record_t::read(
     rdlen = bio.readU16();
     if (rdlen == 4)
     {
-        rdata.type = ADDR_TYPE_A;
-        rdata.ipv4 = bio.readU32();
+        rdata.clear();
+        for (int i = 0; i < 4; ++i)
+            rdata.ipv4.values[i] = bio.readU8();
     }
     else
     if (rdlen == 16)
     {
-        rdata.type = ADDR_TYPE_AAAA;
+        rdata.clear();
         for (int i = 0; i < 8; ++i)
-            rdata.ipv6[i] = bio.readU16();
+            rdata.ipv6.values[i] = bio.readU16();
     }
     else
-    {
-        rdata.type = 0;
-        memset(rdata.ipv6, 0, sizeof(rdata.ipv6));
         bio.skip(rdlen);
-    }
 }
 
 
 void dns_record_t::print() const
 {
-    if (rdata.type == ADDR_TYPE_A || rdata.type == ADDR_TYPE_AAAA)
+    if (!rdata.empty())
     {
         LOG_MESSAGE("   [qname: '%s', type: %d, class: %d, ttl: %d, len: %d, addr: %d.%d.%d.%d]\n",
-            qname.c_str(), type, clazz, ttl, rdlen, rdata.toString().c_str());
+            qname.c_str(), type, clazz, ttl, rdlen, rdata.to_string().c_str());
     }
     else
     {
@@ -245,23 +244,81 @@ void dns_record_t::print() const
 #include <unistd.h>
 #endif
 
-
-DNSCache::DNSCache(
-    int size ,
-    int ttl,
-    int timeout ) : size_(size), ttl_(ttl), timeout_(timeout)
+static uint64_t dns_time()
 {
-    defaultDNS_ = Address( UDP::hostToIPv4("8.8.4.4") );
+    static std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
+    return (uint64_t) std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count();
+}
+
+Cache::Cache( int size , int ttl ) : size_(size), ttl_(ttl)
+{
+}
+
+Cache::~Cache()
+{
+}
+
+bool Cache::find( const std::string &host, ipv4_t *ipv4, ipv6_t *ipv6 )
+{
+    if ((!ipv4 && !ipv6) || host.empty()) return false;
+    uint64_t now = dns_time();
+
+    std::shared_lock guard(lock_);
+
+    auto it = cache_.find(host);
+    // try to use cache information
+    if (it != cache_.end())
+    {
+        // check whether the cache entry still valid
+        if (now <= it->second.timestamp + ttl_)
+        {
+            if (ipv4) *ipv4 = it->second.ipv4;
+            if (ipv6) *ipv6 = it->second.ipv6;
+            it->second.timestamp = now;
+            return true;
+        }
+    }
+    return false;
+}
+
+void Cache::reset()
+{
+    std::unique_lock guard(lock_);
+    cache_.clear();
+}
+
+void Cache::cleanup( uint32_t ttl )
+{
+    if (ttl <= 0) ttl = ttl_;
+
+    std::unique_lock guard(lock_);
+
+    auto now = dns_time();
+    size_t count = cache_.size();
+
+    for (auto it = cache_.begin(); it != cache_.end();)
+    {
+        if (now <= it->second.timestamp + ttl)
+            it = cache_.erase(it);
+        else
+             ++it;
+    }
+
+    if (count != cache_.size())
+        LOG_MESSAGE("\nCache: removed %d entries and kept %d entries\n\n", count - cache_.size(), cache_.size());
+}
+
+Resolver::Resolver( Cache &cache, int timeout ) : cache_(cache), timeout_(timeout)
+{
+    default_dns_ = Address(UDP::hostToIPv4("8.8.4.4"));
     hits_.cache = hits_.external = 0;
 }
 
-
-DNSCache::~DNSCache()
+Resolver::~Resolver()
 {
 }
 
-
-int DNSCache::recursive(
+int Resolver::recursive(
     const std::string &host,
     int type,
     const Address &dnsAddress,
@@ -310,46 +367,9 @@ int DNSCache::recursive(
             if (it->type == type) output = it->rdata;
     }
 
-    return (output.invalid()) ? DNSB_STATUS_NXDOMAIN : DNSB_STATUS_RECURSIVE;
+    return (output.empty()) ? DNSB_STATUS_NXDOMAIN : DNSB_STATUS_RECURSIVE;
 }
-
-
-static uint32_t dns_time()
-{
-    static std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
-    return (uint32_t) std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - startTime).count();
-}
-
-
-void DNSCache::reset()
-{
-    std::lock_guard<std::mutex> raii(lock_);
-    cache_.clear();
-}
-
-
-void DNSCache::cleanup( uint32_t ttl )
-{
-    if (ttl <= 0) ttl = ttl_;
-
-    std::lock_guard<std::mutex> raii(lock_);
-
-    uint32_t currentTime = dns_time();
-    size_t count = cache_.size();
-
-    for (auto it = cache_.begin(); it != cache_.end();)
-    {
-        if (currentTime <= it->second.timestamp + ttl)
-            it = cache_.erase(it);
-        else
-             ++it;
-    }
-
-    if (count != cache_.size())
-        LOG_MESSAGE("\nCache: removed %d entries and kept %d entries\n\n", count - cache_.size(), cache_.size());
-}
-
-
+/*
 Address DNSCache::nameserver( const std::string &host )
 {
     std::lock_guard<std::mutex> raii(lock_);
@@ -357,121 +377,64 @@ Address DNSCache::nameserver( const std::string &host )
     const Node<Address> *node = targets_.match(host);
     if (node == nullptr) return defaultDNS_;
     return node->value;
-}
+}*/
 
 
-int DNSCache::resolve(
+int Resolver::resolve(
     const std::string &host,
     int type,
     Address &dnsAddress,
     Address &output )
 {
-    uint32_t currentTime = dns_time();
-
-    std::string key = host;
-    key += (type == ADDR_TYPE_AAAA) ? ":6" : ":4";
-
     {
-        if ((int) cache_.size() > size_) cleanup( (int) ((float)ttl_ * 0.75) );
-
-		std::lock_guard<std::mutex> raii(lock_);
+        //if ((int) cache_.size() > size_) cleanup( (int) ((float)ttl_ * 0.75) );
 
         dnsAddress = Address();
         output = Address();
 
-        auto it = cache_.find(key);
-        // try to use cache information
-        if (it != cache_.end())
-        {
-            // check whether the cache entry still valid
-            if (currentTime <= it->second.timestamp + ttl_)
-            {
-                output = it->second.address;
-                if (!output.invalid())
-                {
-                    ++hits_.cache;
-                    it->second.timestamp = currentTime;
-                    return DNSB_STATUS_CACHE;
-                }
-            }
-        }
+        if (cache_.find(host, &output.ipv4, &output.ipv6))
+            return DNSB_STATUS_CACHE;
 
         // check if we have a specific DNS server for this domain
-        dnsAddress = defaultDNS_;
-        const Node<Address> *node = targets_.match(host);
-        if (node != nullptr && !node->value.invalid()) dnsAddress = node->value;
+        dnsAddress = default_dns_;
+        const Node<Address> *node = target_dns_.match(host);
+        if (node != nullptr && !node->value.empty()) dnsAddress = node->value;
     }
 
     bool store = true;
 
     // try to resolve the domain using the external DNS
     int result = recursive(host, type, dnsAddress, output);
-    if (result != DNSB_STATUS_RECURSIVE && dnsAddress == defaultDNS_)
+    if (result != DNSB_STATUS_RECURSIVE && dnsAddress == default_dns_)
         return result;
     // if the previous resolution failed, try again using the default DNS server
     if (result == DNSB_STATUS_FAILURE)
     {
         store = false;
-        dnsAddress = defaultDNS_;
-        result = recursive(host, type, defaultDNS_, output);
+        dnsAddress = default_dns_;
+        result = recursive(host, type, default_dns_, output);
         if (result != DNSB_STATUS_RECURSIVE) return result;
     }
 
-    if (!output.invalid() && store)
+    if (!output.empty() && store)
     {
-        std::lock_guard<std::mutex> raii(lock_);
-
-        std::string key = host;
-        key += (type == ADDR_TYPE_AAAA) ? ":6" : ":4";
-
-        ++hits_.external;
-        dns_cache_t &entry = cache_[key];
-        entry.address = output;
-        entry.timestamp = currentTime;
+        cache_.add(host, &output.ipv4, &output.ipv6);
     }
 
     return result;
 }
 
 
-void DNSCache::dump( const std::string &path )
+void Cache::dump( std::ostream &out )
 {
-    std::lock_guard<std::mutex> raii(lock_);
+    std::shared_lock raii(lock_);
 
-    FILE *output = fopen(path.c_str(), "wt");
-    if (output != nullptr)
+    for (auto &it : cache_)
     {
-        fprintf(output, "Hits: cache = %d, external = %d\n\n",
-            hits_.cache, hits_.external);
-
-        int removed = 0;
-        uint32_t now = dns_time();
-        for (auto it = cache_.begin(); it != cache_.end();)
-        {
-            uint32_t rt = 0;
-            if (now <= it->second.timestamp + DNS_CACHE_TTL)
-                rt = (it->second.timestamp + DNS_CACHE_TTL) - now;
-
-            if (rt == 0)
-            {
-                // we use the opportunity to remove expired entries
-                it = cache_.erase(it);
-                ++removed;
-                continue;
-            }
-
-            fprintf(output, "%-16s  %6d  %s\n",
-                it->second.address.toString().c_str(),
-                rt,
-                it->first.c_str());
-
-            ++it;
-        }
-
-        if (removed > 0)
-            LOG_MESSAGE("\nCache: removed %d entries and kept %d entries\n\n", removed, cache_.size());
-
-        fclose(output);
+        if (!it.second.ipv4.empty())
+            out << std::setw(46) << it.second.ipv4.to_string() << it.first << std::endl;
+        if (!it.second.ipv6.empty())
+            out << std::setw(46) << it.second.ipv6.to_string() << it.first << std::endl;
     }
 }
 
@@ -487,16 +450,36 @@ uint32_t DNSCache::addressToIPv4( const std::string &host )
 }*/
 
 
-void DNSCache::setDefaultDNS( const std::string &dns, const std::string &name )
+void Resolver::set_dns( const std::string &dns, const std::string &name )
 {
-    defaultDNS_ = Address(UDP::hostToIPv4(dns), name);
+    default_dns_ = Address(UDP::hostToIPv4(dns), name);
 }
 
 
-void DNSCache::addTarget( const std::string &rule, const std::string &dns, const std::string &name )
+void Resolver::set_dns( const std::string &rule, const std::string &dns, const std::string &name )
 {
-    std::lock_guard<std::mutex> raii(lock_);
-    targets_.add(rule, Address(UDP::hostToIPv4(dns), name) );
+    target_dns_.add(rule, Address(UDP::hostToIPv4(dns), name) );
+}
+
+void Cache::add( const std::string &host, ipv4_t *ipv4, ipv6_t *ipv6 )
+{
+    std::unique_lock guard(lock_);
+
+    auto it = cache_.find(host);
+    if (it != cache_.end())
+    {
+        if (ipv4) it->second.ipv4 = *ipv4;
+        if (ipv6) it->second.ipv6 = *ipv6;
+        it->second.timestamp = dns_time();
+    }
+    else
+    {
+        CacheEntry entry;
+        if (ipv4) entry.ipv4 = *ipv4;
+        if (ipv6) entry.ipv6 = *ipv6;
+        entry.timestamp = dns_time();
+        cache_.insert(std::pair<std::string, CacheEntry>(host, entry));
+    }
 }
 
 }

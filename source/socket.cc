@@ -9,6 +9,7 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <poll.h>
+#include <iostream>
 
 #define TYPE_SOCKETLEN socklen_t
 
@@ -100,87 +101,207 @@ struct Context
 	uint32_t ipv4;
 };
 
+//
+// ipv4_t
+//
 
-Address::Address() : type(ADDR_TYPE_A)
+ipv4_t::ipv4_t()
 {
-	ipv4 = 0;
+	clear();
 }
 
-Address::Address( uint32_t ipv4, const std::string &name ) : name(name), type(ADDR_TYPE_A), ipv4(ipv4)
+ipv4_t::ipv4_t( const uint8_t *that )
 {
+	for (int i = 0; i < 4; ++i)
+		values[i] = that[i];
 }
 
-Address::Address( const Address &that ) : type(that.type)
+ipv4_t::ipv4_t( const uint32_t &that )
 {
-	memcpy(ipv6, that.ipv6, sizeof(ipv6));
+	values[0] = (uint8_t) that & 0xFF;
+	values[1] = (uint8_t) (that >> 8) & 0xFF;
+	values[2] = (uint8_t) (that >> 16) & 0xFF;
+	values[3] = (uint8_t) (that >> 24) & 0xFF;
 }
 
-std::string Address::toString( bool empty ) const
+ipv4_t::ipv4_t( const ipv4_t &that )
 {
-	char output[48] = { 0 };
+	for (int i = 0; i < 4; ++i)
+		values[i] = that.values[i];
+}
 
-	if (empty && invalid()) return "";
+ipv4_t::ipv4_t( ipv4_t &&that )
+{
+	for (int i = 0; i < 4; ++i)
+		values[i] = that.values[i];
+}
 
-	if (type == ADDR_TYPE_A)
-	{
-		snprintf(output, sizeof(output), "%d.%d.%d.%d",
-			SOCKET_IP_O1(ipv4),
-			SOCKET_IP_O2(ipv4),
-			SOCKET_IP_O3(ipv4),
-			SOCKET_IP_O4(ipv4));
-	}
-	else
-	if (type == ADDR_TYPE_AAAA)
-	{
-		snprintf(output, sizeof(output), "%x:%x:%x:%x:%x:%x:%x:%x",
-			ipv6[0], ipv6[1], ipv6[2], ipv6[3], ipv6[4], ipv6[5], ipv6[6],ipv6[7]);
-	}
+bool ipv4_t::operator==( const ipv4_t &that ) const
+{
+	for (int i = 0; i < 4; ++i)
+		if (values[i] != that.values[i]) return false;
+	return true;
+}
 
+ipv4_t &ipv4_t::operator=( const ipv4_t &that )
+{
+	for (int i = 0; i < 4; ++i)
+		values[i] = that.values[i];
+	return *this;
+}
+
+ipv4_t &ipv4_t::operator=( const uint32_t &that )
+{
+	values[0] = (uint8_t) that & 0xFF;
+	values[1] = (uint8_t) (that >> 8) & 0xFF;
+	values[2] = (uint8_t) (that >> 16) & 0xFF;
+	values[3] = (uint8_t) (that >> 24) & 0xFF;
+	return *this;
+}
+
+uint32_t ipv4_t::to_uint32() const
+{
+	return values[0] | (values[1] << 8) | (values[2] << 16) | (values[3] << 24);
+}
+
+void ipv4_t::clear()
+{
+	memset(values, 0, sizeof(values));
+}
+
+bool ipv4_t::empty() const
+{
+	return (!values[0] && !values[1] && !values[2] && !values[3]);
+}
+
+std::string ipv4_t::to_string() const
+{
+	char output[16] = { 0 };
+	snprintf(output, sizeof(output), "%d.%d.%d.%d",
+		(int) values[0],
+		(int) values[1],
+		(int) values[2],
+		(int) values[3]);
 	return output;
 }
 
-bool Address::equivalent( const Address &that ) const
+//
+// ipv6_t
+//
+
+ipv6_t::ipv6_t()
 {
-	if (type == that.type && type == ADDR_TYPE_A)
-		return ipv4 == that.ipv4 || ( SOCKET_IP_O1(ipv4) == 127 && SOCKET_IP_O1(that.ipv4) == 127 );
-	else
-		return false;
+	clear();
+}
+
+ipv6_t::ipv6_t( const uint16_t *that )
+{
+	if (!that) return;
+	for (int i = 0; i < 8; ++i)
+		values[i] = that[i];
+}
+
+ipv6_t::ipv6_t( const ipv6_t &that )
+{
+	for (int i = 0; i < 8; ++i)
+		values[i] = that.values[i];
+}
+
+ipv6_t::ipv6_t( ipv6_t &&that )
+{
+	for (int i = 0; i < 8; ++i)
+		values[i] = that.values[i];
+}
+
+bool ipv6_t::operator==( const ipv6_t &that ) const
+{
+	for (int i = 0; i < 8; ++i)
+		if (values[i] != that.values[i]) return false;
+	return true;
+}
+
+ipv6_t &ipv6_t::operator=( const ipv6_t &that )
+{
+	for (int i = 0; i < 8; ++i)
+		values[i] = that.values[i];
+	return *this;
+}
+
+void ipv6_t::clear()
+{
+	memset(values, 0, sizeof(values));
+}
+
+bool ipv6_t::empty() const
+{
+	for (int i = 0; i < 8; ++i)
+		if (values[i] != 0) return false;
+	return true;
+}
+
+std::string ipv6_t::to_string() const
+{
+	char output[48] = { 0 };
+	snprintf(output, sizeof(output), "%x:%x:%x:%x:%x:%x:%x:%x",
+		values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7]);
+	return output;
+}
+
+//
+// Address
+//
+
+Address::Address()
+{
+}
+
+Address::Address( const ipv4_t &ipv4, const std::string &name ) : ipv4(ipv4), name(name)
+{
+}
+
+Address::Address( const ipv6_t &ipv6, const std::string &name ) : ipv6(ipv6), name(name)
+{
+}
+
+Address::Address( const Address &that )
+{
+	ipv4 = that.ipv4;
+	ipv6 = that.ipv6;
+}
+
+std::string Address::to_string() const
+{
+	return (!ipv4.empty()) ? ipv4.to_string() : ipv6.to_string();
 }
 
 bool Address::operator==( const Address &that ) const
 {
-	if (type != that.type) return false;
-	if (type == ADDR_TYPE_A)
-		return ipv4 == that.ipv4;
-	else
-	if (type == ADDR_TYPE_AAAA)
-		return memcmp(ipv6, ipv6, sizeof(ipv6)) == 0;
-	else
-		return false;
+	return ipv4 == that.ipv4 && ipv6 == that.ipv6;
 }
 
-bool Address::invalid() const
+bool Address::empty() const
 {
-	if (type == ADDR_TYPE_A)
-		return ipv4 == 0;
-	else
-	if (type == ADDR_TYPE_AAAA)
-	{
-		for (int i = 0; i < 8; ++i)
-			if (ipv6[i] != 0) return false;
-	}
-
-	return true;
+	return ipv4.empty() && ipv6.empty();
 }
 
 bool Address::local() const
 {
-	if (type == ADDR_TYPE_A && SOCKET_IP_O1(ipv4) == 127)
+	if (!ipv4.empty() && ipv4.values[0] == 127)
 		return true;
-	if (type == ADDR_TYPE_AAAA && ipv6[0] == 0)
+	if (!ipv6.empty() && ipv6.values[0] == 0)
 		return true;
 	return false;
 }
+
+void Address::clear()
+{
+	ipv4.clear();
+	ipv6.clear();
+}
+
+//
+// Endpoint
+//
 
 Endpoint::Endpoint() : port(0)
 {
@@ -194,7 +315,11 @@ Endpoint::Endpoint( const Address &address, uint16_t port ) : address(address), 
 {
 }
 
-Endpoint::Endpoint( const uint32_t &ipv4, uint16_t port ) : address(Address(ipv4)), port(port)
+Endpoint::Endpoint( const ipv4_t &ipv4, uint16_t port ) : address(Address(ipv4)), port(port)
+{
+}
+
+Endpoint::Endpoint( const ipv6_t &ipv6, uint16_t port ) : address(Address(ipv6)), port(port)
 {
 }
 
@@ -234,10 +359,11 @@ bool UDP::send( const Endpoint &endpoint, const uint8_t *data, size_t size )
 {
     struct sockaddr_in address;
 	address.sin_family = AF_INET;
+	uint32_t ip = endpoint.address.ipv4.to_uint32();
 	#ifdef __WINDOWS__
-    address.sin_addr.S_un.S_addr = htonl(endpoint.address.ipv4);
+    address.sin_addr.S_un.S_addr = ip;
 	#else
-	address.sin_addr.s_addr = htonl(endpoint.address.ipv4);
+	address.sin_addr.s_addr = ip;
 	#endif
     address.sin_port = htons(endpoint.port);
 
@@ -259,9 +385,9 @@ bool UDP::receive( Endpoint &endpoint, uint8_t *data, size_t *size, int timeout 
 	{
 		*size = result;
 		#ifdef __WINDOWS__
-		endpoint.address.ipv4 = ntohl(address.sin_addr.S_un.S_addr);
+		endpoint.address.ipv4 = (uint32_t) address.sin_addr.S_un.S_addr;
 		#else
-		endpoint.address.ipv4 = ntohl(address.sin_addr.s_addr);
+		endpoint.address.ipv4 = (uint32_t) address.sin_addr.s_addr;
 		#endif
 		endpoint.port = ntohs(address.sin_port);
 	}
@@ -281,14 +407,14 @@ bool UDP::poll( int timeout )
 	return true;
 }
 
-uint32_t UDP::hostToIPv4( const std::string &host )
+ipv4_t UDP::hostToIPv4( const std::string &host )
 {
-    if (host.empty()) return 0;
+    if (host.empty()) return ipv4_t();
 
     struct sockaddr_in address;
     address.sin_family = AF_INET;
     inet_pton(AF_INET, host.c_str(), &address.sin_addr);
-    return (uint32_t) ntohl(address.sin_addr.s_addr);
+    return ipv4_t(address.sin_addr.s_addr);
 }
 
 bool UDP::bind( const std::string &host, uint16_t port )

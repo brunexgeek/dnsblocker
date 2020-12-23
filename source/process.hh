@@ -43,7 +43,8 @@ class Processor
         std::mutex mutex_;
         UDP *conn_;
         Address bindIP_;
-        DNSCache *cache_;
+        Cache *cache_;
+        Resolver *resolver_;
         Configuration config_;
         Tree<uint8_t> blacklist_;
         Tree<uint8_t> whitelist_;

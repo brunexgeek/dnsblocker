@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <limits.h>
 #include <chrono>
+#include <defs.hh>
 
 #ifdef __WINDOWS__
 #include <Windows.h>
@@ -25,7 +26,6 @@ Processor::Processor( const Configuration &config ) : config_(config), running_(
     }
     useHeuristics_ = config.use_heuristics();
 
-    bindIP_.type = ADDR_TYPE_A;
     bindIP_.ipv4 = UDP::hostToIPv4(config.binding.address);
 	conn_ = new UDP();
 	if (!conn_->bind(config.binding.address, (uint16_t) config.binding.port))
@@ -40,20 +40,21 @@ Processor::Processor( const Configuration &config ) : config_(config), running_(
         throw std::runtime_error("Unable to bind");
     }
 
-    cache_ = new DNSCache(config.cache.limit(), config.cache.ttl);
+    cache_ = new Cache(config.cache.limit(), config.cache.ttl * 1000);
+    resolver_ = new Resolver(*cache_);
     bool found = false;
     for (auto it = config.external_dns.begin(); it != config.external_dns.end(); ++it)
     {
         if (it->targets.empty())
         {
-            cache_->setDefaultDNS(it->address, it->name);
+            resolver_->set_dns(it->address, it->name);
             found = true;
         }
         else
         {
             for (size_t i = 0; i < it->targets.size(); ++i)
             {
-                cache_->addTarget(it->targets[i], it->address, it->name);
+                resolver_->set_dns(it->address, it->name, it->targets[i]);
             }
         }
     }
@@ -194,8 +195,12 @@ void Processor::console( const std::string &command )
     else
     if (command == "dump")
     {
-        LOG_MESSAGE("\nDumping DNS cache to '%s'\n\n", config_.dump_path_.c_str());
-        cache_->dump(config_.dump_path_);
+        std::ofstream out(config_.dump_path_);
+        if (out.good())
+        {
+            LOG_MESSAGE("\nDumping DNS cache to '%s'\n\n", config_.dump_path_.c_str());
+            cache_->dump(out);
+        }
     }
 }
 #endif
@@ -203,12 +208,14 @@ void Processor::console( const std::string &command )
 
 static void blockAddress( int type, Address &address )
 {
-    static const uint16_t IPV6_ADDRESS[] = DNS_BLOCKED_IPV6_ADDRESS;
-    address.type = type;
+    static const uint8_t IPV4_VALUES[] = DNS_BLOCKED_IPV4_ADDRESS;
+    static const ipv4_t IPV4_ADDRESS(IPV4_VALUES);
+    static const uint16_t IPV6_VALUES[] = DNS_BLOCKED_IPV6_ADDRESS;
+    static const ipv6_t IPV6_ADDRESS(IPV6_VALUES);
     if (type == DNS_TYPE_A)
-        address.ipv4 = DNS_BLOCKED_IPV4_ADDRESS;
+        address.ipv4 = IPV4_ADDRESS;
     else
-        memcpy(address.ipv6, IPV6_ADDRESS, sizeof(IPV6_ADDRESS));
+        address.ipv6 = IPV6_ADDRESS;
 }
 
 
@@ -336,7 +343,7 @@ void Processor::process(
                 result = DNSB_STATUS_NXDOMAIN;
             else
             if (request.header.flags & DNS_FLAG_RD)
-                result = object->cache_->resolve(request.questions[0].qname, request.questions[0].type, dnsAddress, address);
+                result = object->resolver_->resolve(request.questions[0].qname, request.questions[0].type, dnsAddress, address);
             else
                 result = DNSB_STATUS_NXDOMAIN;
         }
@@ -383,7 +390,7 @@ void Processor::process(
         if (status != nullptr)
         {
             std::string addr;
-            if (!isBlocked) addr = address.toString(true);
+            if (!isBlocked) addr = address.to_string();
 
             #ifdef DNS_IPV6_EXPERIMENT
             static const char *FORMAT = "%s%-40s  %s %c  %-8s  %-40s  %s%s\n";
@@ -392,7 +399,7 @@ void Processor::process(
             #endif
             LOG_TIMED(FORMAT,
                 color,
-                endpoint.address.toString().c_str(),
+                endpoint.address.to_string().c_str(),
                 status,
                 (request.questions[0].type == ADDR_TYPE_AAAA) ? '6' : '4',
                 (isHeuristic) ? "*" : dnsAddress.name.c_str(),
