@@ -12,7 +12,7 @@
 #endif
 
 #define DNS_BLOCKED_IPV4_ADDRESS           0x7F000002  // 127.0.0.2
-#define DNS_BLOCKED_IPV6_ADDRESS           { 0, 0, 0, 0, 0, 0, 0, 2 }  // ::2
+#define DNS_BLOCKED_IPV6_ADDRESS           { 0, 0, 0, 0, 0, 0, 0, 1 }  // ::1
 
 #define CONSOLE_IPV4_ADDRESS          "127.0.0.2"
 #define CONSOLE_IPV4_PORT             53022
@@ -29,7 +29,7 @@
 #define LOG_FILENAME                  "dnsblocker.log"
 #define LOG_CACHE_DUMP                "dnsblocker.cache"
 
-//#define DNS_IPV6_EXPERIMENT
+#cmakedefine DNS_IPV6_EXPERIMENT
 
 #define MONITOR_SHOW_RECURSIVE   0x01
 #define MONITOR_SHOW_CACHE       0x02
