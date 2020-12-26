@@ -18,7 +18,6 @@
 #include <WS2tcpip.h>
 #pragma comment (lib, "ws2_32.lib")
 
-
 #define TYPE_SOCKETLEN int
 
 #if (_WIN32_WINNT <= 0x0501 || WINVER <= 0x0501)
@@ -32,20 +31,16 @@ getaddrinfo_f getaddrinfo;
 freeaddrinfo_f freeaddrinfo;
 #endif
 
-
-class WinSocket
+struct WinSocket
 {
-	public:
-		WinSocket();
-		~WinSocket();
+	WinSocket();
+	~WinSocket();
 };
-
 
 /**
  * @brief Initialize and terminate the WinSocket subsystem.
  */
 static WinSocket winSocket;
-
 
 WinSocket::WinSocket()
 {
@@ -84,7 +79,6 @@ WinSocket::~WinSocket()
 	#endif
 	WSACleanup();
 }
-
 
 #endif // __WINDOWS__
 
@@ -254,58 +248,6 @@ std::string ipv6_t::to_string() const
 }
 
 //
-// Address
-//
-
-Address::Address()
-{
-}
-
-Address::Address( const ipv4_t &ipv4, const std::string &name ) : ipv4(ipv4), name(name)
-{
-}
-
-Address::Address( const ipv6_t &ipv6, const std::string &name ) : ipv6(ipv6), name(name)
-{
-}
-
-Address::Address( const Address &that )
-{
-	ipv4 = that.ipv4;
-	ipv6 = that.ipv6;
-}
-
-std::string Address::to_string() const
-{
-	return (!ipv4.empty()) ? ipv4.to_string() : ipv6.to_string();
-}
-
-bool Address::operator==( const Address &that ) const
-{
-	return ipv4 == that.ipv4 && ipv6 == that.ipv6;
-}
-
-bool Address::empty() const
-{
-	return ipv4.empty() && ipv6.empty();
-}
-
-bool Address::local() const
-{
-	if (!ipv4.empty() && ipv4.values[0] == 127)
-		return true;
-	if (!ipv6.empty() && ipv6.values[0] == 0)
-		return true;
-	return false;
-}
-
-void Address::clear()
-{
-	ipv4.clear();
-	ipv6.clear();
-}
-
-//
 // Endpoint
 //
 
@@ -317,23 +259,14 @@ Endpoint::Endpoint( const Endpoint &that ) : address(that.address), port(that.po
 {
 }
 
-Endpoint::Endpoint( const Address &address, uint16_t port ) : address(address), port(port)
-{
-}
-
-Endpoint::Endpoint( const ipv4_t &ipv4, uint16_t port ) : address(Address(ipv4)), port(port)
-{
-}
-
-Endpoint::Endpoint( const ipv6_t &ipv6, uint16_t port ) : address(Address(ipv6)), port(port)
+Endpoint::Endpoint( const ipv4_t &ipv4, uint16_t port ) : address(ipv4), port(port)
 {
 }
 
 Endpoint::Endpoint( const std::string &ipv4, uint16_t port ) : port(port)
 {
-	inet_pton(AF_INET, ipv4.c_str(), &address);
+	inet_pton(AF_INET, ipv4.c_str(), address.values);
 }
-
 
 UDP::UDP()
 {
@@ -346,7 +279,6 @@ UDP::~UDP()
 	close();
 	delete (Context*) ctx;
 }
-
 
 void UDP::close()
 {
@@ -365,7 +297,7 @@ bool UDP::send( const Endpoint &endpoint, const uint8_t *data, size_t size )
 {
     struct sockaddr_in address;
 	address.sin_family = AF_INET;
-	uint32_t ip = endpoint.address.ipv4.to_uint32();
+	uint32_t ip = endpoint.address.to_uint32();
 	#ifdef __WINDOWS__
     address.sin_addr.S_un.S_addr = ip;
 	#else
@@ -391,9 +323,9 @@ bool UDP::receive( Endpoint &endpoint, uint8_t *data, size_t *size, int timeout 
 	{
 		*size = result;
 		#ifdef __WINDOWS__
-		endpoint.address.ipv4 = (uint32_t) address.sin_addr.S_un.S_addr;
+		endpoint.address = (uint32_t) address.sin_addr.S_un.S_addr;
 		#else
-		endpoint.address.ipv4 = (uint32_t) address.sin_addr.s_addr;
+		endpoint.address = (uint32_t) address.sin_addr.s_addr;
 		#endif
 		endpoint.port = ntohs(address.sin_port);
 	}

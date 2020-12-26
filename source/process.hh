@@ -42,7 +42,7 @@ class Processor
         std::list<Job*> pending_;
         std::mutex mutex_;
         UDP *conn_;
-        Address bindIP_;
+        ipv4_t bindIP_;
         Cache *cache_;
         Resolver *resolver_;
         Configuration config_;

@@ -64,7 +64,6 @@ struct dns_header_t
     void write( buffer &bio );
 };
 
-
 struct dns_question_t
 {
     std::string qname;
@@ -108,6 +107,18 @@ struct dns_message_t
     void print() const;
 };
 
+template<class T>
+struct named_value
+{
+    typedef T type;
+    std::string name;
+    T value;
+
+    named_value() {}
+    named_value( const std::string &name, const T &value ) : name(name), value(value) {}
+    named_value( const std::string &name, T &&value ) : name(name), value(value) {}
+};
+
 struct CacheEntry
 {
     uint64_t timestamp;
@@ -143,7 +154,7 @@ class Resolver
         ~Resolver();
         void set_dns( const std::string &dns, const std::string &name );
         void set_dns( const std::string &dns, const std::string &name, const std::string &rule );
-        int resolve( const std::string &host, int type, std::string &name, Address &output );
+        //int resolve( const std::string &host, int type, std::string &name, Address &output );
         int resolve_ipv4( const std::string &host, std::string &name, ipv4_t &output );
         int resolve_ipv6( const std::string &host, std::string &name, ipv6_t &output );
 
@@ -153,12 +164,12 @@ class Resolver
             uint32_t cache;
             uint32_t external;
         } hits_;
-        Address default_dns_;
-        Tree<Address> target_dns_;
+        named_value<ipv4_t> default_dns_;
+        Tree<named_value<ipv4_t>> target_dns_;
         Cache &cache_;
         int timeout_;
 
-        int recursive( const std::string &host, int type, const Address &dnsAddress, ipv4_t *ipv4, ipv6_t *ipv6 );
+        int recursive( const std::string &host, int type, const ipv4_t &dnsAddress, ipv4_t *ipv4, ipv6_t *ipv6 );
 };
 
 }

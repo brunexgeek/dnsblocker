@@ -31,7 +31,7 @@ Processor::Processor( const Configuration &config ) : config_(config), running_(
     }
     useHeuristics_ = config.use_heuristics();
 
-    bindIP_.ipv4 = UDP::hostToIPv4(config.binding.address);
+    bindIP_ = UDP::hostToIPv4(config.binding.address);
 	conn_ = new UDP();
 	if (!conn_->bind(config.binding.address, (uint16_t) config.binding.port))
     {
