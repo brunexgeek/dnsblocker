@@ -109,8 +109,7 @@ ipv4_t::ipv4_t()
 
 ipv4_t::ipv4_t( const uint8_t *that )
 {
-	for (int i = 0; i < 4; ++i)
-		values[i] = that[i];
+	if (that) memcpy(values, that, sizeof(values));
 }
 
 ipv4_t::ipv4_t( const uint32_t &that )
@@ -123,27 +122,22 @@ ipv4_t::ipv4_t( const uint32_t &that )
 
 ipv4_t::ipv4_t( const ipv4_t &that )
 {
-	for (int i = 0; i < 4; ++i)
-		values[i] = that.values[i];
+	memcpy(values, that.values, sizeof(values));
 }
 
 ipv4_t::ipv4_t( ipv4_t &&that )
 {
-	for (int i = 0; i < 4; ++i)
-		values[i] = that.values[i];
+	memcpy(values, that.values, sizeof(values));
 }
 
 bool ipv4_t::operator==( const ipv4_t &that ) const
 {
-	for (int i = 0; i < 4; ++i)
-		if (values[i] != that.values[i]) return false;
-	return true;
+	return memcmp(values, that.values, sizeof(values)) == 0;
 }
 
 ipv4_t &ipv4_t::operator=( const ipv4_t &that )
 {
-	for (int i = 0; i < 4; ++i)
-		values[i] = that.values[i];
+	memcpy(values, that.values, sizeof(values));
 	return *this;
 }
 
@@ -196,34 +190,27 @@ ipv6_t::ipv6_t()
 
 ipv6_t::ipv6_t( const uint16_t *that )
 {
-	if (!that) return;
-	for (int i = 0; i < 8; ++i)
-		values[i] = that[i];
+	if (that) memcpy(values, that, sizeof(values));
 }
 
 ipv6_t::ipv6_t( const ipv6_t &that )
 {
-	for (int i = 0; i < 8; ++i)
-		values[i] = that.values[i];
+	memcpy(values, that.values, sizeof(values));
 }
 
 ipv6_t::ipv6_t( ipv6_t &&that )
 {
-	for (int i = 0; i < 8; ++i)
-		values[i] = that.values[i];
+	memcpy(values, that.values, sizeof(values));
 }
 
 bool ipv6_t::operator==( const ipv6_t &that ) const
 {
-	for (int i = 0; i < 8; ++i)
-		if (values[i] != that.values[i]) return false;
-	return true;
+	return memcmp(values, that.values, sizeof(values)) == 0;
 }
 
 ipv6_t &ipv6_t::operator=( const ipv6_t &that )
 {
-	for (int i = 0; i < 8; ++i)
-		values[i] = that.values[i];
+	memcpy(values, that.values, sizeof(values));
 	return *this;
 }
 
