@@ -12,7 +12,6 @@ set(CMAKE_BUILD_TYPE "Release"  CACHE STRING  "Specify the build type")
 set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release")
 
 set(ENABLE_DNS_CONSOLE true CACHE BOOLEAN "Enable to manage the server using commands in DNS messages")
-set(DNS_IPV6_EXPERIMENT false CACHE BOOLEAN "Enable support for IPv6")
 
 if (CMAKE_BUILD_TYPE STREQUAL "")
     message(STATUS "No build type selected, default to 'Release'")
@@ -36,9 +35,7 @@ if (MSVC)
 	add_definitions(-D_CRT_SECURE_NO_WARNINGS)
 endif()
 
-
 find_package(Threads)
-
 
 configure_file("source/defs.hh.in" "__include/defs.hh")
 

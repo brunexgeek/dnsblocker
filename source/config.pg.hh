@@ -253,6 +253,7 @@ PG_ENTITY_SERIALIZER( ::Cache, ::Cache_type,protogen_2_0_0::json< ::Cache_type>)
         protogen_2_0_0::field<int32_t> threads;
          ::Cache cache;
         protogen_2_0_0::field<bool> use_heuristics;
+        protogen_2_0_0::field<bool> use_ipv6;
     };
 namespace protogen_2_0_0 {
 template<> struct json< ::Configuration_type>
@@ -268,6 +269,7 @@ template<> struct json< ::Configuration_type>
         PG_DIF_EX(7,threads,"threads")
         PG_DIF_EX(8,cache,"cache")
         PG_DIF_EX(9,use_heuristics,"use_heuristics")
+        PG_DIF_EX(10,use_ipv6,"use_ipv6")
         return PGR_NIL;
     }
     static void write( json_context &ctx, const  ::Configuration_type &value )
@@ -282,6 +284,7 @@ template<> struct json< ::Configuration_type>
         PG_SIF_EX(threads,"threads")
         PG_SIF_EX(cache,"cache")
         PG_SIF_EX(use_heuristics,"use_heuristics")
+        PG_SIF_EX(use_ipv6,"use_ipv6")
         (*ctx.os) << '}';
     }
     static bool empty( const  ::Configuration_type &value )
@@ -296,6 +299,7 @@ template<> struct json< ::Configuration_type>
         if (!json<decltype(value.threads)>::empty(value.threads)) return false;
         if (!json<decltype(value.cache)>::empty(value.cache)) return false;
         if (!json<decltype(value.use_heuristics)>::empty(value.use_heuristics)) return false;
+        if (!json<decltype(value.use_ipv6)>::empty(value.use_ipv6)) return false;
         return true;
     }
     static void clear(  ::Configuration_type &value )
@@ -310,6 +314,7 @@ template<> struct json< ::Configuration_type>
         json<decltype(value.threads)>::clear(value.threads);
         json<decltype(value.cache)>::clear(value.cache);
         json<decltype(value.use_heuristics)>::clear(value.use_heuristics);
+        json<decltype(value.use_ipv6)>::clear(value.use_ipv6);
     }
     static bool equal( const  ::Configuration_type &a, const  ::Configuration_type &b )
     {
@@ -323,6 +328,7 @@ template<> struct json< ::Configuration_type>
         if (!json<decltype(a.threads)>::equal(a.threads, b.threads)) return false;
         if (!json<decltype(a.cache)>::equal(a.cache, b.cache)) return false;
         if (!json<decltype(a.use_heuristics)>::equal(a.use_heuristics, b.use_heuristics)) return false;
+        if (!json<decltype(a.use_ipv6)>::equal(a.use_ipv6, b.use_ipv6)) return false;
         return true;
     }
     static void swap(  ::Configuration_type &a,  ::Configuration_type &b )
@@ -337,6 +343,7 @@ template<> struct json< ::Configuration_type>
         json<decltype(a.threads)>::swap(a.threads, b.threads);
         json<decltype(a.cache)>::swap(a.cache, b.cache);
         json<decltype(a.use_heuristics)>::swap(a.use_heuristics, b.use_heuristics);
+        json<decltype(a.use_ipv6)>::swap(a.use_ipv6, b.use_ipv6);
     }
     static bool is_missing( json_context &ctx )
     {
@@ -349,6 +356,7 @@ template<> struct json< ::Configuration_type>
         if (!(ctx.mask & 128)) { name = "threads"; } else
         if (!(ctx.mask & 256)) { name = "cache"; } else
         if (!(ctx.mask & 512)) { name = "use_heuristics"; } else
+        if (!(ctx.mask & 1024)) { name = "use_ipv6"; } else
         return false;
         ctx.tok->error(PGERR_MISSING_FIELD, std::string("Missing field '") + name + "'");
         return true;

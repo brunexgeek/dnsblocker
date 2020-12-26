@@ -288,6 +288,14 @@ void Processor::process(
     const char *COLOR_YELLOW = "\033[33m";
     const char *COLOR_RESET = "\033[39m";
 
+    static const char *IPV4_FORMAT = "%s%-15s  %s %c  %-8s  %-15s  %s%s\n";
+    static const char *IPV6_FORMAT = "%s%-40s  %s %c  %-8s  %-40s  %s%s\n";
+    static const char *FORMAT = nullptr;
+    if (object->config_.use_ipv6)
+        FORMAT = IPV6_FORMAT;
+    else
+        FORMAT = IPV4_FORMAT;
+
 #if !defined(_WIN32) && !defined(_WIN64)
     if (!isatty(STDIN_FILENO))
 #endif
@@ -399,11 +407,6 @@ void Processor::process(
                     addr = ipv4.to_string();
             }
 
-            #ifdef DNS_IPV6_EXPERIMENT
-            static const char *FORMAT = "%s%-40s  %s %c  %-8s  %-40s  %s%s\n";
-            #else
-            static const char *FORMAT = "%s%-15s  %s %c  %-8s  %-15s  %s%s\n";
-            #endif
             LOG_TIMED(FORMAT,
                 color,
                 endpoint.address.to_string().c_str(),
@@ -490,18 +493,13 @@ void Processor::run()
         // ignore messages with the number of questions other than 1
         int type = 0;
         if (request.questions.size() == 1) type = request.questions[0].type;
-        #ifdef DNS_IPV6_EXPERIMENT
-        if (type != DNS_TYPE_A && type != DNS_TYPE_AAAA)
-        #else
-        if (type != DNS_TYPE_A)
-        #endif
+        if (type == DNS_TYPE_A || (config_.use_ipv6 && type == DNS_TYPE_AAAA))
         {
-            sendError(request, DNS_RCODE_REFUSED, endpoint);
-            continue;
+            push( new Job(endpoint, request) );
+            cond.notify_all();
         }
-
-        push( new Job(endpoint, request) );
-        cond.notify_all();
+        else
+            sendError(request, DNS_RCODE_REFUSED, endpoint);
     }
 
     for (size_t i = 0; i < NUM_THREADS; ++i)
