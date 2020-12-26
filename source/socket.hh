@@ -21,6 +21,8 @@
 
 struct ipv4_t
 {
+	static const ipv4_t EMPTY;
+	static const ipv4_t NXDOMAIN;
 	uint8_t values[4];
 
 	ipv4_t();
@@ -39,6 +41,8 @@ struct ipv4_t
 
 struct ipv6_t
 {
+	static const ipv6_t EMPTY;
+	static const ipv6_t NXDOMAIN;
 	uint16_t values[8];
 
 	ipv6_t();
@@ -54,8 +58,6 @@ struct ipv6_t
 
 struct Address
 {
-	typedef ipv4_t ipv4_type;
-	typedef ipv6_t ipv6_type;
     ipv4_t ipv4;
     ipv6_t ipv6;
 	std::string name;

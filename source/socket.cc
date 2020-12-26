@@ -105,6 +105,9 @@ struct Context
 // ipv4_t
 //
 
+static const uint8_t IPV4_NXDOMAIN[] = { 0, 0, 0, 255 };
+const ipv4_t ipv4_t::NXDOMAIN(IPV4_NXDOMAIN);
+
 ipv4_t::ipv4_t()
 {
 	clear();
@@ -188,6 +191,9 @@ std::string ipv4_t::to_string() const
 //
 // ipv6_t
 //
+
+static const uint16_t IPV6_NXDOMAIN[] = { 0, 0, 0, 0, 0, 0, 0, 255 };
+const ipv6_t ipv6_t::NXDOMAIN(IPV6_NXDOMAIN);
 
 ipv6_t::ipv6_t()
 {

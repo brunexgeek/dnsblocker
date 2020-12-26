@@ -16,6 +16,11 @@
 
 namespace dnsblocker {
 
+static const uint8_t IPV4_BLOCK_VALUES[] = DNS_BLOCKED_IPV4_ADDRESS;
+static const uint16_t IPV6_BLOCK_VALUES[] = DNS_BLOCKED_IPV6_ADDRESS;
+static const ipv4_t IPV4_BLOCK_ADDRESS(IPV4_BLOCK_VALUES);
+static const ipv6_t IPV6_BLOCK_ADDRESS(IPV6_BLOCK_VALUES);
+
 Processor::Processor( const Configuration &config ) : config_(config), running_(false), useHeuristics_(false),
     useFiltering_(true)
 {
@@ -205,20 +210,6 @@ void Processor::console( const std::string &command )
 }
 #endif
 
-
-static void blockAddress( int type, Address &address )
-{
-    static const uint8_t IPV4_VALUES[] = DNS_BLOCKED_IPV4_ADDRESS;
-    static const ipv4_t IPV4_ADDRESS(IPV4_VALUES);
-    static const uint16_t IPV6_VALUES[] = DNS_BLOCKED_IPV6_ADDRESS;
-    static const ipv6_t IPV6_ADDRESS(IPV6_VALUES);
-    if (type == DNS_TYPE_A)
-        address.ipv4 = IPV4_ADDRESS;
-    else
-        address.ipv6 = IPV6_ADDRESS;
-}
-
-
 bool Processor::sendError(
     const dns_message_t &request,
     int rcode,
@@ -331,7 +322,9 @@ void Processor::process(
                     isBlocked = object->blacklist_.match(request.questions[0].qname) != nullptr;
             }
         }
-        Address address, dnsAddress;
+        ipv4_t ipv4;
+        ipv6_t ipv6;
+        std::string dns_name;
         int result = 0;
 
         // if the domain is not blocked, we retrieve the IP address from the cache
@@ -343,13 +336,21 @@ void Processor::process(
                 result = DNSB_STATUS_NXDOMAIN;
             else
             if (request.header.flags & DNS_FLAG_RD)
-                result = object->resolver_->resolve(request.questions[0].qname, request.questions[0].type, dnsAddress, address);
+            {
+                if (request.questions[0].type == ADDR_TYPE_AAAA)
+                    result = object->resolver_->resolve_ipv6(request.questions[0].qname, dns_name, ipv6);
+                else
+                    result = object->resolver_->resolve_ipv4(request.questions[0].qname, dns_name, ipv4);
+            }
             else
                 result = DNSB_STATUS_NXDOMAIN;
         }
         else
         {
-            blockAddress(request.questions[0].type, address);
+            if (request.questions[0].type == ADDR_TYPE_AAAA)
+                ipv6 = IPV6_BLOCK_ADDRESS;
+            else
+                ipv4 = IPV4_BLOCK_ADDRESS;
         }
 
         // print information about the request
@@ -390,7 +391,13 @@ void Processor::process(
         if (status != nullptr)
         {
             std::string addr;
-            if (!isBlocked) addr = address.to_string();
+            if (result == DNSB_STATUS_CACHE || result == DNSB_STATUS_RECURSIVE)
+            {
+                if (request.questions[0].type == ADDR_TYPE_AAAA)
+                    addr = ipv6.to_string();
+                else
+                    addr = ipv4.to_string();
+            }
 
             #ifdef DNS_IPV6_EXPERIMENT
             static const char *FORMAT = "%s%-40s  %s %c  %-8s  %-40s  %s%s\n";
@@ -402,7 +409,7 @@ void Processor::process(
                 endpoint.address.to_string().c_str(),
                 status,
                 (request.questions[0].type == ADDR_TYPE_AAAA) ? '6' : '4',
-                (isHeuristic) ? "*" : dnsAddress.name.c_str(),
+                (isHeuristic) ? "*" : dns_name.c_str(),
                 addr.c_str(),
                 request.questions[0].qname.c_str(),
                 COLOR_RESET);
@@ -435,7 +442,10 @@ void Processor::process(
             answer.type = request.questions[0].type;
             answer.clazz = request.questions[0].clazz;
             answer.ttl = DNS_ANSWER_TTL;
-            answer.rdata = address;
+            if (request.questions[0].type == ADDR_TYPE_AAAA)
+                memcpy(answer.rdata, ipv6.values, 16);
+            else
+                memcpy(answer.rdata, ipv4.values, 4);
             response.answers.push_back(answer);
 
             response.write(bio);
