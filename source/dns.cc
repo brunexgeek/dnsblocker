@@ -499,7 +499,7 @@ void Resolver::set_dns( const std::string &dns, const std::string &name )
     default_dns_ = named_value<ipv4_t>(name, UDP::hostToIPv4(dns));
 }
 
-void Resolver::set_dns( const std::string &rule, const std::string &dns, const std::string &name )
+void Resolver::set_dns( const std::string &dns, const std::string &name, const std::string &rule )
 {
     target_dns_.add(rule, named_value<ipv4_t>(name, UDP::hostToIPv4(dns)));
 }
