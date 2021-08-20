@@ -42,8 +42,9 @@ class Processor
         std::list<Job*> pending_;
         std::mutex mutex_;
         UDP *conn_;
-        Address bindIP_;
-        DNSCache *cache_;
+        ipv4_t bindIP_;
+        Cache *cache_;
+        Resolver *resolver_;
         Configuration config_;
         Tree<uint8_t> blacklist_;
         Tree<uint8_t> whitelist_;
@@ -53,11 +54,11 @@ class Processor
         bool useFiltering_;
 
         static void process( Processor *object, int num, std::mutex *mutex, std::condition_variable *cond );
-        bool sendError(
+        bool send_error(
             const dns_message_t &request,
             int rcode,
             const Endpoint &endpoint );
-        bool loadRules( const std::vector<std::string> &fileNames, Tree<uint8_t> &tree );
+        bool load_rules( const std::vector<std::string> &fileNames, Tree<uint8_t> &tree );
         static std::string realPath( const std::string &path );
 };
 

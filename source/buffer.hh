@@ -12,7 +12,9 @@ struct buffer : public std::vector<uint8_t>
     uint8_t *cursor_;
 
     buffer( size_t size = 1024 );
+    uint8_t readU8();
     uint16_t readU16();
+    void writeU8( uint8_t value );
     void writeU16( uint16_t value );
     uint32_t readU32();
     void writeU32( uint32_t value );

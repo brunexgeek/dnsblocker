@@ -10,7 +10,7 @@
 
 #include <signal.h>
 #include <limits.h>
-#include "defs.hh"
+#include <defs.hh>
 #include "nodes.hh"
 #include "dns.hh"
 #include "socket.hh"
@@ -147,6 +147,7 @@ Configuration main_defaultConfig()
     config.binding.address = "127.0.0.2";
     config.cache.limit = DNS_CACHE_LIMIT;
     config.cache.ttl = DNS_CACHE_TTL;
+    config.use_ipv6 = true;
     return config;
 }
 

@@ -3,17 +3,21 @@
 #include <stdexcept>
 #include <limits.h>
 #include <chrono>
+#include <defs.hh>
 
 #ifdef __WINDOWS__
 #include <Windows.h>
-#define PATH_SEPARATOR '\\'
 #else
 #include <sys/stat.h>
 #include <unistd.h>
-#define PATH_SEPARATOR '/'
 #endif
 
 namespace dnsblocker {
+
+static const uint8_t IPV4_BLOCK_VALUES[] = DNS_BLOCKED_IPV4_ADDRESS;
+static const uint16_t IPV6_BLOCK_VALUES[] = DNS_BLOCKED_IPV6_ADDRESS;
+static const ipv4_t IPV4_BLOCK_ADDRESS(IPV4_BLOCK_VALUES);
+static const ipv6_t IPV6_BLOCK_ADDRESS(IPV6_BLOCK_VALUES);
 
 Processor::Processor( const Configuration &config ) : config_(config), running_(false), useHeuristics_(false),
     useFiltering_(true)
@@ -25,8 +29,7 @@ Processor::Processor( const Configuration &config ) : config_(config), running_(
     }
     useHeuristics_ = config.use_heuristics();
 
-    bindIP_.type = ADDR_TYPE_A;
-    bindIP_.ipv4 = UDP::hostToIPv4(config.binding.address);
+    bindIP_ = UDP::hostToIPv4(config.binding.address);
 	conn_ = new UDP();
 	if (!conn_->bind(config.binding.address, (uint16_t) config.binding.port))
     {
@@ -40,20 +43,21 @@ Processor::Processor( const Configuration &config ) : config_(config), running_(
         throw std::runtime_error("Unable to bind");
     }
 
-    cache_ = new DNSCache(config.cache.limit(), config.cache.ttl);
+    cache_ = new Cache(config.cache.limit(), config.cache.ttl * 1000);
+    resolver_ = new Resolver(*cache_);
     bool found = false;
     for (auto it = config.external_dns.begin(); it != config.external_dns.end(); ++it)
     {
         if (it->targets.empty())
         {
-            cache_->setDefaultDNS(it->address, it->name);
+            resolver_->set_dns(it->address, it->name);
             found = true;
         }
         else
         {
             for (size_t i = 0; i < it->targets.size(); ++i)
             {
-                cache_->addTarget(it->targets[i], it->address, it->name);
+                resolver_->set_dns(it->address, it->name, it->targets[i]);
             }
         }
     }
@@ -63,8 +67,8 @@ Processor::Processor( const Configuration &config ) : config_(config), running_(
         throw std::runtime_error("Missing default external DNS");
     }
 
-    loadRules(config_.blacklist, blacklist_);
-    loadRules(config_.whitelist, whitelist_);
+    load_rules(config_.blacklist, blacklist_);
+    load_rules(config_.whitelist, whitelist_);
 }
 
 
@@ -94,9 +98,7 @@ Job *Processor::pop()
 }
 
 
-bool Processor::loadRules(
-    const std::vector<std::string> &fileNames,
-    Tree<uint8_t> &tree )
+bool Processor::load_rules( const std::vector<std::string> &fileNames, Tree<uint8_t> &tree )
 {
     if (fileNames.empty()) return false;
 
@@ -163,8 +165,8 @@ void Processor::console( const std::string &command )
 {
     if (command == "reload")
     {
-        loadRules(config_.blacklist, blacklist_);
-        loadRules(config_.whitelist, whitelist_);
+        load_rules(config_.blacklist, blacklist_);
+        load_rules(config_.whitelist, whitelist_);
         cache_->reset(); // TODO: we really need this?
     }
     else
@@ -194,25 +196,17 @@ void Processor::console( const std::string &command )
     else
     if (command == "dump")
     {
-        LOG_MESSAGE("\nDumping DNS cache to '%s'\n\n", config_.dump_path_.c_str());
-        cache_->dump(config_.dump_path_);
+        std::ofstream out(config_.dump_path_);
+        if (out.good())
+        {
+            LOG_MESSAGE("\nDumping DNS cache to '%s'\n\n", config_.dump_path_.c_str());
+            cache_->dump(out);
+        }
     }
 }
 #endif
 
-
-static void blockAddress( int type, Address &address )
-{
-    static const uint16_t IPV6_ADDRESS[] = DNS_BLOCKED_IPV6_ADDRESS;
-    address.type = type;
-    if (type == DNS_TYPE_A)
-        address.ipv4 = DNS_BLOCKED_IPV4_ADDRESS;
-    else
-        memcpy(address.ipv6, IPV6_ADDRESS, sizeof(IPV6_ADDRESS));
-}
-
-
-bool Processor::sendError(
+bool Processor::send_error(
     const dns_message_t &request,
     int rcode,
     const Endpoint &endpoint )
@@ -277,15 +271,9 @@ bool Processor::isRandomDomain( std::string name )
     return false;
 }
 
-void Processor::process(
-    Processor *object,
-    int num,
-    std::mutex *mutex,
-    std::condition_variable *cond )
+static void print_request( const std::string &host, const std::string &remote, const std::string &dns_name,
+    int type, const Configuration &config, bool is_blocked, int result, ipv4_t &ipv4, ipv6_t &ipv6, bool is_heuristic )
 {
-    (void) num;
-    std::unique_lock<std::mutex> guard(*mutex);
-
     const char *COLOR_RED = "\033[31m";
     const char *COLOR_YELLOW = "\033[33m";
     const char *COLOR_RESET = "\033[39m";
@@ -299,6 +287,80 @@ void Processor::process(
         COLOR_RESET = "";
     }
 
+    static const char *IPV4_FORMAT = "%s%-15s  %s %c  %-8s  %-15s  %s%s\n";
+    static const char *IPV6_FORMAT = "%s%-40s  %s %c  %-8s  %-40s  %s%s\n";
+    static const char *FORMAT = nullptr;
+    if (config.use_ipv6)
+        FORMAT = IPV6_FORMAT;
+    else
+        FORMAT = IPV4_FORMAT;
+
+    const char *status = nullptr;
+    const char *color = COLOR_RED;
+    int32_t flags = config.monitoring_;
+
+    if (is_blocked && flags & MONITOR_SHOW_DENIED)
+    {
+        status = "DE";
+        color = COLOR_RED;
+    }
+    else
+    if (result == DNSB_STATUS_CACHE && flags & MONITOR_SHOW_CACHE)
+    {
+        status = "CA";
+        color = COLOR_RESET;
+    }
+    else
+    if (result == DNSB_STATUS_RECURSIVE && flags & MONITOR_SHOW_RECURSIVE)
+    {
+        status = "RE";
+        color = COLOR_RESET;
+    }
+    else
+    if (result == DNSB_STATUS_FAILURE && flags & MONITOR_SHOW_FAILURE)
+    {
+        status = "FA";
+        color = COLOR_YELLOW;
+    }
+    else
+    if (result == DNSB_STATUS_NXDOMAIN && flags & MONITOR_SHOW_NXDOMAIN)
+    {
+        status = "NX";
+        color = COLOR_YELLOW;
+    }
+
+    if (status != nullptr)
+    {
+        std::string addr;
+        if (result == DNSB_STATUS_CACHE || result == DNSB_STATUS_RECURSIVE)
+        {
+            if (type == ADDR_TYPE_AAAA)
+                addr = ipv6.to_string();
+            else
+                addr = ipv4.to_string();
+        }
+
+        LOG_TIMED(FORMAT,
+            color,
+            remote.c_str(),
+            status,
+            (type == ADDR_TYPE_AAAA) ? '6' : '4',
+            (is_heuristic) ? "*" : dns_name.c_str(),
+            addr.c_str(),
+            host.c_str(),
+            COLOR_RESET);
+    }
+}
+
+void Processor::process(
+    Processor *object,
+    int num,
+    std::mutex *mutex,
+    std::condition_variable *cond )
+{
+    (void) num;
+    std::unique_lock<std::mutex> guard(*mutex);
+
     while (object->running_)
     {
         Job *job = object->pop();
@@ -310,25 +372,34 @@ void Processor::process(
 
         Endpoint &endpoint = job->endpoint;
         dns_message_t &request = job->request;
+        ipv4_t ipv4;
+        ipv6_t ipv6;
+        std::string dns_name;
+        int result = DNSB_STATUS_FAILURE;
+        bool is_heuristic = false;
+        bool is_blocked = false;
 
         // check whether the domain is blocked
-        bool isHeuristic = false;
-        bool isBlocked = false;
         if (object->useFiltering_)
         {
             if (object->whitelist_.match(request.questions[0].qname) == nullptr)
             {
                 if (object->useHeuristics_)
-                    isBlocked = isHeuristic = isRandomDomain(request.questions[0].qname);
-                if (!isBlocked)
-                    isBlocked = object->blacklist_.match(request.questions[0].qname) != nullptr;
+                    is_blocked = is_heuristic = isRandomDomain(request.questions[0].qname);
+                if (!is_blocked)
+                    is_blocked = object->blacklist_.match(request.questions[0].qname) != nullptr;
             }
         }
-        Address address, dnsAddress;
-        int result = 0;
 
-        // if the domain is not blocked, we retrieve the IP address from the cache
-        if (!isBlocked)
+        // if the domain is blocked, returns an 'invalid' IP address
+        if (is_blocked)
+        {
+            if (request.questions[0].type == ADDR_TYPE_AAAA)
+                ipv6 = IPV6_BLOCK_ADDRESS;
+            else
+                ipv4 = IPV4_BLOCK_ADDRESS;
+        }
+        else
         {
             // assume NXDOMAIN for domains without periods (e.g. local host names)
             // otherwise we try the external DNS
@@ -336,78 +407,27 @@ void Processor::process(
                 result = DNSB_STATUS_NXDOMAIN;
             else
             if (request.header.flags & DNS_FLAG_RD)
-                result = object->cache_->resolve(request.questions[0].qname, request.questions[0].type, dnsAddress, address);
+            {
+                if (request.questions[0].type == ADDR_TYPE_AAAA)
+                    result = object->resolver_->resolve_ipv6(request.questions[0].qname, dns_name, ipv6);
+                else
+                    result = object->resolver_->resolve_ipv4(request.questions[0].qname, dns_name, ipv4);
+            }
             else
                 result = DNSB_STATUS_NXDOMAIN;
         }
-        else
-        {
-            blockAddress(request.questions[0].type, address);
-        }
 
         // print information about the request
-        auto flags = (int32_t) object->config_.monitoring_;
-        const char *status = nullptr;
-        const char *color = COLOR_RED;
+        print_request(request.questions[0].qname, endpoint.address.to_string(), dns_name, request.questions[0].type, object->config_,
+            is_blocked, result, ipv4, ipv6, is_heuristic);
 
-        if (isBlocked && flags & MONITOR_SHOW_DENIED)
-        {
-            status = "DE";
-            color = COLOR_RED;
-        }
-        else
-        if (result == DNSB_STATUS_CACHE && flags & MONITOR_SHOW_CACHE)
-        {
-            status = "CA";
-            color = COLOR_RESET;
-        }
-        else
-        if (result == DNSB_STATUS_RECURSIVE && flags & MONITOR_SHOW_RECURSIVE)
-        {
-            status = "RE";
-            color = COLOR_RESET;
-        }
-        else
-        if (result == DNSB_STATUS_FAILURE && flags & MONITOR_SHOW_FAILURE)
-        {
-            status = "FA";
-            color = COLOR_YELLOW;
-        }
-        else
-        if (result == DNSB_STATUS_NXDOMAIN && flags & MONITOR_SHOW_NXDOMAIN)
-        {
-            status = "NX";
-            color = COLOR_YELLOW;
-        }
-
-        if (status != nullptr)
-        {
-            std::string addr;
-            if (!isBlocked) addr = address.toString(true);
-
-            #ifdef DNS_IPV6_EXPERIMENT
-            static const char *FORMAT = "%s%-40s  %s %c  %-8s  %-40s  %s%s\n";
-            #else
-            static const char *FORMAT = "%s%-15s  %s %c  %-8s  %-15s  %s%s\n";
-            #endif
-            LOG_TIMED(FORMAT,
-                color,
-                endpoint.address.toString().c_str(),
-                status,
-                (request.questions[0].type == ADDR_TYPE_AAAA) ? '6' : '4',
-                (isHeuristic) ? "*" : dnsAddress.name.c_str(),
-                addr.c_str(),
-                request.questions[0].qname.c_str(),
-                COLOR_RESET);
-        }
-
-        // decide whether we have to include an answer
-        if (!isBlocked && result != DNSB_STATUS_CACHE && result != DNSB_STATUS_RECURSIVE)
+        // send the response
+        if (!is_blocked && result != DNSB_STATUS_CACHE && result != DNSB_STATUS_RECURSIVE)
         {
             if (result == DNSB_STATUS_NXDOMAIN)
-                object->sendError(request, DNS_RCODE_NXDOMAIN, endpoint);
+                object->send_error(request, DNS_RCODE_NXDOMAIN, endpoint);
             else
-                object->sendError(request, DNS_RCODE_SERVFAIL, endpoint);
+                object->send_error(request, DNS_RCODE_SERVFAIL, endpoint);
         }
         else
         {
@@ -428,7 +448,10 @@ void Processor::process(
             answer.type = request.questions[0].type;
             answer.clazz = request.questions[0].clazz;
             answer.ttl = DNS_ANSWER_TTL;
-            answer.rdata = address;
+            if (request.questions[0].type == ADDR_TYPE_AAAA)
+                memcpy(answer.rdata, ipv6.values, 16);
+            else
+                memcpy(answer.rdata, ipv4.values, 4);
             response.answers.push_back(answer);
 
             response.write(bio);
@@ -439,13 +462,11 @@ void Processor::process(
     }
 }
 
-
 struct process_unit_t
 {
     std::thread *thread;
     std::mutex mutex;
 };
-
 
 void Processor::run()
 {
@@ -473,18 +494,13 @@ void Processor::run()
         // ignore messages with the number of questions other than 1
         int type = 0;
         if (request.questions.size() == 1) type = request.questions[0].type;
-        #ifdef DNS_IPV6_EXPERIMENT
-        if (type != DNS_TYPE_A && type != DNS_TYPE_AAAA)
-        #else
-        if (type != DNS_TYPE_A)
-        #endif
+        if (type == DNS_TYPE_A || (config_.use_ipv6 && type == DNS_TYPE_AAAA))
         {
-            sendError(request, DNS_RCODE_REFUSED, endpoint);
-            continue;
+            push( new Job(endpoint, request) );
+            cond.notify_all();
         }
-
-        push( new Job(endpoint, request) );
-        cond.notify_all();
+        else
+            send_error(request, DNS_RCODE_REFUSED, endpoint);
     }
 
     for (size_t i = 0; i < NUM_THREADS; ++i)
@@ -494,7 +510,6 @@ void Processor::run()
         delete pool[i].thread;
     }
 }
-
 
 bool Processor::finish()
 {
