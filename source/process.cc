@@ -161,7 +161,7 @@ bool Processor::load_rules( const std::vector<std::string> &fileNames, Tree<uint
 }
 
 #ifdef ENABLE_DNS_CONSOLE
-void Processor::console( const std::string &command )
+bool Processor::console( const std::string &command )
 {
     if (command == "reload")
     {
@@ -170,25 +170,25 @@ void Processor::console( const std::string &command )
         cache_->reset(); // TODO: we really need this?
     }
     else
-    if (command == "ef")
+    if (command == "enable-filter")
     {
         LOG_MESSAGE("\nFiltering enabled!\n");
         useFiltering_ = true;
     }
     else
-    if (command == "df")
+    if (command == "disable-filter")
     {
         LOG_MESSAGE("\nFiltering disabled!\n");
         useFiltering_ = false;
     }
     else
-    if (command == "eh")
+    if (command == "enable-heuristic")
     {
         LOG_MESSAGE("\nHeuristics enabled!\n");
         useHeuristics_ = true;
     }
     else
-    if (command == "dh")
+    if (command == "disable-heuristic")
     {
         LOG_MESSAGE("\nHeuristics disabled!\n");
         useHeuristics_ = false;
@@ -203,6 +203,9 @@ void Processor::console( const std::string &command )
             cache_->dump(out);
         }
     }
+    else
+        return false;
+    return true;
 }
 #endif
 
