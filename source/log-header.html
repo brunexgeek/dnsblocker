@@ -1,0 +1,36 @@
+<html>
+    <head>
+        <title>dnsblocker</title>
+        <style type='text/css'>
+        body {font-family: monospace; }
+        #content { white-space: pre;}
+        p {line-height: 1.4em; margin: 0}
+        red {color: red}
+        button { display: inline-block; padding-right: 2em;}
+        </style>
+    </head>
+    <body>
+        <script type="text/javascript">
+            function call_rest(url)
+            {
+                let xhr = new XMLHttpRequest();
+                xhr.responseType = 'json'
+                xhr.timeout = 2000;
+                xhr.open('GET', url)
+                xhr.onload = function()
+                {
+                    if (xhr.response.status != 'ok')
+                        alert(`ERROR: ${xhr.response.message}`);
+                };
+                xhr.send();
+            }
+        </script>
+
+        <div style='width: 100%'>
+            <button onclick="call_rest('/console/enable-filter')">Enable filter</button>
+            <button onclick="call_rest('/console/disable-filter')">Disable filter</button>
+            <button onclick="call_rest('/console/enable-heuristic')">Enable heuristics</button>
+            <button onclick="call_rest('/console/disable-heuristic')">Disable heuristics</button>
+        </div>
+
+        <div id='content'>

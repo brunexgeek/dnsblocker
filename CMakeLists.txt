@@ -3,7 +3,7 @@ project(dnsblocker)
 cmake_minimum_required(VERSION 2.8)
 
 set(DNSB_MAJOR_VERSION 0)
-set(DNSB_MINOR_VERSION 18)
+set(DNSB_MINOR_VERSION 19)
 set(DNSB_PATCH_VERSION 0)
 
 add_definitions(-DDNSB_VERSION="${DNSB_MAJOR_VERSION}.${DNSB_MINOR_VERSION}.${DNSB_PATCH_VERSION}")
@@ -11,7 +11,7 @@ add_definitions(-DDNSB_VERSION="${DNSB_MAJOR_VERSION}.${DNSB_MINOR_VERSION}.${DN
 set(CMAKE_BUILD_TYPE "Release"  CACHE STRING  "Specify the build type")
 set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release")
 
-set(ENABLE_DNS_CONSOLE true CACHE BOOLEAN "Enable to manage the server using commands in DNS messages")
+set(ENABLE_DNS_CONSOLE TRUE CACHE BOOLEAN "Enable to manage the server using HTTP REST")
 
 if (CMAKE_BUILD_TYPE STREQUAL "")
     message(STATUS "No build type selected, default to 'Release'")
@@ -38,6 +38,10 @@ endif()
 find_package(Threads)
 
 configure_file("source/defs.hh.in" "__include/defs.hh")
+
+include(cmake/bin2h.cmake)
+bin2h(SOURCE_FILE "source/log-header.html" HEADER_FILE "${CMAKE_BINARY_DIR}/__include/html1.hh" VARIABLE_NAME "HTML_HEADER" NULL_TERMINATE)
+bin2h(SOURCE_FILE "source/log-footer.html" HEADER_FILE "${CMAKE_BINARY_DIR}/__include/html2.hh" VARIABLE_NAME "HTML_FOOTER" NULL_TERMINATE)
 
 add_executable(dnsblocker
     "source/socket.cc"

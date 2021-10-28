@@ -5,7 +5,8 @@
 
 #include <string>
 #include <thread>
-#include "socket.hh"
+#include <list>
+#include <mutex>
 
 namespace dnsblocker {
 
@@ -14,7 +15,7 @@ class Processor;
 class Console
 {
     public:
-        Console( const std::string &host, int port, Processor &proc );
+        Console( const std::string &host, int port, Processor &proc, const std::string &log );
         void start();
         void stop();
     private:
@@ -23,7 +24,7 @@ class Console
         Processor &proc_;
         std::thread *thread_;
         bool done_;
-        UDP udp_;
+        std::string log_;
 
         static void thread_proc( Console *instance );
 };

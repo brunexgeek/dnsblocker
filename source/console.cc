@@ -11,6 +11,10 @@
 
 #include "console.hh"
 #include "process.hh"
+#include "html1.hh"
+#include "html2.hh"
+#include <fstream>
+
 
 namespace dnsblocker {
 
@@ -20,9 +24,10 @@ using webster::HttpClient;
 
 struct ConsoleListener : public webster::HttpListener
 {
+    std::string log_;
     Processor &proc_;
 
-    ConsoleListener( Processor &proc ) : proc_(proc) { }
+    ConsoleListener( std::string log, Processor &proc ) : log_(log), proc_(proc) {};
 
     int return_error( webster::Message &response, int status, const std::string &message )
     {
@@ -30,6 +35,49 @@ struct ConsoleListener : public webster::HttpListener
         response << "{\"status\":\"error\",\"message\":\"" << message << "\"}";
         return WBERR_OK;
     }
+
+    int return_ok( webster::Message &response )
+    {
+        response.header.status = 200;
+        response << "{\"status\":\"ok\"}";
+        return WBERR_OK;
+    }
+
+    int return_log( webster::Message &request, webster::Message &response )
+    {
+        (void) request;
+
+        response.header.status = 200;
+        response.header.fields.set(WBFI_CONTENT_TYPE, "text/html");
+
+        std::ifstream input(log_);
+        if (input.good())
+        {
+            response.write((const char*)HTML_HEADER);
+            std::string line;
+            while (input.good())
+            {
+                response.write("<p>");
+                std::getline(input, line);
+                if (line.empty())
+                    response.write("&nbsp;");
+                else
+                {
+                    auto pos = line.find("DE ");
+                    if (pos != std::string::npos)
+                    {
+                        line.replace(pos, 3, "<span class='red'>DE&nbsp;</span>");
+                    }
+                    response.write(line);
+                }
+                response.write("</p>");
+            }
+            response.write((const char*)HTML_FOOTER);
+            return WBERR_OK;
+        }
+        return return_error(response, 404, "Unable to open log file");
+    }
+
 	int operator()( webster::Message &request, webster::Message &response )
 	{
         std::vector<uint8_t> data;
@@ -40,19 +88,22 @@ struct ConsoleListener : public webster::HttpListener
         if (request.header.target.path.find("/console/") == 0)
         {
             auto command = request.header.target.path.substr(9);
+            if (command == "log")
+                return return_log(request, response);
+            else
             if (!proc_.console(command))
                 return return_error(response, 404, "Unable to process command '" + command + "'");
         }
         else
             return return_error(response, 404, "Invalid resource");
 
-        response.write("{\"status\":\"OK\"}");
-		return WBERR_OK;
+        return return_ok(response);
 	}
 };
 
-Console::Console( const std::string &host, int port, Processor &proc ) :
-    host_(host), port_(port), proc_(proc), thread_(nullptr), done_(false)
+Console::Console( const std::string &host, int port, Processor &proc, const std::string &log ) :
+    host_(host), port_(port), proc_(proc), thread_(nullptr), done_(false),
+    log_(log)
 {
 }
 
@@ -61,9 +112,10 @@ void Console::thread_proc( Console *instance )
     Parameters params;
     params.buffer_size = 1024;
 	HttpServer server(params);
-	if (server.start("http://127.0.0.2:53022") == WBERR_OK)
+    std::string url = "http://" + instance->host_ + ":" + std::to_string(instance->port_);
+	if (server.start(url) == WBERR_OK)
 	{
-		ConsoleListener listener(instance->proc_);
+		ConsoleListener listener(instance->log_, instance->proc_);
 		while (!instance->done_)
 		{
 			HttpClient *remote = nullptr;

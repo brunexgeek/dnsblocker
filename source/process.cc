@@ -1,4 +1,5 @@
 #include "process.hh"
+#include "console.hh"
 #include "log.hh"
 #include <stdexcept>
 #include <limits.h>
@@ -19,8 +20,9 @@ static const uint16_t IPV6_BLOCK_VALUES[] = DNS_BLOCKED_IPV6_ADDRESS;
 static const ipv4_t IPV4_BLOCK_ADDRESS(IPV4_BLOCK_VALUES);
 static const ipv6_t IPV6_BLOCK_ADDRESS(IPV6_BLOCK_VALUES);
 
-Processor::Processor( const Configuration &config ) : config_(config), running_(false), useHeuristics_(false),
-    useFiltering_(true)
+Processor::Processor( const Configuration &config, Console *console ) :
+    config_(config), running_(false), useHeuristics_(false), useFiltering_(true),
+    console_(console)
 {
     if (config.binding.port() > 65535)
     {
@@ -275,14 +277,15 @@ bool Processor::isRandomDomain( std::string name )
 }
 
 static void print_request( const std::string &host, const std::string &remote, const std::string &dns_name,
-    int type, const Configuration &config, bool is_blocked, int result, ipv4_t &ipv4, ipv6_t &ipv6, bool is_heuristic )
+    int type, const Configuration &config, bool is_blocked, int result, ipv4_t &ipv4, ipv6_t &ipv6,
+    bool is_heuristic, bool colors )
 {
     const char *COLOR_RED = "\033[31m";
     const char *COLOR_YELLOW = "\033[33m";
     const char *COLOR_RESET = "\033[39m";
 
 #if !defined(_WIN32) && !defined(_WIN64)
-    if (!isatty(STDIN_FILENO))
+    if (!colors)
 #endif
     {
         COLOR_RED = "";
@@ -422,7 +425,7 @@ void Processor::process(
 
         // print information about the request
         print_request(request.questions[0].qname, endpoint.address.to_string(), dns_name, request.questions[0].type, object->config_,
-            is_blocked, result, ipv4, ipv6, is_heuristic);
+            is_blocked, result, ipv4, ipv6, is_heuristic, false);
 
         // send the response
         if (!is_blocked && result != DNSB_STATUS_CACHE && result != DNSB_STATUS_RECURSIVE)

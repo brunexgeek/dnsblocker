@@ -25,11 +25,12 @@ struct Job
     }
 };
 
+class Console;
 
 class Processor
 {
     public:
-        Processor( const Configuration &config );
+        Processor( const Configuration &config, Console *console = nullptr );
         ~Processor();
         void push( Job *job );
         Job *pop();
@@ -52,6 +53,7 @@ class Processor
         bool running_;
         bool useHeuristics_;
         bool useFiltering_;
+        Console *console_;
 
         static void process( Processor *object, int num, std::mutex *mutex, std::condition_variable *cond );
         bool send_error(

@@ -45,20 +45,8 @@ static struct
     Configuration config;
 } context;
 
-/*
-static const char* getType( uint16_t type )
-{
-    switch (type)
-    {
-        case DNS_TYPE_A:     return "A";
-        case DNS_TYPE_NS:    return "NS";
-        case DNS_TYPE_CNAME: return "CNAME";
-        case DNS_TYPE_PTR:   return "PTR";
-        case DNS_TYPE_MX:    return "MX";
-        case DNS_TYPE_TXT:   return "TXT";
-        default:             return "?";
-    }
-}*/
+static const char *CONSOLE_HOST = "127.0.0.2";
+static const int CONSOLE_PORT = 53022;
 
 static std::string main_realPath( const std::string &path )
 {
@@ -180,6 +168,8 @@ static std::string main_basePath( const std::string &path )
 
 void main_prepare()
 {
+    LOG_MESSAGE("\ndnsblocker %s\n\n", DNSB_VERSION);
+
     // extract the base path from the configuration file name
     context.basePath = context.configFileName = main_realPath(context.configFileName);
     if (context.configFileName.empty())
@@ -190,10 +180,13 @@ void main_prepare()
     context.basePath = main_basePath(context.configFileName);
     // change the current path
 	#ifdef __WINDOWS__
-	SetCurrentDirectory(context.basePath.c_str());
+	if (!SetCurrentDirectory(context.basePath.c_str()))
 	#else
-	chdir(context.basePath.c_str());
+	if (chdir(context.basePath.c_str()) != 0)
 	#endif
+    {
+        LOG_MESSAGE("Unable to change the current directory to '%s'\n", context.basePath.c_str());
+    }
 
     context.config = main_defaultConfig();
 
@@ -263,7 +256,6 @@ void main_prepare()
     }
     context.config.monitoring_ = flags;
 
-    LOG_MESSAGE("\ndnsblocker %s\n", DNSB_VERSION);
     LOG_MESSAGE("    Base path: %s\n", context.basePath.c_str());
     LOG_MESSAGE("Configuration: %s\n", context.configFileName.c_str());
     LOG_MESSAGE("    Blacklist: %s\n", context.config.blacklist[0].c_str());
@@ -286,7 +278,7 @@ void main_prepare()
         LOG_MESSAGE("%s ", item.c_str());
     LOG_MESSAGE("\n");
     #ifdef ENABLE_DNS_CONSOLE
-    LOG_MESSAGE("      Console: UDP at %s:%d\n", CONSOLE_IPV4_ADDRESS, CONSOLE_IPV4_PORT);
+    LOG_MESSAGE("      Console: TCP at %s:%d\n", CONSOLE_IPV4_ADDRESS, CONSOLE_IPV4_PORT);
     #endif
     LOG_MESSAGE("\n");
 }
@@ -300,9 +292,6 @@ int main( int argc, char** argv )
     main_parseArguments(argc, argv);
 
     Log::instance = new Log( context.logPath.c_str() );
-
-    LOG_MESSAGE("DNS Blocker %d.%d.%d\n", MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION);
-
     main_prepare();
 
     #ifdef __WINDOWS__
@@ -323,7 +312,7 @@ int main( int argc, char** argv )
 
     context.processor = new Processor(context.config);
     #ifdef ENABLE_DNS_CONSOLE
-    Console console("127.0.0.1", 53000, *context.processor);
+    Console console(CONSOLE_HOST, CONSOLE_PORT, *context.processor, context.logPath);
     console.start();
     #endif
     context.processor->run();
@@ -393,11 +382,19 @@ VOID WINAPI serviceMain( DWORD argc, LPSTR *argv )
 		return;
 	}
 
-	LOG_MESSAGE("DNS Blocker %d.%d.%d (Windows Service)\n", MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION);
+	LOG_MESSAGE("dnsblocker %d.%d.%d (Windows Service)\n", MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION);
 
 	main_prepare();
 	context.processor = new Processor(context.config);
+
+    #ifdef ENABLE_DNS_CONSOLE
+    Console console(CONSOLE_HOST, CONSOLE_PORT, *context.processor);
+    console.start();
+    #endif
     context.processor->run();
+    #ifdef ENABLE_DNS_CONSOLE
+    console.stop();
+    #endif
 
     LOG_MESSAGE("\nTerminated\n");
     delete Log::instance;
@@ -416,8 +413,9 @@ int main(int argc, char **argv)
 	main_parseArguments(argc, argv);
 	Log::instance = new Log( context.logPath.c_str() );
 
+    LOG_MESSAGE("Windows service arguments:\n", i, argv[i]);
 	for (int i = 0; i < argc; ++i)
-		LOG_MESSAGE("argv[%d] = %s\n", i, argv[i]);
+		LOG_MESSAGE("   argv[%d] = %s\n", i, argv[i]);
 
 	SERVICE_TABLE_ENTRYA table[] =
     {
