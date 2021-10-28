@@ -2,15 +2,15 @@
 
 #ifdef ENABLE_DNS_CONSOLE
 
-#ifdef WB_WINDOWS
-#include <windows.h>
-#else
-#include <linux/limits.h>
+#ifdef WIN32_
+#include <WinSock2.h>
+#include <WS2tcpip.h>
 #endif
+
+#include "webster.hh"
 
 #include "console.hh"
 #include "process.hh"
-#include "webster.hh"
 
 namespace dnsblocker {
 

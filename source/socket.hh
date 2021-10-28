@@ -53,6 +53,7 @@ struct Endpoint
 	Endpoint( const Endpoint &that );
 	Endpoint( const ipv4_t &ipv4, uint16_t port );
 	Endpoint( const std::string &ipv4, uint16_t port );
+	Endpoint &operator=( const Endpoint &that ) = default;
 };
 
 class UDP

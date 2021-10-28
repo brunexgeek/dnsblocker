@@ -21,14 +21,31 @@
 #ifndef WEBSTER_STREAM_HH
 #define WEBSTER_STREAM_HH
 
+
 #include "webster.hh"
+
+#ifdef WB_WINDOWS
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+typedef SSIZE_T ssize_t;
+#else
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <unistd.h>
+#include <poll.h>
+#include <fcntl.h>
+#endif
+
+#undef min
 
 namespace webster {
 
 enum LineEnding
 {
-	WBLE_EVENT, 
-	WBLE_HTTP   
+	WBLE_EVENT,
+	WBLE_HTTP
 };
 
 enum class StreamType
@@ -59,12 +76,12 @@ class DataStream
 		Client &client_;
 		uint8_t *data_;
 		StreamType type_;
-		int count_; 
+		int count_;
 };
 
-} 
+}
 
-#endif 
+#endif
 
 
 #ifndef WEBSTER_HTTP_HH
@@ -77,9 +94,9 @@ namespace webster {
 WEBSTER_PRIVATE const char *http_method( int value );
 WEBSTER_PRIVATE const char *http_status_message( int status );
 
-} 
+}
 
-#endif 
+#endif
 
 
 #ifndef WEBSTER_HTTP1_HH
@@ -125,10 +142,10 @@ class MessageImpl : public Message
         State state_;
         struct
         {
-            
+
             int expected;
 
-            
+
             int chunks;
 
             int flags;
@@ -147,10 +164,10 @@ class MessageImpl : public Message
         int discard();
 };
 
-} 
-} 
+}
+}
 
-#endif 
+#endif
 
 
 #ifndef WEBSTER_NETWORK_HH
@@ -201,9 +218,9 @@ class Server
         Target target_;
 };
 
-} 
+}
 
-#endif 
+#endif
 
 #if !defined(WEBSTER_NO_DEFAULT_NETWORK) && !defined(WEBSTER_SOCKET_HH)
 #define WEBSTER_SOCKET_HH
@@ -229,9 +246,9 @@ class SocketNetwork : public Network
         int set_reusable( Channel *channel );
 };
 
-} 
+}
 
-#endif 
+#endif
 
 
 #include <cstring>
@@ -266,7 +283,7 @@ int DataStream::write( const uint8_t *buffer, int size )
 	auto &params = client_.get_parameters();
 	int result = WBERR_OK;
 
-	
+
 	int fit = params.buffer_size - count_;
 	if (size >= fit)
 	{
@@ -279,7 +296,7 @@ int DataStream::write( const uint8_t *buffer, int size )
 			size -= params.buffer_size;
 		}
 	}
-	
+
 	if (size > 0)
 	{
 		memcpy(data_ + count_, buffer, (size_t) size);
@@ -309,13 +326,13 @@ int DataStream::read( uint8_t *buffer, int size )
 	if (type_ != StreamType::INBOUND)
 		return WBERR_READ_ONLY;
 
-	
+
 	if (count_ > 0)
 	{
 		int fit = std::min(count_, size);
 		memcpy(buffer, data_, fit);
 		count_ -= fit;
-		
+
 		if (count_ > 0)
 			memmove(data_, data_ + fit, count_);
 		return fit;
@@ -339,7 +356,7 @@ int DataStream::read_line( char *buffer, int size )
 
 	do
 	{
-		
+
 		if (count_ > 0)
 		{
 			data_[count_] = 0;
@@ -348,17 +365,17 @@ int DataStream::read_line( char *buffer, int size )
 			{
 				int len = (int) (p - data_);
 				if (len > size - 1) return WBERR_TOO_LONG;
-				
+
 				memcpy(buffer, data_, len);
 				buffer[len] = 0;
 				count_ -= len + 2;
-				
+
 				memmove(data_, p + 2, count_);
 				data_[count_] = 0;
 				return WBERR_OK;
 			}
 		}
-		
+
 		if (count_ < params.buffer_size)
 		{
 			int bytes = (int) (params.buffer_size - count_) - 1;
@@ -378,7 +395,7 @@ int DataStream::read_line( char *buffer, int size )
 
 int DataStream::flush()
 {
-	
+
 	if (type_ == StreamType::OUTBOUND && count_ > 0)
 	{
 		auto &params = client_.get_parameters();
@@ -399,7 +416,7 @@ const Client &DataStream::get_client()
 	return client_;
 }
 
-} 
+}
 
 
 #include "webster.hh"
@@ -858,7 +875,7 @@ const Target &HttpServer::get_target() const
     return server_->get_target();
 }
 
-} 
+}
 
 
 
@@ -893,10 +910,10 @@ namespace http_v1 {
 
 static char *http_trim( char *text )
 {
-    
+
     while (*text == ' ') ++text;
     if (*text == 0) return text;
-    
+
     for (char *p = text + strlen(text) - 1; p >= text && *p == ' '; --p) *p = 0;
     return text;
 }
@@ -910,7 +927,7 @@ int MessageImpl::parse_first_line( const char *data )
 	{
 		if (!IS_RESPONSE(flags_)) return WBERR_INVALID_HTTP_MESSAGE;
 
-		
+
 		ptr += 8;
 		header.status = (int) strtol(ptr, (char**) &ptr, 10);
 	}
@@ -918,7 +935,7 @@ int MessageImpl::parse_first_line( const char *data )
 	{
 		if (!IS_REQUEST(flags_)) return WBERR_INVALID_HTTP_MESSAGE;
 
-		
+
 		if (strncmp(ptr, "GET", 3) == 0)
 			header.method = WBM_GET;
 		else
@@ -951,7 +968,7 @@ int MessageImpl::parse_first_line( const char *data )
 		if (*ptr != ' ') return WBERR_INVALID_HTTP_MESSAGE;
 		while (*ptr == ' ') ++ptr;
 
-		
+
 		std::string url;
 		while (*ptr != ' ' && *ptr != 0)
 		{
@@ -961,7 +978,7 @@ int MessageImpl::parse_first_line( const char *data )
 		result = Target::parse(url.c_str(), header.target);
 		if (result != WBERR_OK) return result;
 
-		
+
 		while (*ptr == ' ') ++ptr;
 		if (strncmp(ptr, "HTTP/1.1", 8) != 0) return WBERR_INVALID_HTTP_VERSION;
 	}
@@ -993,15 +1010,15 @@ int MessageImpl::parse_header_field( char *data )
 {
 	char *ptr = data;
 
-	
+
 	char *name = ptr;
 	for (; IS_HFNC(*ptr); ++ptr);
 	if (*ptr != ':') return WBERR_INVALID_HTTP_FIELD;
 	*ptr++ = 0;
-	
+
 	char *value = ptr;
 
-	
+
 	value = http_trim(value);
 	header.fields.set(name, value);
 	if (::webster::strcmpi(name, "Content-Length") == 0 && (body_.flags & WBMF_CHUNKED) == 0)
@@ -1040,8 +1057,8 @@ int MessageImpl::receive_header()
 	if (buffer_ == nullptr)
 		return WBERR_MEMORY_EXHAUSTED;
 
-	
-	
+
+
 
 	int timeout = stream_.get_parameters().read_timeout;
 	int size = stream_.get_parameters().buffer_size;
@@ -1074,14 +1091,14 @@ int MessageImpl::chunk_size()
 {
 	int size = stream_.get_parameters().buffer_size;
 	char *ptr = nullptr;
-	
+
 	if (body_.chunks > 0)
 	{
 		int result = stream_.read_line(buffer_, size);
 		if (result != WBERR_OK) return result;
 		if (*buffer_ != 0) return WBERR_INVALID_CHUNK;
 	}
-	
+
 	int result = stream_.read_line(buffer_, size);
 	if (result != WBERR_OK) return result;
 	auto count = strtol(buffer_, &ptr, 16);
@@ -1095,7 +1112,7 @@ int MessageImpl::chunk_size()
 
 int MessageImpl::read( uint8_t *buffer, int size )
 {
-	
+
 	int result = ready();
 	if (result != WBERR_OK)
 		return result;
@@ -1105,7 +1122,7 @@ int MessageImpl::read( uint8_t *buffer, int size )
 	if (buffer == nullptr || size <= 0)
 		return WBERR_INVALID_ARGUMENT;
 
-	
+
 	if (body_.expected == 0)
 	{
 		if (body_.flags & WBMF_CHUNKED)
@@ -1208,16 +1225,16 @@ int MessageImpl::ready()
 
 int MessageImpl::discard()
 {
-	
+
 	if (IS_OUTBOUND(flags_)) return WBERR_OK;
-	
+
 	int result = ready();
 	if (result != WBERR_OK) return result;
 	return WBERR_OK;
 
-	
 
-	
+
+
 	int size = stream_.get_parameters().buffer_size;
 	while ((result = read((uint8_t*)buffer_, size)) >= 0);
 	if (result == WBERR_COMPLETE) return WBERR_OK;
@@ -1289,17 +1306,17 @@ int MessageImpl::write_header()
 {
 	if (state_ != WBS_IDLE) return WBERR_INVALID_STATE;
 
-	
+
 	if (IS_RESPONSE(flags_))
 		write_status_line();
 	else
 		write_resource_line();
 
-	
+
 	if (header.fields.count(WBFI_CONTENT_LENGTH) == 0)
 	{
 		body_.flags |= WBMF_CHUNKED;
-		
+
 		header.fields.set(WBFI_TRANSFER_ENCODING, "chunked");
 	}
 	if (IS_REQUEST(flags_) && header.fields.count(WBFI_HOST) == 0)
@@ -1325,7 +1342,7 @@ int MessageImpl::write_header()
 
 int MessageImpl::write( const uint8_t *buffer, int size )
 {
-	
+
 	int result = ready();
 	if (result != WBERR_OK)
 		return result;
@@ -1335,7 +1352,7 @@ int MessageImpl::write( const uint8_t *buffer, int size )
 
 	if (body_.flags && WBMF_CHUNKED)
 	{
-		
+
 		char temp[16];
 		SNPRINTF(temp, sizeof(temp)-1, "%X\r\n", size);
 		temp[15] = 0;
@@ -1367,13 +1384,13 @@ int MessageImpl::write( const std::string &buffer )
 int MessageImpl::flush()
 {
 	if (IS_INBOUND(flags_ )) return WBERR_OK;
-	
+
 	if (state_ == WBS_IDLE)
 	{
 		int result = ready();
 		if (result != WBERR_OK) return result;
 	}
-	
+
 	return stream_.flush();
 }
 
@@ -1385,13 +1402,13 @@ int MessageImpl::finish()
 		return discard();
 	int result;
 
-	
+
 	if (state_ == WBS_IDLE)
 	{
 		result = ready();
 		if (result != WBERR_OK) return result;
 	}
-	
+
 	if (body_.flags & WBMF_CHUNKED)
 	{
 		result = stream_.write((const uint8_t*) "0\r\n\r\n", 5);
@@ -1400,14 +1417,14 @@ int MessageImpl::finish()
 	result = stream_.flush();
 	if (result != WBERR_OK) return result;
 
-	
+
 	state_ = WBS_COMPLETE;
 
 	return WBERR_OK;
 }
 
-} 
-} 
+}
+}
 
 
 
@@ -1510,11 +1527,11 @@ int Target::parse( const char *url, Target &target )
 {
     if (url == nullptr || url[0] == 0) return WBERR_INVALID_TARGET;
 
-    
+
     if (url[0] == '*' && url[1] == 0)
         target.type = WBRT_ASTERISK;
     else
-    
+
     if (url[0] == '/')
     {
         target.type = WBRT_ORIGIN;
@@ -1537,7 +1554,7 @@ int Target::parse( const char *url, Target &target )
         target.query = Target::decode(target.query);
     }
     else
-    
+
     if (tolower(url[0]) == 'h' &&
 		tolower(url[1]) == 't' &&
 		tolower(url[2]) == 't' &&
@@ -1546,7 +1563,7 @@ int Target::parse( const char *url, Target &target )
 	{
         target.type = WBRT_ABSOLUTE;
 
-		
+
 		const char *hb = strstr(url, "://");
 		if (hb == nullptr) return WBERR_INVALID_TARGET;
 		hb += 3;
@@ -1557,7 +1574,7 @@ int Target::parse( const char *url, Target &target )
 		const char *rb = he;
 		const char *re = nullptr;
 
-		
+
 		const char *pb = he;
 		const char *pe = nullptr;
 		if (*pb == ':')
@@ -1568,7 +1585,7 @@ int Target::parse( const char *url, Target &target )
 			rb = pe;
 		}
 
-		
+
 		if (*rb == '/')
 		{
 			re = rb;
@@ -1576,13 +1593,13 @@ int Target::parse( const char *url, Target &target )
 		}
 		if (re != nullptr && *re != 0) return WBERR_INVALID_TARGET;
 
-		
+
 		if (url[4] == ':')
 			target.scheme = WBS_HTTP;
 		else
 			target.scheme = WBS_HTTPS;
 
-		
+
 		if (pe != nullptr)
 		{
 			target.port = 0;
@@ -1603,10 +1620,10 @@ int Target::parse( const char *url, Target &target )
 				target.port = 443;
 		}
 
-		
+
         target.host = string_cut(hb, 0, (size_t) (he - hb));
 
-		
+
 		if (re != nullptr)
 			target.path = string_cut(rb, 0, (size_t) (re - rb));
 		else
@@ -1616,7 +1633,7 @@ int Target::parse( const char *url, Target &target )
         target.query = Target::decode(target.query);
 	}
     else
-    
+
     {
         target.type = WBRT_AUTHORITY;
 
@@ -1827,12 +1844,12 @@ Client::~Client()
 int Client::connect( const Target &target )
 {
 	if (channel_) return WBERR_ALREADY_CONNECTED;
-	if (type_ == WBCT_REMOTE) return WBERR_NOT_IMPLEMENTED; 
+	if (type_ == WBCT_REMOTE) return WBERR_NOT_IMPLEMENTED;
 	#ifdef WEBSTER_NO_DEFAULT_NETWORK
 	if (!params_.network) return WBERR_INVALID_ARGUMENT;
 	#endif
 
-	
+
 	int result = params_.network->open(&this->channel_, Network::CLIENT);
 	if (result != WBERR_OK) return result;
 	result = params_.network->connect(this->channel_, target.scheme, target.host.c_str(), target.port,
@@ -1881,25 +1898,13 @@ int Client::disconnect()
 	return WBERR_OK;
 }
 
-} 
+}
 
 #ifndef WEBSTER_NO_DEFAULT_NETWORK
 
 
 
-#ifdef WB_WINDOWS
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#pragma comment(lib, "ws2_32.lib")
-typedef SSIZE_T ssize_t;
-#else
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <unistd.h>
-#include <poll.h>
-#include <fcntl.h>
-#endif
+
 
 #include <string.h>
 #include <errno.h>
@@ -2004,7 +2009,7 @@ static addrinfo* resolve( const char *host )
 {
 	if (host == nullptr || *host == 0) host = "127.0.0.1";
 
-    
+
 	struct addrinfo aiHints, *aiInfo;
     memset(&aiHints, 0, sizeof(aiHints));
 	aiHints.ai_family = AF_INET;
@@ -2012,7 +2017,7 @@ static addrinfo* resolve( const char *host )
 	aiHints.ai_protocol = IPPROTO_TCP;
 	int result = getaddrinfo(host, nullptr, &aiHints, &aiInfo);
 	if (result != 0) return nullptr;
-    
+
     return aiInfo;
 }
 
@@ -2076,7 +2081,7 @@ int SocketNetwork::open( Channel **channel, Type type )
 
 	if (type == Network::SERVER)
 	{
-		
+
 		set_reusable(chann);
 	}
 
@@ -2174,7 +2179,7 @@ int SocketNetwork::send( Channel *channel, const uint8_t *buffer, int size, int 
 
 	#ifdef WB_WINDOWS
 	int flags = 0;
-	int sent = 0
+	int sent = 0;
 	int pending = size;
 	int bytes = 0;
 	#else
@@ -2227,7 +2232,7 @@ int SocketNetwork::accept( Channel *channel, Channel **client, int timeout )
 
 	SocketChannel *chann = (SocketChannel*) channel;
 
-	
+
 	chann->poll.events = POLLIN;
 	int result = webster::poll(chann->poll, timeout, false);
 	if (result != WBERR_OK) return result;
@@ -2255,9 +2260,9 @@ int SocketNetwork::accept( Channel *channel, Channel **client, int timeout )
 	((SocketChannel*)*client)->poll.fd = socket;
 	((SocketChannel*)*client)->poll.events = POLLIN;
 
-	
+
 	set_reusable(chann);
-	
+
 	result = set_non_blocking(chann);
 	if (result == WBERR_OK) return result;
 
@@ -2285,14 +2290,14 @@ int SocketNetwork::listen( Channel *channel, const char *host, int port, int max
 	if (::bind(chann->socket, (const struct sockaddr*) &address, sizeof(struct sockaddr_in)) != 0)
 		return translate_error();
 
-	
+
 	if ( ::listen(chann->socket, maxClients) != 0 )
 		return translate_error();
 
 	return WBERR_OK;
 }
 
-} 
+}
 
-#endif 
+#endif
 
