@@ -27,10 +27,12 @@
         </script>
 
         <div style='width: 100%'>
-            <button onclick="call_rest('/console/enable-filter')">Enable filter</button>
-            <button onclick="call_rest('/console/disable-filter')">Disable filter</button>
-            <button onclick="call_rest('/console/enable-heuristic')">Enable heuristics</button>
-            <button onclick="call_rest('/console/disable-heuristic')">Disable heuristics</button>
+            <button onclick="call_rest('/console/filter/on')">Enable filter</button>
+            <button onclick="call_rest('/console/filter/off')">Disable filter</button>
+            <button onclick="call_rest('/console/heuristic/on')">Enable heuristics</button>
+            <button onclick="call_rest('/console/heuristic/off')">Disable heuristics</button>
+            <button onclick="call_rest('/console/reload')">Reload rules</button>
+            <button onclick="call_rest('/console/forget')">Clear cache</button>
         </div>
 
         <div id='content'>

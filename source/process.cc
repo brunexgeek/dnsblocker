@@ -172,27 +172,33 @@ bool Processor::console( const std::string &command )
         cache_->reset(); // TODO: we really need this?
     }
     else
-    if (command == "enable-filter")
+    if (command == "forget")
     {
-        LOG_MESSAGE("\nFiltering enabled!\n");
+        cache_->reset();
+        LOG_MESSAGE("\nCONSOLE: Cache reset\n");
+    }
+    else
+    if (command == "filter/on")
+    {
+        LOG_MESSAGE("\nCONSOLE: Filtering enabled\n");
         useFiltering_ = true;
     }
     else
-    if (command == "disable-filter")
+    if (command == "filter/off")
     {
-        LOG_MESSAGE("\nFiltering disabled!\n");
+        LOG_MESSAGE("\nCONSOLE: Filtering disabled\n");
         useFiltering_ = false;
     }
     else
-    if (command == "enable-heuristic")
+    if (command == "heuristic/on")
     {
-        LOG_MESSAGE("\nHeuristics enabled!\n");
+        LOG_MESSAGE("\nCONSOLE: Heuristics enabled\n");
         useHeuristics_ = true;
     }
     else
-    if (command == "disable-heuristic")
+    if (command == "heuristic/off")
     {
-        LOG_MESSAGE("\nHeuristics disabled!\n");
+        LOG_MESSAGE("\nCONSOLE: Heuristics disabled\n");
         useHeuristics_ = false;
     }
     else
