@@ -71,20 +71,43 @@ struct ConsoleListener : public webster::HttpListener
             std::string line;
             while (input.good())
             {
-                response.write("<p>");
+                std::string css;
                 std::getline(input, line);
                 if (line.empty())
-                    response.write("&nbsp;");
+                    response.write("<p>&nbsp;</p>");
+                else
+                if (line.length() >= 3 && isdigit(line[0]) && isdigit(line[1]) && line[2] == ':')
+                {
+                    // set the line color
+                    if (line.find("DE ") != std::string::npos)
+                        response.write("<p class='de'>");
+                    else
+                    if (line.find("NX ") != std::string::npos)
+                        response.write("<p class='nx'>");
+                    else
+                    if (line.find("FA ") != std::string::npos)
+                        response.write("<p class='fa'>");
+                    else
+                        response.write("<p>");
+                    // extract the domain name
+                    auto pos = line.rfind(' ');
+                    auto name = line.substr(pos+1);
+                    line.erase(pos+1);
+                    // write the line
+                    response.write(line);
+                    // write the domain name as hyperlink
+                    response.write("<a target='_blank' href='http://");
+                    response.write(name);
+                    response.write("'>");
+                    response.write(name);
+                    response.write("</a></p>");
+                }
                 else
                 {
-                    auto pos = line.find("DE ");
-                    if (pos != std::string::npos)
-                    {
-                        line.replace(pos, 3, "<span class='red'>DE&nbsp;</span>");
-                    }
+                    response.write("<p>");
                     response.write(line);
+                    response.write("</p>");
                 }
-                response.write("</p>");
             }
             response.write((const char*)HTML_FOOTER);
             return WBERR_OK;

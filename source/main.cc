@@ -273,7 +273,7 @@ void main_prepare()
         LOG_MESSAGE("%s ", item.c_str());
     LOG_MESSAGE("\n");
     #ifdef ENABLE_DNS_CONSOLE
-    LOG_MESSAGE("      Console: TCP at %s:%d\n", CONSOLE_IPV4_ADDRESS, CONSOLE_IPV4_PORT);
+    LOG_MESSAGE("      Console: http://%s:%d\n", CONSOLE_IPV4_ADDRESS, CONSOLE_IPV4_PORT);
     #endif
     LOG_MESSAGE("\n");
 }
