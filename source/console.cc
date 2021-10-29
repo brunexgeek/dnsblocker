@@ -63,6 +63,7 @@ struct ConsoleListener : public webster::HttpListener
 
         response.header.status = 200;
         response.header.fields.set(WBFI_CONTENT_TYPE, "text/html");
+        response.header.fields.set("X-DNS-Prefetch-Control", "off");
 
         std::ifstream input(log_);
         if (input.good())
@@ -100,13 +101,13 @@ struct ConsoleListener : public webster::HttpListener
                     response.write(name);
                     response.write("'>");
                     response.write(name);
-                    response.write("</a></p>");
+                    response.write("</a></p>\n");
                 }
                 else
                 {
                     response.write("<p>");
                     response.write(line);
-                    response.write("</p>");
+                    response.write("</p>\n");
                 }
             }
             response.write((const char*)HTML_FOOTER);
