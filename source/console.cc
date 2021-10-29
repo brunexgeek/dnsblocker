@@ -32,6 +32,7 @@ struct ConsoleListener : public webster::HttpListener
     int return_error( webster::Message &response, int status, const std::string &message )
     {
         response.header.status = status;
+        response.header.fields.set(WBFI_CONTENT_TYPE, "application/json");
         response << "{\"status\":\"error\",\"message\":\"" << message << "\"}";
         return WBERR_OK;
     }
@@ -39,7 +40,20 @@ struct ConsoleListener : public webster::HttpListener
     int return_ok( webster::Message &response )
     {
         response.header.status = 200;
+        response.header.fields.set(WBFI_CONTENT_TYPE, "application/json");
         response << "{\"status\":\"ok\"}";
+        return WBERR_OK;
+    }
+
+    int return_cache( webster::Message &response )
+    {
+        response.header.status = 200;
+        response.header.fields.set(WBFI_CONTENT_TYPE, "application/json");
+
+        std::stringstream ss;
+        proc_.cache_->dump(ss);
+        response.write(ss.str());
+
         return WBERR_OK;
     }
 
@@ -91,6 +105,9 @@ struct ConsoleListener : public webster::HttpListener
             if (command == "log")
                 return return_log(request, response);
             else
+            if (command == "cache")
+                return return_cache(response);
+            else
             if (!proc_.console(command))
                 return return_error(response, 404, "Unable to process command '" + command + "'");
         }
@@ -134,8 +151,10 @@ void Console::thread_proc( Console *instance )
 			if (result != WBERR_TIMEOUT)
 				break;
 		}
+        server.stop();
 	}
-	server.stop();
+    else
+        LOG_MESSAGE("Unable to star console at %s\n", url.c_str());
 }
 
 void Console::start()

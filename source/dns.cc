@@ -473,14 +473,27 @@ int Resolver::resolve_ipv6( const std::string &host, std::string &name, ipv6_t &
 void Cache::dump( std::ostream &out )
 {
     std::shared_lock<std::shared_mutex> raii(lock_);
+    bool first = true;
 
+    out << '[';
     for (auto &it : cache_)
     {
+        if (!first) out << ',';
+
         if (!it.second.ipv4.empty())
-            out << std::setw(46) << it.second.ipv4.to_string() << it.first << std::endl;
+        {
+            out << "{\"ver\":\"4\",\"addr\":\"" << it.second.ipv4.to_string() << "\",\"name\":\"" << it.first << "\"}";
+        }
+
         if (!it.second.ipv6.empty())
-            out << std::setw(46) << it.second.ipv6.to_string() << it.first << std::endl;
+        {
+            if (!it.second.ipv4.empty()) out << ',';
+            out << "{\"ver\":\"6\",\"addr\":\"" << it.second.ipv6.to_string() << "\",\"name\":\"" << it.first << "\"}";
+        }
+
+        first = false;
     }
+    out << ']';
 }
 
 /*

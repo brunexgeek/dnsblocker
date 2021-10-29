@@ -45,9 +45,6 @@ static struct
     Configuration config;
 } context;
 
-static const char *CONSOLE_HOST = "127.0.0.2";
-static const int CONSOLE_PORT = 53022;
-
 static std::string main_realPath( const std::string &path )
 {
 	if (path.empty()) return "";
@@ -117,16 +114,11 @@ void main_parseArguments(
         context.logPath = main_realPath(argv[2]);
 		context.logPath += PATH_SEPARATOR;
         context.logPath += LOG_FILENAME;
-
-        context.dumpPath = main_realPath(argv[2]);
-        context.dumpPath += PATH_SEPARATOR;
-        context.dumpPath += LOG_CACHE_DUMP;
     }
 
     if (context.configFileName.empty())
         main_error("missing configuration file");
 }
-
 
 Configuration main_defaultConfig()
 {
@@ -315,7 +307,7 @@ int main( int argc, char** argv )
 
     context.processor = new Processor(context.config);
     #ifdef ENABLE_DNS_CONSOLE
-    Console console(CONSOLE_HOST, CONSOLE_PORT, *context.processor, context.logPath);
+    Console console(CONSOLE_IPV4_ADDRESS, CONSOLE_IPV4_PORT, *context.processor, context.logPath);
     console.start();
     #endif
     context.processor->run(context.config.threads);
@@ -391,7 +383,7 @@ VOID WINAPI serviceMain( DWORD argc, LPSTR *argv )
 	context.processor = new Processor(context.config);
 
     #ifdef ENABLE_DNS_CONSOLE
-    Console console(CONSOLE_HOST, CONSOLE_PORT, *context.processor);
+    Console console(CONSOLE_IPV4_ADDRESS, CONSOLE_IPV4_PORT, *context.processor);
     console.start();
     #endif
     context.processor->run();

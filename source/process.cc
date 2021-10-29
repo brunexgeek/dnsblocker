@@ -196,16 +196,6 @@ bool Processor::console( const std::string &command )
         useHeuristics_ = false;
     }
     else
-    if (command == "dump")
-    {
-        std::ofstream out(config_.dump_path_);
-        if (out.good())
-        {
-            LOG_MESSAGE("\nDumping DNS cache to '%s'\n\n", config_.dump_path_.c_str());
-            cache_->dump(out);
-        }
-    }
-    else
         return false;
     return true;
 }

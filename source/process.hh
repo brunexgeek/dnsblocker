@@ -26,6 +26,7 @@ struct Job
 };
 
 class Console;
+struct ConsoleListener;
 
 class Processor
 {
@@ -62,6 +63,8 @@ class Processor
             const Endpoint &endpoint );
         bool load_rules( const std::vector<std::string> &fileNames, Tree<uint8_t> &tree );
         static std::string realPath( const std::string &path );
+
+        friend struct ConsoleListener;
 };
 
 }

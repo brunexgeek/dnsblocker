@@ -27,7 +27,6 @@
 #define DNS_BUFFER_SIZE               1024 // bytes
 
 #define LOG_FILENAME                  "dnsblocker.log"
-#define LOG_CACHE_DUMP                "dnsblocker.cache"
 
 #define MONITOR_SHOW_RECURSIVE   0x01
 #define MONITOR_SHOW_CACHE       0x02
