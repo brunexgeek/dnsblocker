@@ -474,16 +474,18 @@ struct process_unit_t
     std::mutex mutex;
 };
 
-void Processor::run()
+void Processor::run(int nthreads)
 {
     std::string lastName;
     Endpoint endpoint;
-    process_unit_t pool[NUM_THREADS];
+    std::vector<process_unit_t> pool(nthreads);
     std::condition_variable cond;
 
     running_ = true;
-    for (int i = 0; i < NUM_THREADS; ++i)
+    for (int i = 0; i < nthreads; ++i)
         pool[i].thread = new std::thread(process, this, i + 1, &pool[i].mutex, &cond);
+
+    LOG_MESSAGE("Spawning %d threads to handle requests\n", nthreads);
 
     while (running_)
     {
@@ -509,7 +511,7 @@ void Processor::run()
             send_error(request, DNS_RCODE_REFUSED, endpoint);
     }
 
-    for (size_t i = 0; i < NUM_THREADS; ++i)
+    for (int i = 0; i < nthreads; ++i)
     {
         cond.notify_all();
         pool[i].thread->join();

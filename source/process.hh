@@ -34,7 +34,7 @@ class Processor
         ~Processor();
         void push( Job *job );
         Job *pop();
-        void run();
+        void run( int nthreads );
         bool finish();
         static bool isRandomDomain( std::string name );
         bool console( const std::string &command );

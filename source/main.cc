@@ -136,6 +136,7 @@ Configuration main_defaultConfig()
     config.cache.limit = DNS_CACHE_LIMIT;
     config.cache.ttl = DNS_CACHE_TTL;
     config.use_ipv6 = true;
+    config.threads = 2;
     return config;
 }
 
@@ -205,6 +206,8 @@ void main_prepare()
     context.config.dump_path_ = context.dumpPath;
     if (context.config.cache.limit <= 0) context.config.cache.limit = DNS_CACHE_LIMIT;
     if (context.config.cache.limit <= 0) context.config.cache.ttl = DNS_CACHE_TTL;
+    if (context.config.threads <= 0) context.config.threads = 1;
+    if (context.config.threads > 32) context.config.threads = 32;
 
     // get the absolute path of the input file
     for (auto it = context.config.blacklist.begin(); it != context.config.blacklist.end();)
@@ -315,7 +318,7 @@ int main( int argc, char** argv )
     Console console(CONSOLE_HOST, CONSOLE_PORT, *context.processor, context.logPath);
     console.start();
     #endif
-    context.processor->run();
+    context.processor->run(context.config.threads);
     #ifdef ENABLE_DNS_CONSOLE
     console.stop();
     #endif

@@ -43,6 +43,8 @@ To configure `dnsblocker` you use pairs of key-value stored in a JSON file.
 * **cache** &ndash; Cache configuration.
   * **ttl** &ndash; TTL (time to live) in seconds for DNS responses. The default value is 10 minutes (600 seconds).
   * **limit** &ndash; Maximum number of entries in the cache. The default value is 1000.
+* **use_ipv6** &ndash; Enable support for IPv6 queries.
+* **threads** &ndash; Especify the amount of threads the program should spawn to handle requests. The default value is 2.
 
 ```json
 {
