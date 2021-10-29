@@ -11,8 +11,11 @@
         button { display: inline-block; padding-right: 2em;}
         </style>
         <meta http-equiv="x-dns-prefetch-control" content="off">
+        <script type="text/JavaScript">
+            function auto_refresh(period) { setTimeout("location.reload();", period); }
+        </script>
     </head>
-    <body>
+    <body onload="javascript: auto_refresh(15000);">
         <script type="text/javascript">
             function call_rest(url)
             {
