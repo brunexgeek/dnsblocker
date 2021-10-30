@@ -12,10 +12,23 @@
         </style>
         <meta http-equiv="x-dns-prefetch-control" content="off">
         <script type="text/JavaScript">
-            function auto_refresh(period) { setTimeout("location.reload();", period); }
+            let REFRESH_PERIOD = 15000;
+            function refresh_page()
+            {
+                if (document.querySelector('#refresh').checked)
+                    location.reload();
+                else
+                    auto_refresh(REFRESH_PERIOD);
+                return true;
+            }
+            function auto_refresh(period)
+            {
+                setTimeout(refresh_page, period);
+                return true;
+            }
         </script>
     </head>
-    <body onload="javascript: auto_refresh(15000);">
+    <body onload="javascript: auto_refresh(REFRESH_PERIOD);">
         <script type="text/javascript">
             function call_rest(url)
             {
@@ -29,6 +42,7 @@
                         alert(`ERROR: ${xhr.response.message}`);
                 };
                 xhr.send();
+                return true;
             }
         </script>
 
@@ -38,7 +52,8 @@
             <button onclick="call_rest('/console/heuristic/on')">Enable heuristics</button>
             <button onclick="call_rest('/console/heuristic/off')">Disable heuristics</button>
             <button onclick="call_rest('/console/reload')">Reload rules</button>
-            <button onclick="call_rest('/console/forget')">Clear cache</button>
+            <button onclick="call_rest('/console/forget')">Clear cache</button>&nbsp;
+            <input type="checkbox" id='refresh' checked>Auto refresh</input>
         </div>
 
         <div id='content'>
