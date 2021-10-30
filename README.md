@@ -1,4 +1,4 @@
-# dns-blocker  [![Build Status](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fbrunexgeek%2Fdns-blocker%2Fbadge%3Fref%3Dmaster&label=build&logo=none)](https://actions-badge.atrox.dev/brunexgeek/dns-blocker/goto?ref=master)
+# dnsblocker  [![Build Status](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fbrunexgeek%2Fdnsblocker%2Fbadge%3Fref%3Dmaster&label=build&logo=none)](https://actions-badge.atrox.dev/brunexgeek/dnsblocker/goto?ref=master) ![Version](https://img.shields.io/badge/version-0.19-blue)
 
 Simple DNS server to filter domains using pattern matching. The ideia is to block TCP/UDP communication to specific domains/subdomains by manipulating DNS answers. This program enables you to use patterns and you don't have to know all subdomains a priori, as you would be if using ``iptables`` or *hosts* file. This program is compatible with GNU/Linux and Windows.
 
@@ -93,7 +93,7 @@ Once you have the configuration file and the blacklist, just run ``dnsblocker``:
 # dnsblocker config.json /var/log/
 ```
 
-The first argument is the path to the configuration file and the second argument is the path where the log file must be written. The second argument is optional, in which case the logs will be printed on `stdout`.
+The first argument is the path to the configuration file and the second argument is the directory where the log file must be written. The second argument can be omitted, in which case the logs will be printed on `stdout`.
 
 To stop the program, send ``SIGTERM`` signal. You can use the commands ``kill`` or ``pkill`` to send the signal.
 
@@ -110,19 +110,21 @@ If any path contains spaces, you must use additional escaped quotes between the 
 
 ## Console
 
-Console functionality is enable by default using the CMake option `ENABLE_DNS_CONSOLE`.
+Console functionality is enable by default using the CMake option `ENABLE_DNS_CONSOLE`. When the console is enabled, `dnsblocker` will expose a set of HTTP REST endpoints at http://127.0.0.2:53022.
 
-You can use the `dig` or `nslookup` to send the following special *commands* to `dnsblocker`. These commands will be executed only if the request comes from the same IP address as the binding address or from 127.0.0.1 in case of binding to `0.0.0.0` (any address).
-
-* **reload@dnsblocker** &ndash; Reload the blacklist and whitelist.
-* **dump@dnsblocker** &ndash; Dump the cache entries to the file `dnsblocker.cache` in the current directory.
-* **eh@dnsblocker** &ndash; Enable heuristics to detect random domains.
-* **dh@dnsblocker** &ndash; Disable heuristics to detect random domains.
+* **GET /console/reload** &ndash; Reload blacklists and whitelists.
+* **GET /console/forget** &ndash; Clear the cache.
+* **GET /console/cache** &ndash; Returns the cache content as JSON.
+* **GET /console/log** &ndash; Returns a formated (HTML) version of the log content.
+* **GET /console/filter/on** &ndash; Enable DNS filtering.
+* **GET /console/filter/off** &ndash; Disable DNS filtering. The blacklist will be ignored.
+* **GET /console/heuristic/on** &ndash; Enable heuristics to detect random domains.
+* **GET /console/heuristic/off** &ndash; Disable heuristics to detect random domains.
 
 Example:
 
 ```
-# dig @127.0.0.1 reload@dnsblocker
+# curl https://127.0.0.2:53022/console/reload
 ```
 
 ## Limitations

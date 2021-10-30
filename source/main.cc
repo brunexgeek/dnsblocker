@@ -78,8 +78,7 @@ static BOOL WINAPI main_signalHandler(
 
 #else
 
-static void main_signalHandler(
-	int handle )
+static void main_signalHandler( int handle )
 {
 	(void) handle;
 	if (context.processor->finish()) exit(1);
@@ -298,11 +297,13 @@ int main( int argc, char** argv )
     sigaddset(&act.sa_mask, SIGUSR2);
     sigaddset(&act.sa_mask, SIGUSR1);
     sigaddset(&act.sa_mask, SIGINT);
+    sigaddset(&act.sa_mask, SIGTERM);
     act.sa_flags = 0;
     act.sa_handler = main_signalHandler;
     sigaction(SIGUSR2, &act, NULL);
     sigaction(SIGUSR1, &act, NULL);
     sigaction(SIGINT, &act, NULL);
+    sigaction(SIGTERM, &act, NULL);
     #endif
 
     context.processor = new Processor(context.config);
