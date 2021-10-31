@@ -283,35 +283,6 @@ void main_prepare()
 
 int main( int argc, char** argv )
 {
-    #if 0
-    Buffer buf(16);
-
-    buf.append("aaa");
-    buf.dump();
-    //for (auto i = buf.begin(); i != buf.end(); ++i)
-    //    std::cout << *i << '\n';
-    for (auto s : buf) std::cout << s << '\n';
-    buf.append("bbb");
-    buf.dump();
-    for (auto s : buf) std::cout << s << '\n';
-    buf.append("ccc");
-    buf.dump();
-    for (auto s : buf) std::cout << s << '\n';
-    buf.append("ddd");
-    buf.dump();
-    for (auto s : buf) std::cout << s << '\n';
-    buf.append("eee");
-    buf.dump();
-    for (auto s : buf) std::cout << s << '\n';
-    buf.append("fff");
-    buf.dump();
-    for (auto s : buf) std::cout << s << '\n';
-    buf.append("ggg");
-    buf.dump();
-    for (auto s : buf) std::cout << s << '\n';
-    #endif
-
-    return 0;
     main_parseArguments(argc, argv);
 
     Log::instance = new Log( context.logPath.c_str() );

@@ -342,7 +342,7 @@ static void print_request( const std::string &host, const std::string &remote, c
                 addr = ipv4.to_string();
         }
 
-        LOG_TIMED(FORMAT,
+        LOG_EVENT(FORMAT,
             color,
             remote.c_str(),
             status,

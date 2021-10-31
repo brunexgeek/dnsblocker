@@ -66,68 +66,21 @@ struct ConsoleListener : public webster::HttpListener
         response.header.fields.set("X-DNS-Prefetch-Control", "off");
         response.header.fields.set(WBFI_CACHE_CONTROL, "max-age=300000, must-revalidate");
 
-        std::ifstream input(log_);
-        if (input.good())
-        {
-            // use the file size as ETag
-            input.seekg(0, std::ios::end);
-            size_t etag = input.tellg();
-            input.seekg(0, std::ios::beg);
-            response.header.fields.set(WBFI_ETAG, etag);
-            // check if the file changed
-            if (request.header.fields.get(WBFI_IF_NONE_MATCH, (size_t)0) == etag)
-            {
-                response.header.status = 304; // Not Modified
-                response.header.fields.set(WBFI_CONTENT_LENGTH, 0);
-                return WBERR_OK;
-            }
+        int etag = Log::instance->etag();
+        response.header.fields.set(WBFI_ETAG, etag);
 
-            response.write((const char*)HTML_HEADER);
-            std::string line;
-            while (input.good())
-            {
-                std::string css;
-                std::getline(input, line);
-                if (line.empty())
-                    response.write("<p>&nbsp;</p>\n");
-                else
-                if (line.length() >= 3 && isdigit(line[0]) && isdigit(line[1]) && line[2] == ':')
-                {
-                    // set the line color
-                    if (line.find("DE ") != std::string::npos)
-                        response.write("<p class='de'>");
-                    else
-                    if (line.find("NX ") != std::string::npos)
-                        response.write("<p class='nx'>");
-                    else
-                    if (line.find("FA ") != std::string::npos)
-                        response.write("<p class='fa'>");
-                    else
-                        response.write("<p>");
-                    // extract the domain name
-                    auto pos = line.rfind(' ');
-                    auto name = line.substr(pos+1);
-                    line.erase(pos+1);
-                    // write the line
-                    response.write(line);
-                    // write the domain name as hyperlink
-                    response.write("<a target='_blank' href='http://");
-                    response.write(name);
-                    response.write("'>");
-                    response.write(name);
-                    response.write("</a></p>\n");
-                }
-                else
-                {
-                    response.write("<p>");
-                    response.write(line);
-                    response.write("</p>\n");
-                }
-            }
-            response.write((const char*)HTML_FOOTER);
+        // check if the file changed
+        if (request.header.fields.get(WBFI_IF_NONE_MATCH, (int)0) == etag)
+        {
+            response.header.status = 304; // Not Modified
+            response.header.fields.set(WBFI_CONTENT_LENGTH, 0);
             return WBERR_OK;
         }
-        return return_error(response, 404, "Unable to open log file");
+
+        response.write((const char*)HTML_HEADER);
+        Log::instance->print_events(response);
+        response.write((const char*)HTML_FOOTER);
+        return WBERR_OK;
     }
 
 	int operator()( webster::Message &request, webster::Message &response )

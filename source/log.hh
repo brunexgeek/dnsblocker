@@ -5,10 +5,11 @@
 #include <stdio.h>
 #include <string>
 #include <mutex>
+#include "webster.hh"
 
 
-#define LOG_MESSAGE(...)    Log::instance->write(false, __VA_ARGS__)
-#define LOG_TIMED(...)      Log::instance->write(true, __VA_ARGS__)
+#define LOG_MESSAGE(...)    Log::instance->log(__VA_ARGS__)
+#define LOG_EVENT(...)      Log::instance->event(__VA_ARGS__)
 
 class Buffer
 {
@@ -41,8 +42,10 @@ class Buffer
         Buffer( size_t size );
         virtual ~Buffer();
         void append( const char *value );
+        void erase();
         void clear();
         void dump() const;
+        int etag() const { return count_; }
         Iterator begin() const;
         Iterator end() const;
 
@@ -50,6 +53,7 @@ class Buffer
         char *ptr_;
         size_t size_;
         char *cur_;
+        int count_;
 
         void append( char value );
 };
@@ -63,11 +67,18 @@ class Log
 
         ~Log();
 
-        void write( bool timed, const char *format, ... );
+        void log( const char *format, ... );
+        void event( const char *format, ... );
+        void print_events( webster::Message &output );
+        int etag() const { return events.etag(); }
+        static std::string format( bool timed, const char *format, ... );
 
     private:
         FILE *output;
+        Buffer events;
         std::mutex lock;
+
+        static std::string vaformat( bool timed, const char *format, va_list args );
 };
 
 
