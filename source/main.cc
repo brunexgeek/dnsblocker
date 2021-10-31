@@ -280,7 +280,6 @@ void main_prepare()
 
 #ifndef __WINDOWS__
 
-
 int main( int argc, char** argv )
 {
     main_parseArguments(argc, argv);

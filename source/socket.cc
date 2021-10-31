@@ -260,7 +260,7 @@ UDP::UDP()
 {
 	ctx = new Context();
 	CTX.socketfd = socket(AF_INET, SOCK_DGRAM, 0);
-	set_nonblock();
+	//set_nonblock();
 }
 
 UDP::~UDP()
@@ -315,7 +315,7 @@ bool UDP::receive( Endpoint &endpoint, uint8_t *data, size_t *size, int timeout 
     struct sockaddr_in address;
 	TYPE_SOCKETLEN length = sizeof(address);
 
-	//if (!poll(timeout)) return false;
+	if (timeout > 0 && !poll(timeout)) return false;
 
     int result = (int) recvfrom(CTX.socketfd, (char*) data, (int) *size, 0,
         (struct sockaddr *) &address, &length);

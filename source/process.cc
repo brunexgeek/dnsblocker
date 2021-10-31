@@ -294,7 +294,7 @@ bool Processor::send_error(
     response.questions.push_back(request.questions[0]);
     response.header.rcode = (uint8_t) rcode;
     response.write(bio);
-    return conn_.priv->send(endpoint, bio.data(), bio.cursor());
+    return conn_.pub->send(endpoint, bio.data(), bio.cursor());
 }
 
 bool Processor::isRandomDomain( std::string name )
@@ -557,16 +557,15 @@ void Processor::run_main()
 
     while (running_)
     {
-        if (!conn_.pub->poll(2000)) continue;
-
-        uint64_t start = clock_micro();
+        if (!conn_.pub->poll(1000)) continue;
 
         // receive the UDP message
         buffer bio;
         size_t size = bio.size();
-        if (!conn_.pub->receive(endpoint, bio.data(), &size, 1000)) continue;
+        uint64_t start = clock_micro();
+        if (!conn_.pub->receive(endpoint, bio.data(), &size, 0)) continue;
+//std::cerr << "--- Read " << size << " bytes in " << ((clock_micro() -start)/1000) << " ms\n";
         bio.resize(size);
-std::cerr << "--- Read " << size << " bytes in " << ((clock_micro() -start)/1000) << " ms\n";
         // parse the message
         dns_message_t request;
         request.read(bio);
@@ -576,7 +575,7 @@ std::cerr << "--- Read " << size << " bytes in " << ((clock_micro() -start)/1000
         if (request.questions.size() == 1) type = request.questions[0].type;
         if (type == DNS_TYPE_A || (config_.use_ipv6 && type == DNS_TYPE_AAAA))
         {
-            std::cout << __FUNCTION__ << ": got something\n";
+//std::cout << __FUNCTION__ << ": got something\n";
             Job *job = new Job(endpoint, request);
             job->timer = start;
             idle_.list.push(job);
@@ -635,13 +634,11 @@ void Processor::run_idle()
 
         if (job->result == DNSB_STATUS_RECURSIVE)
         {
-            std::cout << "Job is going to pending ->" << job->result << '\n';
             pending_.list.push(job);
             pending_.cond.notify_all();
         }
         else
         {
-            std::cout << "Job is going to done ->" << job->result << '\n';
             done_.list.push(job);
             done_.cond.notify_all();
         }
@@ -651,7 +648,7 @@ void Processor::run_idle()
 void Processor::run_pending()
 {
     std::unique_lock<std::mutex> guard(pending_.mutex);
-    auto default_dns_ = named_value<ipv4_t>("default", UDP::hostToIPv4("8.8.8.8"));
+    auto default_dns_ = named_value<ipv4_t>("default", UDP::hostToIPv4("8.8.8.8")); // TODO: use configuration
 
     while (running_)
     {
@@ -682,8 +679,6 @@ void Processor::run_pending()
         if (job->result != DNSB_STATUS_CACHE)
             job->result = Resolver::initiate_recursive(*conn_.priv, domain, request.questions[0].type,
                 default_dns_.value, job->priv_id);
-        else
-            std::cout << "Using cache for " << domain << '\n';
 
         done_.list.push(job);
         done_.cond.notify_all();
@@ -761,7 +756,7 @@ void Processor::run_done()
                 send_error(job->request, DNS_RCODE_NXDOMAIN, job->endpoint);
             }
 
-            std::cerr << "Job #" << (size_t) job << " took " << (clock_micro() - job->timer)/1000 << " ms to complete\n";
+//std::cerr << "Job #" << (size_t) job << " took " << (clock_micro() - job->timer)/1000 << " ms to complete\n";
 
             print_request(job->request.questions[0].qname, job->endpoint.address.to_string(), "", job->request.questions[0].type, config_,
                 is_blocked, job->result, job->ipv4, job->ipv6, is_heuristic, false);
@@ -779,7 +774,7 @@ void Processor::run_done()
             Endpoint endpoint;
             buffer bio;
             size_t size = bio.size();
-            if (!conn_.priv->receive(endpoint, bio.data(), &size, 100)) break;
+            if (!conn_.priv->receive(endpoint, bio.data(), &size, 0)) break;
             bio.resize(size);
             // parse the message
             dns_message_t response;
@@ -809,7 +804,7 @@ void Processor::run_done()
                             cache_->add(response.questions[0].qname, &job->ipv4, nullptr);
                         }
                         answer(*conn_.pub, job->request, job->endpoint, job->ipv4, job->ipv6);
-                        std::cerr << "Job #" << (size_t) job << " took " << (clock_micro() - job->timer)/1000 << " ms to complete\n";
+//std::cerr << "Job #" << (size_t) job << " took " << (clock_micro() - job->timer)/1000 << " ms to complete\n";
                         break;
                     }
                 }

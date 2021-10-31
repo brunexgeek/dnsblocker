@@ -373,7 +373,6 @@ int Resolver::initiate_recursive( UDP &conn, const std::string &host, int type, 
 
     // send the query to the recursive DNS
     Endpoint endpoint(dnsAddress, 53);
-    std::cout << endpoint.address.to_string() << '\n';
 	if (!conn.send(endpoint, bio.data(), bio.cursor()))
         return DNSB_STATUS_FAILURE;
     return DNSB_STATUS_RECURSIVE;
