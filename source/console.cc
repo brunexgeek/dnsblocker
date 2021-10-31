@@ -57,6 +57,51 @@ struct ConsoleListener : public webster::HttpListener
         return WBERR_OK;
     }
 
+    void print_events( webster::Message &response )
+    {
+        Buffer events( std::move(Log::instance->get_events()) );
+
+        for (auto line : events)
+        {
+            std::string css;
+            if (line.empty())
+                response.write("<p>&nbsp;</p>\n");
+            else
+            if (line.length() >= 3 && isdigit(line[0]) && isdigit(line[1]) && line[2] == ':')
+            {
+                // set the line color
+                if (line.find("DE ") != std::string::npos)
+                    response.write("<p class='de'>");
+                else
+                if (line.find("NX ") != std::string::npos)
+                    response.write("<p class='nx'>");
+                else
+                if (line.find("FA ") != std::string::npos)
+                    response.write("<p class='fa'>");
+                else
+                    response.write("<p>");
+                // extract the domain name
+                auto pos = line.rfind(' ');
+                auto name = line.substr(pos+1);
+                line.erase(pos+1);
+                // write the line
+                response.write(line);
+                // write the domain name as hyperlink
+                response.write("<a target='_blank' href='http://");
+                response.write(name);
+                response.write("'>");
+                response.write(name);
+                response.write("</a></p>\n");
+            }
+            else
+            {
+                response.write("<p>");
+                response.write(line);
+                response.write("</p>\n");
+            }
+        }
+    }
+
     int return_monitor( webster::Message &request, webster::Message &response )
     {
         (void) request;
@@ -78,7 +123,7 @@ struct ConsoleListener : public webster::HttpListener
         }
 
         response.write((const char*)HTML_HEADER);
-        Log::instance->print_events(response);
+        print_events(response);
         response.write((const char*)HTML_FOOTER);
         return WBERR_OK;
     }

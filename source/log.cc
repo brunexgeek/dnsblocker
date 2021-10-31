@@ -90,49 +90,10 @@ std::string Log::vaformat(
     return out;
 }
 
-void Log::print_events( webster::Message &response )
+Buffer Log::get_events() const
 {
     std::lock_guard<std::mutex> guard(lock);
-
-    for (auto line : events)
-    {
-        std::string css;
-        if (line.empty())
-            response.write("<p>&nbsp;</p>\n");
-        else
-        if (line.length() >= 3 && isdigit(line[0]) && isdigit(line[1]) && line[2] == ':')
-        {
-            // set the line color
-            if (line.find("DE ") != std::string::npos)
-                response.write("<p class='de'>");
-            else
-            if (line.find("NX ") != std::string::npos)
-                response.write("<p class='nx'>");
-            else
-            if (line.find("FA ") != std::string::npos)
-                response.write("<p class='fa'>");
-            else
-                response.write("<p>");
-            // extract the domain name
-            auto pos = line.rfind(' ');
-            auto name = line.substr(pos+1);
-            line.erase(pos+1);
-            // write the line
-            response.write(line);
-            // write the domain name as hyperlink
-            response.write("<a target='_blank' href='http://");
-            response.write(name);
-            response.write("'>");
-            response.write(name);
-            response.write("</a></p>\n");
-        }
-        else
-        {
-            response.write("<p>");
-            response.write(line);
-            response.write("</p>\n");
-        }
-    }
+    return Buffer(events);
 }
 
 const char *Buffer::Iterator::next()
@@ -169,6 +130,22 @@ Buffer::Buffer( size_t size ) : size_(size), count_(1)
     if (size_ < 16) size_ = 16;
     ptr_ = new(std::nothrow) char[size_]();
     cur_ = ptr_ + 1;
+}
+
+Buffer::Buffer( const Buffer &that ) : size_(that.size_), count_(that.count_)
+{
+    ptr_ = new(std::nothrow) char[size_];
+    memcpy(ptr_, that.ptr_, size_);
+    cur_ = ptr_ + (that.cur_ - that.ptr_);
+}
+
+Buffer::Buffer( Buffer &&that ) : size_(that.size_), count_(that.count_)
+{
+    ptr_ = that.ptr_;
+    cur_ = that.cur_;
+    that.ptr_ = that.cur_ = nullptr;
+    that.size_ = 0;
+    that.count_ = 0;
 }
 
 Buffer::~Buffer()

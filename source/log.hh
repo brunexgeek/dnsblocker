@@ -40,6 +40,8 @@ class Buffer
         };
 
         Buffer( size_t size );
+        Buffer( const Buffer &that );
+        Buffer( Buffer &&that );
         virtual ~Buffer();
         void append( const char *value );
         void erase();
@@ -69,6 +71,7 @@ class Log
 
         void log( const char *format, ... );
         void event( const char *format, ... );
+        Buffer get_events() const;
         void print_events( webster::Message &output );
         int etag() const { return events.etag(); }
         static std::string format( bool timed, const char *format, ... );
@@ -76,7 +79,7 @@ class Log
     private:
         FILE *output;
         Buffer events;
-        std::mutex lock;
+        mutable std::mutex lock;
 
         static std::string vaformat( bool timed, const char *format, va_list args );
 };
