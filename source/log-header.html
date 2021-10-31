@@ -2,13 +2,15 @@
     <head>
         <title>dnsblocker</title>
         <style type='text/css'>
-        body {font-family: monospace; font-size: 16px; }
-        /*#content { white-space: pre;}*/
-        #content p {line-height: 1.4em; margin: 0; white-space: pre;}
+        body { font-family: sans-serif; font-size: 16px; }
+        #content p { font-family: monospace; line-height: 1.4em; margin: 0; white-space: pre;}
         .de {background-color: rgb(251, 172, 172)}
         .nx {background-color: rgb(251, 230, 172)}
         .fa {background-color: rgb(223, 223, 223)}
-        button { display: inline-block; padding-right: 2em;}
+        button { display: inline-block; padding: 2px 6px; font-weight: bold; margin: 0 6px 0 0;}
+        .ibtn { margin: 2px 0 2px 6px; line-height: 1.1em; }
+        .toolbar { width: 100%; padding: 1em; margin: 0;}
+        label { cursor: pointer };
         </style>
         <meta http-equiv="x-dns-prefetch-control" content="off">
         <script type="text/JavaScript">
@@ -46,14 +48,14 @@
             }
         </script>
 
-        <div style='width: 100%'>
+        <div class='toolbar'>
             <button onclick="call_rest('/console/filter/on')">Enable filter</button>
             <button onclick="call_rest('/console/filter/off')">Disable filter</button>
             <button onclick="call_rest('/console/heuristic/on')">Enable heuristics</button>
             <button onclick="call_rest('/console/heuristic/off')">Disable heuristics</button>
             <button onclick="call_rest('/console/reload')">Reload rules</button>
             <button onclick="call_rest('/console/forget')">Clear cache</button>&nbsp;
-            <input type="checkbox" id='refresh' checked>Auto refresh</input>
+            <label><input type="checkbox" id='refresh' checked></input>Auto refresh</label>
         </div>
 
         <div id='content'>

@@ -167,6 +167,7 @@ bool Processor::console( const std::string &command )
 {
     if (command == "reload")
     {
+        // TODO: protect with lock
         load_rules(config_.blacklist, blacklist_);
         load_rules(config_.whitelist, whitelist_);
         cache_->reset(); // TODO: we really need this?

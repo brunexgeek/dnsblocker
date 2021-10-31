@@ -60,6 +60,7 @@ struct ConsoleListener : public webster::HttpListener
     void print_events( webster::Message &response )
     {
         Buffer events( std::move(Log::instance->get_events()) );
+        int count = 0;
 
         for (auto line : events)
         {
@@ -91,7 +92,16 @@ struct ConsoleListener : public webster::HttpListener
                 response.write(name);
                 response.write("'>");
                 response.write(name);
-                response.write("</a></p>\n");
+                response.write("</a>");
+                if (line.find("*") != std::string::npos)
+                {
+                    std::string btn = "addbtn";
+                    btn += std::to_string(count++);
+                    response.write("<button onclick=\"javascript: call_rest('/console/allow/**.");
+                    response.write(name);
+                    response.write("');\" class='ibtn'>+</button>");
+                }
+                response.write("</p>\n");
             }
             else
             {
@@ -100,6 +110,20 @@ struct ConsoleListener : public webster::HttpListener
                 response.write("</p>\n");
             }
         }
+    }
+
+    int whitelist( webster::Message &request, webster::Message &response )
+    {
+        std::string domain;
+        auto pos = request.header.target.path.find("allow/");
+        if (pos != std::string::npos)
+            domain = request.header.target.path.substr(pos + 6);
+        if (domain.empty())
+            return return_error(response, 400, "Missing domain name");
+        if (proc_.whitelist_.add(domain, 0, nullptr) != DNSBERR_OK)
+            return return_error(response, 400, "Invalid domain name");
+        else
+            return return_ok(response);
     }
 
     int return_monitor( webster::Message &request, webster::Message &response )
@@ -140,6 +164,9 @@ struct ConsoleListener : public webster::HttpListener
             auto command = request.header.target.path.substr(9);
             if (command == "monitor")
                 return return_monitor(request, response);
+            else
+            if (command.find("allow/") == 0)
+                return whitelist(request, response);
             else
             if (command == "cache")
                 return return_cache(response);

@@ -85,7 +85,10 @@ std::string Log::vaformat(
         out += ' ';
     }
 
-    vsnprintf(temp, sizeof(temp), format, args);
+    vsnprintf(temp, sizeof(temp) - 1, format, args);
+    auto last = strlen(temp);
+    while (last > 0 && (temp[last] == 0 || temp[last] == '\n'))
+        temp[last--] = 0;
     out += temp;
     return out;
 }
