@@ -68,6 +68,7 @@ class UDP
 		static ipv4_t hostToIPv4( const std::string &host );
 		void close();
 		bool bind( const std::string &host, uint16_t port );
+		void set_nonblock();
 
 	private:
 		void *ctx;

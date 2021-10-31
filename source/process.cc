@@ -85,6 +85,22 @@ Processor::~Processor()
 	cache_ = nullptr;
 }
 
+static uint64_t clock_micro()
+{
+    #ifdef __WINDOWS__
+    LARGE_INTEGER fq, t;
+    QueryPerformanceFrequency(&fq);
+    QueryPerformanceCounter(&t);
+    uint64_t div = fq.QuadPart / (1000 * 1000);
+    if (div == 0) div = 1;
+    return (uint64_t) t.QuadPart / div;
+    #else
+    struct timespec current;
+    clock_gettime(CLOCK_MONOTONIC, &current);
+    return (uint64_t) current.tv_sec * (1000 * 1000) + ((uint64_t) current.tv_nsec / 1000);
+    #endif
+}
+
 JobList::~JobList()
 {
     std::lock_guard<std::mutex> guard(mutex_);
@@ -543,22 +559,27 @@ void Processor::run_main()
     {
         if (!conn_.pub->poll(2000)) continue;
 
+        uint64_t start = clock_micro();
+
         // receive the UDP message
         buffer bio;
         size_t size = bio.size();
         if (!conn_.pub->receive(endpoint, bio.data(), &size, 1000)) continue;
         bio.resize(size);
-
+std::cerr << "--- Read " << size << " bytes in " << ((clock_micro() -start)/1000) << " ms\n";
         // parse the message
         dns_message_t request;
         request.read(bio);
+
         // ignore messages with the number of questions other than 1
         int type = 0;
         if (request.questions.size() == 1) type = request.questions[0].type;
         if (type == DNS_TYPE_A || (config_.use_ipv6 && type == DNS_TYPE_AAAA))
         {
             std::cout << __FUNCTION__ << ": got something\n";
-            idle_.list.push( new Job(endpoint, request) );
+            Job *job = new Job(endpoint, request);
+            job->timer = start;
+            idle_.list.push(job);
             idle_.cond.notify_all();
         }
         else
@@ -578,7 +599,7 @@ void Processor::run_idle()
             idle_.cond.wait_for(guard, std::chrono::seconds(1));
             continue;
         }
-print_job("run_idle got", *job);
+
         const dns_message_t &request = job->request;
         bool is_heuristic = false;
         bool is_blocked = false;
@@ -640,7 +661,7 @@ void Processor::run_pending()
             pending_.cond.wait_for(guard, std::chrono::seconds(1));
             continue;
         }
-print_job("run_pending got", *job);
+
         // should never happen
         if (job->result != DNSB_STATUS_RECURSIVE)
         {
@@ -658,11 +679,11 @@ print_job("run_pending got", *job);
         else
             job->result = cache_->find(domain, &job->ipv4);
         // if we have a cache miss try to solve with external DNS
-        if (job->result != DNSB_STATUS_FAILURE)
-            job->result = DNSB_STATUS_CACHE;
-        else
+        if (job->result != DNSB_STATUS_CACHE)
             job->result = Resolver::initiate_recursive(*conn_.priv, domain, request.questions[0].type,
                 default_dns_.value, job->priv_id);
+        else
+            std::cout << "Using cache for " << domain << '\n';
 
         done_.list.push(job);
         done_.cond.notify_all();
@@ -702,21 +723,26 @@ void Processor::run_done()
 {
     static constexpr int CYCLE_SIZE = 5;
     std::unique_lock<std::mutex> guard(done_.mutex);
-    ipv4_t ipv4;
-    ipv6_t ipv6;
 
     while (running_)
     {
         if (done_.list.empty())
-            done_.cond.wait_for(guard, std::chrono::seconds(1));
+            done_.cond.wait_for(guard, std::chrono::milliseconds(1000));
 
         for (int i = 0; i < CYCLE_SIZE * 2; ++i)
         {
+            bool is_blocked = false;
+            bool is_heuristic = false;
+
             auto job = done_.list.pop_done();
             if (job == nullptr) break;
-print_job("run_done got", *job);
+
             if (job->result == DNSB_STATUS_HEURISTIC || job->result == DNSB_STATUS_BLOCKED)
             {
+                is_blocked = true;
+                is_heuristic = job->result == DNSB_STATUS_HEURISTIC;
+                job->result = DNSB_STATUS_BLOCKED;
+
                 if (job->request.questions[0].type == ADDR_TYPE_AAAA)
                     job->ipv6 = IPV6_BLOCK_ADDRESS;
                 else
@@ -730,29 +756,38 @@ print_job("run_done got", *job);
             if (job->result == DNSB_STATUS_FAILURE)
                 send_error(job->request, DNS_RCODE_SERVFAIL, job->endpoint);
             else
+            {
+                job->result = DNSB_STATUS_NXDOMAIN;
                 send_error(job->request, DNS_RCODE_NXDOMAIN, job->endpoint);
+            }
+
+            std::cerr << "Job #" << (size_t) job << " took " << (clock_micro() - job->timer)/1000 << " ms to complete\n";
+
+            print_request(job->request.questions[0].qname, job->endpoint.address.to_string(), "", job->request.questions[0].type, config_,
+                is_blocked, job->result, job->ipv4, job->ipv6, is_heuristic, false);
+
+            delete job;
         }
 
         if (done_.list.empty()) continue;
 
         for (int i = 0; i < CYCLE_SIZE; ++i)
         {
-            if (!conn_.priv->poll(500)) break;
+            if (!conn_.priv->poll(100)) break;
 
             // receive the UDP message
             Endpoint endpoint;
             buffer bio;
             size_t size = bio.size();
-            if (!conn_.priv->receive(endpoint, bio.data(), &size, 1000)) break;
+            if (!conn_.priv->receive(endpoint, bio.data(), &size, 100)) break;
             bio.resize(size);
             // parse the message
             dns_message_t response;
             response.read(bio);
 
-std::cout << "run_done: got DNS response (id = " << response.header.id << "\n";
             Job *job = done_.list.pop_priv(response.header.id);
             if (job == nullptr) continue;
-print_job("run_done got", *job);
+
             // use the first compatible answer
             if (response.header.rcode == 0 &&
                 response.answers.size() > 0 &&
@@ -764,14 +799,24 @@ print_job("run_done got", *job);
                     if (it->type == job->request.questions[0].type)
                     {
                         if (it->type == ADDR_TYPE_AAAA)
-                            ipv6 = ipv6_t((uint16_t*)it->rdata);
+                        {
+                            job->ipv6 = ipv6_t((uint16_t*)it->rdata);
+                            cache_->add(response.questions[0].qname, nullptr, &job->ipv6);
+                        }
                         else
-                            ipv4 = ipv4_t(it->rdata);
-                        answer(*conn_.pub, job->request, job->endpoint, ipv4, ipv6);
+                        {
+                            job->ipv4 = ipv4_t(it->rdata);
+                            cache_->add(response.questions[0].qname, &job->ipv4, nullptr);
+                        }
+                        answer(*conn_.pub, job->request, job->endpoint, job->ipv4, job->ipv6);
+                        std::cerr << "Job #" << (size_t) job << " took " << (clock_micro() - job->timer)/1000 << " ms to complete\n";
                         break;
                     }
                 }
             }
+
+            print_request(job->request.questions[0].qname, job->endpoint.address.to_string(), "", job->request.questions[0].type, config_,
+                false, job->result, job->ipv4, job->ipv6, false, false);
 
             delete job;
         }

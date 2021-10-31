@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <poll.h>
 #include <iostream>
+#include <fcntl.h>
 
 #define TYPE_SOCKETLEN socklen_t
 
@@ -259,12 +260,24 @@ UDP::UDP()
 {
 	ctx = new Context();
 	CTX.socketfd = socket(AF_INET, SOCK_DGRAM, 0);
+	set_nonblock();
 }
 
 UDP::~UDP()
 {
 	close();
 	delete (Context*) ctx;
+}
+
+void UDP::set_nonblock()
+{
+#ifdef WB_WINDOWS
+	u_long flags = 1;
+	int result = ioctlsocket(CTX.socketfd, FIONBIO, &flags);
+#else
+	int flags = fcntl(CTX.socketfd, F_GETFL, 0);
+	int result = fcntl(CTX.socketfd, F_SETFL, flags | O_NONBLOCK);
+#endif
 }
 
 void UDP::close()
@@ -302,7 +315,7 @@ bool UDP::receive( Endpoint &endpoint, uint8_t *data, size_t *size, int timeout 
     struct sockaddr_in address;
 	TYPE_SOCKETLEN length = sizeof(address);
 
-	if (!poll(timeout)) return false;
+	//if (!poll(timeout)) return false;
 
     int result = (int) recvfrom(CTX.socketfd, (char*) data, (int) *size, 0,
         (struct sockaddr *) &address, &length);

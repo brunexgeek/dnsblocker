@@ -23,6 +23,7 @@ struct Job
     bool isBlocker = false;
     ipv4_t ipv4;
     ipv6_t ipv6;
+    uint64_t timer = 0;
 
     Job( const Endpoint &endpoint, dns_message_t &request ) : endpoint(endpoint)
     {
