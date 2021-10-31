@@ -115,7 +115,7 @@ Console functionality is enable by default using the CMake option `ENABLE_DNS_CO
 * **GET /console/reload** &ndash; Reload blacklists and whitelists.
 * **GET /console/forget** &ndash; Clear the cache.
 * **GET /console/cache** &ndash; Returns the cache content as JSON.
-* **GET /console/log** &ndash; Returns a formated (HTML) version of the log content.
+* **GET /console/monitor** &ndash; Monitoring page showing the latest DNS queries.
 * **GET /console/filter/on** &ndash; Enable DNS filtering.
 * **GET /console/filter/off** &ndash; Disable DNS filtering. The blacklist will be ignored.
 * **GET /console/heuristic/on** &ndash; Enable heuristics to detect random domains.

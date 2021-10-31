@@ -164,7 +164,7 @@ std::string Buffer::Iterator::operator*() const
     return out;
 }
 
-Buffer::Buffer( size_t size ) : size_(size), count_(0)
+Buffer::Buffer( size_t size ) : size_(size), count_(1)
 {
     if (size_ < 16) size_ = 16;
     ptr_ = new(std::nothrow) char[size_]();
@@ -181,6 +181,7 @@ void Buffer::append( const char *value )
     auto len = strlen(value);
     if (len + 2 > size_) return;
     ++count_;
+    if (count_ == 0) count_ = 1;
 
     // copy the string
     size_t count = std::min((size_t)(ptr_ + size_ - cur_), len);

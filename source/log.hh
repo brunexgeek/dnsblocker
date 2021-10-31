@@ -53,7 +53,7 @@ class Buffer
         char *ptr_;
         size_t size_;
         char *cur_;
-        int count_;
+        uint32_t count_;
 
         void append( char value );
 };

@@ -57,7 +57,7 @@ struct ConsoleListener : public webster::HttpListener
         return WBERR_OK;
     }
 
-    int return_log( webster::Message &request, webster::Message &response )
+    int return_monitor( webster::Message &request, webster::Message &response )
     {
         (void) request;
 
@@ -93,8 +93,8 @@ struct ConsoleListener : public webster::HttpListener
         if (request.header.target.path.find("/console/") == 0)
         {
             auto command = request.header.target.path.substr(9);
-            if (command == "log")
-                return return_log(request, response);
+            if (command == "monitor")
+                return return_monitor(request, response);
             else
             if (command == "cache")
                 return return_cache(response);
