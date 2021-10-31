@@ -26,10 +26,7 @@
 #define DNS_TIMEOUT                   2000 // ms
 #define DNS_BUFFER_SIZE               1024 // bytes
 
-#define NUM_THREADS                   4
-
 #define LOG_FILENAME                  "dnsblocker.log"
-#define LOG_CACHE_DUMP                "dnsblocker.cache"
 
 #define MONITOR_SHOW_RECURSIVE   0x01
 #define MONITOR_SHOW_CACHE       0x02

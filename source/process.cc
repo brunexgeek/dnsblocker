@@ -1,4 +1,5 @@
 #include "process.hh"
+#include "console.hh"
 #include "log.hh"
 #include <stdexcept>
 #include <limits.h>
@@ -19,8 +20,9 @@ static const uint16_t IPV6_BLOCK_VALUES[] = DNS_BLOCKED_IPV6_ADDRESS;
 static const ipv4_t IPV4_BLOCK_ADDRESS(IPV4_BLOCK_VALUES);
 static const ipv6_t IPV6_BLOCK_ADDRESS(IPV6_BLOCK_VALUES);
 
-Processor::Processor( const Configuration &config ) : config_(config), running_(false), useHeuristics_(false),
-    useFiltering_(true)
+Processor::Processor( const Configuration &config, Console *console ) :
+    config_(config), running_(false), useHeuristics_(false), useFiltering_(true),
+    console_(console)
 {
     if (config.binding.port() > 65535)
     {
@@ -161,48 +163,48 @@ bool Processor::load_rules( const std::vector<std::string> &fileNames, Tree<uint
 }
 
 #ifdef ENABLE_DNS_CONSOLE
-void Processor::console( const std::string &command )
+bool Processor::console( const std::string &command )
 {
     if (command == "reload")
     {
+        // TODO: protect with lock
         load_rules(config_.blacklist, blacklist_);
         load_rules(config_.whitelist, whitelist_);
         cache_->reset(); // TODO: we really need this?
     }
     else
-    if (command == "ef")
+    if (command == "forget")
     {
-        LOG_MESSAGE("\nFiltering enabled!\n");
+        cache_->reset();
+        LOG_MESSAGE("\nCONSOLE: Cache reset\n");
+    }
+    else
+    if (command == "filter/on")
+    {
+        LOG_MESSAGE("\nCONSOLE: Filtering enabled\n");
         useFiltering_ = true;
     }
     else
-    if (command == "df")
+    if (command == "filter/off")
     {
-        LOG_MESSAGE("\nFiltering disabled!\n");
+        LOG_MESSAGE("\nCONSOLE: Filtering disabled\n");
         useFiltering_ = false;
     }
     else
-    if (command == "eh")
+    if (command == "heuristic/on")
     {
-        LOG_MESSAGE("\nHeuristics enabled!\n");
+        LOG_MESSAGE("\nCONSOLE: Heuristics enabled\n");
         useHeuristics_ = true;
     }
     else
-    if (command == "dh")
+    if (command == "heuristic/off")
     {
-        LOG_MESSAGE("\nHeuristics disabled!\n");
+        LOG_MESSAGE("\nCONSOLE: Heuristics disabled\n");
         useHeuristics_ = false;
     }
     else
-    if (command == "dump")
-    {
-        std::ofstream out(config_.dump_path_);
-        if (out.good())
-        {
-            LOG_MESSAGE("\nDumping DNS cache to '%s'\n\n", config_.dump_path_.c_str());
-            cache_->dump(out);
-        }
-    }
+        return false;
+    return true;
 }
 #endif
 
@@ -272,14 +274,15 @@ bool Processor::isRandomDomain( std::string name )
 }
 
 static void print_request( const std::string &host, const std::string &remote, const std::string &dns_name,
-    int type, const Configuration &config, bool is_blocked, int result, ipv4_t &ipv4, ipv6_t &ipv6, bool is_heuristic )
+    int type, const Configuration &config, bool is_blocked, int result, ipv4_t &ipv4, ipv6_t &ipv6,
+    bool is_heuristic, bool colors )
 {
     const char *COLOR_RED = "\033[31m";
     const char *COLOR_YELLOW = "\033[33m";
     const char *COLOR_RESET = "\033[39m";
 
 #if !defined(_WIN32) && !defined(_WIN64)
-    if (!isatty(STDIN_FILENO))
+    if (!colors)
 #endif
     {
         COLOR_RED = "";
@@ -340,7 +343,7 @@ static void print_request( const std::string &host, const std::string &remote, c
                 addr = ipv4.to_string();
         }
 
-        LOG_TIMED(FORMAT,
+        LOG_EVENT(FORMAT,
             color,
             remote.c_str(),
             status,
@@ -419,7 +422,7 @@ void Processor::process(
 
         // print information about the request
         print_request(request.questions[0].qname, endpoint.address.to_string(), dns_name, request.questions[0].type, object->config_,
-            is_blocked, result, ipv4, ipv6, is_heuristic);
+            is_blocked, result, ipv4, ipv6, is_heuristic, false);
 
         // send the response
         if (!is_blocked && result != DNSB_STATUS_CACHE && result != DNSB_STATUS_RECURSIVE)
@@ -468,16 +471,18 @@ struct process_unit_t
     std::mutex mutex;
 };
 
-void Processor::run()
+void Processor::run(int nthreads)
 {
     std::string lastName;
     Endpoint endpoint;
-    process_unit_t pool[NUM_THREADS];
+    std::vector<process_unit_t> pool(nthreads);
     std::condition_variable cond;
 
     running_ = true;
-    for (int i = 0; i < NUM_THREADS; ++i)
+    for (int i = 0; i < nthreads; ++i)
         pool[i].thread = new std::thread(process, this, i + 1, &pool[i].mutex, &cond);
+
+    LOG_MESSAGE("Spawning %d threads to handle requests\n", nthreads);
 
     while (running_)
     {
@@ -503,7 +508,7 @@ void Processor::run()
             send_error(request, DNS_RCODE_REFUSED, endpoint);
     }
 
-    for (size_t i = 0; i < NUM_THREADS; ++i)
+    for (int i = 0; i < nthreads; ++i)
     {
         cond.notify_all();
         pool[i].thread->join();

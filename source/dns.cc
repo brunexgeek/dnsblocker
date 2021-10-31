@@ -291,7 +291,7 @@ bool Cache::get( const std::string &host, ipv4_t *ipv4, ipv6_t *ipv6 )
     if ((!ipv4 && !ipv6) || host.empty()) return false;
     uint64_t now = dns_time();
 
-    std::shared_lock guard(lock_);
+    std::shared_lock<std::shared_mutex> guard(lock_);
 
     auto it = cache_.find(host);
     // try to use cache information
@@ -312,7 +312,7 @@ bool Cache::get( const std::string &host, ipv4_t *ipv4, ipv6_t *ipv6 )
 
 void Cache::reset()
 {
-    std::unique_lock guard(lock_);
+    std::unique_lock<std::shared_mutex> guard(lock_);
     cache_.clear();
 }
 
@@ -320,7 +320,7 @@ void Cache::cleanup( uint32_t ttl )
 {
     if (ttl <= 0) ttl = ttl_;
 
-    std::unique_lock guard(lock_);
+    std::unique_lock<std::shared_mutex> guard(lock_);
 
     auto now = dns_time();
     size_t count = cache_.size();
@@ -472,15 +472,28 @@ int Resolver::resolve_ipv6( const std::string &host, std::string &name, ipv6_t &
 
 void Cache::dump( std::ostream &out )
 {
-    std::shared_lock raii(lock_);
+    std::shared_lock<std::shared_mutex> raii(lock_);
+    bool first = true;
 
+    out << '[';
     for (auto &it : cache_)
     {
+        if (!first) out << ',';
+
         if (!it.second.ipv4.empty())
-            out << std::setw(46) << it.second.ipv4.to_string() << it.first << std::endl;
+        {
+            out << "{\"ver\":\"4\",\"addr\":\"" << it.second.ipv4.to_string() << "\",\"name\":\"" << it.first << "\"}";
+        }
+
         if (!it.second.ipv6.empty())
-            out << std::setw(46) << it.second.ipv6.to_string() << it.first << std::endl;
+        {
+            if (!it.second.ipv4.empty()) out << ',';
+            out << "{\"ver\":\"6\",\"addr\":\"" << it.second.ipv6.to_string() << "\",\"name\":\"" << it.first << "\"}";
+        }
+
+        first = false;
     }
+    out << ']';
 }
 
 /*
@@ -506,7 +519,7 @@ void Resolver::set_dns( const std::string &dns, const std::string &name, const s
 
 void Cache::add( const std::string &host, const ipv4_t *ipv4, const ipv6_t *ipv6 )
 {
-    std::unique_lock guard(lock_);
+    std::unique_lock<std::shared_mutex> guard(lock_);
 
     auto it = cache_.find(host);
     if (it != cache_.end())

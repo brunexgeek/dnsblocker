@@ -25,18 +25,20 @@ struct Job
     }
 };
 
+class Console;
+struct ConsoleListener;
 
 class Processor
 {
     public:
-        Processor( const Configuration &config );
+        Processor( const Configuration &config, Console *console = nullptr );
         ~Processor();
         void push( Job *job );
         Job *pop();
-        void run();
+        void run( int nthreads );
         bool finish();
         static bool isRandomDomain( std::string name );
-        void console( const std::string &command );
+        bool console( const std::string &command );
 
     private:
         std::list<Job*> pending_;
@@ -52,6 +54,7 @@ class Processor
         bool running_;
         bool useHeuristics_;
         bool useFiltering_;
+        Console *console_;
 
         static void process( Processor *object, int num, std::mutex *mutex, std::condition_variable *cond );
         bool send_error(
@@ -60,6 +63,8 @@ class Processor
             const Endpoint &endpoint );
         bool load_rules( const std::vector<std::string> &fileNames, Tree<uint8_t> &tree );
         static std::string realPath( const std::string &path );
+
+        friend struct ConsoleListener;
 };
 
 }
