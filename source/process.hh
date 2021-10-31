@@ -17,16 +17,38 @@ struct Job
 {
     Endpoint endpoint;
     dns_message_t request;
+    //uint16_t pub_id = 0;
+    uint16_t priv_id = 0;
+    int result = 0;
+    bool isBlocker = false;
+    ipv4_t ipv4;
+    ipv6_t ipv6;
 
-    Job( Endpoint &endpoint, dns_message_t &request )
+    Job( const Endpoint &endpoint, dns_message_t &request ) : endpoint(endpoint)
     {
-        this->endpoint = endpoint;
         this->request.swap(request);
     }
 };
 
 class Console;
 struct ConsoleListener;
+
+class JobList
+{
+    public:
+        JobList() = default;
+        ~JobList();
+        void push(Job * job);
+        Job* pop();
+        Job* pop_priv( uint16_t id );
+        Job* pop_pub( uint16_t id );
+        Job* pop_done();
+        bool empty() const;
+
+    private:
+        std::list<Job*> entries_;
+        mutable std::mutex mutex_;
+};
 
 class Processor
 {
@@ -41,9 +63,18 @@ class Processor
         bool console( const std::string &command );
 
     private:
-        std::list<Job*> pending_;
+        struct
+        {
+            JobList list;
+            std::condition_variable cond;
+            std::mutex mutex;
+        } idle_, pending_, done_;
         std::mutex mutex_;
-        UDP *conn_;
+        struct
+        {
+            UDP *pub; // used to communicate with clients
+            UDP *priv; // used to communicate with external DNS
+        } conn_;
         ipv4_t bindIP_;
         Cache *cache_;
         Resolver *resolver_;
@@ -63,6 +94,15 @@ class Processor
             const Endpoint &endpoint );
         bool load_rules( const std::vector<std::string> &fileNames, Tree<uint8_t> &tree );
         static std::string realPath( const std::string &path );
+
+        // receive DNS queries and put in the idle list
+        void run_main();
+        // apply whitelist and blacklist
+        void run_idle();
+        // try to resolve (cache and external DNS)
+        void run_pending();
+        // get the external DNS response and send the answer
+        void run_done();
 
         friend struct ConsoleListener;
 };

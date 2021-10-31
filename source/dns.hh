@@ -40,6 +40,8 @@
 #define DNSB_STATUS_RECURSIVE    2
 #define DNSB_STATUS_NXDOMAIN     3
 #define DNSB_STATUS_FAILURE      4
+#define DNSB_STATUS_BLOCKED      5 // custom
+#define DNSB_STATUS_HEURISTIC    6 // custom
 
 #define DNS_RCODE_NOERROR        0
 #define DNS_RCODE_SERVFAIL       2
@@ -60,6 +62,7 @@ struct dns_header_t
     uint16_t arcount; // additional record count
 
     dns_header_t();
+    dns_header_t( const dns_header_t & ) = default;
     void read( buffer &bio );
     void write( buffer &bio );
 };
@@ -101,6 +104,7 @@ struct dns_message_t
     std::vector<dns_record_t> additional;
 
     dns_message_t();
+    dns_message_t( dns_message_t &&that );
     void swap( dns_message_t &that );
     void read( buffer &bio );
     void write( buffer &bio );
@@ -157,6 +161,7 @@ class Resolver
         //int resolve( const std::string &host, int type, std::string &name, Address &output );
         int resolve_ipv4( const std::string &host, std::string &name, ipv4_t &output );
         int resolve_ipv6( const std::string &host, std::string &name, ipv6_t &output );
+        static int initiate_recursive( UDP &conn, const std::string &host, int type, const ipv4_t &dnsAddress, uint16_t &id );
 
     private:
         struct

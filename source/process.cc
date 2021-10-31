@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <limits.h>
 #include <chrono>
+#include <atomic>
 #include <defs.hh>
 
 #ifdef __WINDOWS__
@@ -32,18 +33,19 @@ Processor::Processor( const Configuration &config, Console *console ) :
     useHeuristics_ = config.use_heuristics();
 
     bindIP_ = UDP::hostToIPv4(config.binding.address);
-	conn_ = new UDP();
-	if (!conn_->bind(config.binding.address, (uint16_t) config.binding.port))
+	conn_.pub = new UDP();
+	if (!conn_.pub->bind(config.binding.address, (uint16_t) config.binding.port))
     {
         #ifdef __WINDOWS__
 		LOG_MESSAGE("Unable to bind to %s:%d\n", config.binding.address.c_str(), config.binding.port());
 		#else
 		LOG_MESSAGE("Unable to bind to %s:%d: %s\n", config.binding.address.c_str(), config.binding.port(), strerror(errno));
 		#endif
-        delete conn_;
-		conn_ = nullptr;
+        delete conn_.pub;
+		conn_.pub = nullptr;
         throw std::runtime_error("Unable to bind");
     }
+	conn_.priv = new UDP();
 
     cache_ = new Cache(config.cache.limit(), config.cache.ttl * 1000);
     resolver_ = new Resolver(*cache_);
@@ -76,29 +78,84 @@ Processor::Processor( const Configuration &config, Console *console ) :
 
 Processor::~Processor()
 {
-	conn_->close();
-	delete conn_;
-	conn_ = nullptr;
+	conn_.pub->close();
+	delete conn_.pub;
+	conn_.pub = nullptr;
     delete cache_;
 	cache_ = nullptr;
 }
 
-
-void Processor::push( Job *job )
+JobList::~JobList()
 {
     std::lock_guard<std::mutex> guard(mutex_);
-    pending_.push_back(job);
+    for (auto item : entries_) delete item;
 }
 
-Job *Processor::pop()
+void JobList::push( Job *job )
 {
     std::lock_guard<std::mutex> guard(mutex_);
-    if (pending_.size() == 0) return nullptr;
-    Job *result = pending_.front();
-    pending_.pop_front();
+    entries_.push_back(job);
+}
+
+Job *JobList::pop()
+{
+    std::lock_guard<std::mutex> guard(mutex_);
+    if (entries_.size() == 0) return nullptr;
+    Job *result = entries_.front();
+    entries_.pop_front();
     return result;
 }
 
+Job *JobList::pop_priv( uint16_t id )
+{
+    std::lock_guard<std::mutex> guard(mutex_);
+    Job *result = nullptr;
+    if (entries_.size() == 0) return nullptr;
+    for (auto it = entries_.begin(); it != entries_.end(); ++it)
+        if ((*it)->priv_id == id)
+        {
+            result = *it;
+            entries_.erase(it);
+            return result;
+        }
+    return nullptr;
+}
+/*
+Job *JobList::pop_pub( uint16_t id )
+{
+    std::lock_guard<std::mutex> guard(mutex_);
+    Job *result = nullptr;
+    if (entries_.size() == 0) return nullptr;
+    for (auto it = entries_.begin(); it != entries_.end(); ++it)
+        if ((*it)->pub_id == id)
+        {
+            result = *it;
+            entries_.erase(it);
+            return result;
+        }
+    return nullptr;
+}*/
+
+Job *JobList::pop_done()
+{
+    std::lock_guard<std::mutex> guard(mutex_);
+    Job *result = nullptr;
+    if (entries_.size() == 0) return nullptr;
+    for (auto it = entries_.begin(); it != entries_.end(); ++it)
+        if ((*it)->result != DNSB_STATUS_RECURSIVE)
+        {
+            result = *it;
+            entries_.erase(it);
+            return result;
+        }
+    return nullptr;
+}
+
+bool JobList::empty() const
+{
+    std::lock_guard<std::mutex> guard(mutex_);
+    return entries_.empty();
+}
 
 bool Processor::load_rules( const std::vector<std::string> &fileNames, Tree<uint8_t> &tree )
 {
@@ -221,7 +278,7 @@ bool Processor::send_error(
     response.questions.push_back(request.questions[0]);
     response.header.rcode = (uint8_t) rcode;
     response.write(bio);
-    return conn_->send(endpoint, bio.data(), bio.cursor());
+    return conn_.priv->send(endpoint, bio.data(), bio.cursor());
 }
 
 bool Processor::isRandomDomain( std::string name )
@@ -355,6 +412,7 @@ static void print_request( const std::string &host, const std::string &remote, c
     }
 }
 
+#if 0
 void Processor::process(
     Processor *object,
     int num,
@@ -464,6 +522,7 @@ void Processor::process(
         delete job;
     }
 }
+#endif
 
 struct process_unit_t
 {
@@ -471,48 +530,271 @@ struct process_unit_t
     std::mutex mutex;
 };
 
-void Processor::run(int nthreads)
+static void print_job( const std::string &msg, Job &job )
 {
-    std::string lastName;
+    std::cout << msg << "\n   [pub_id=" << job.request.header.id << "  priv_id=" << job.priv_id << "  domain='" << job.request.questions[0].qname << "']\n";
+}
+
+void Processor::run_main()
+{
     Endpoint endpoint;
-    std::vector<process_unit_t> pool(nthreads);
-    std::condition_variable cond;
-
-    running_ = true;
-    for (int i = 0; i < nthreads; ++i)
-        pool[i].thread = new std::thread(process, this, i + 1, &pool[i].mutex, &cond);
-
-    LOG_MESSAGE("Spawning %d threads to handle requests\n", nthreads);
 
     while (running_)
     {
+        if (!conn_.pub->poll(2000)) continue;
+
         // receive the UDP message
         buffer bio;
         size_t size = bio.size();
-        if (!conn_->receive(endpoint, bio.data(), &size, 2000)) continue;
+        if (!conn_.pub->receive(endpoint, bio.data(), &size, 1000)) continue;
         bio.resize(size);
 
         // parse the message
         dns_message_t request;
         request.read(bio);
-
         // ignore messages with the number of questions other than 1
         int type = 0;
         if (request.questions.size() == 1) type = request.questions[0].type;
         if (type == DNS_TYPE_A || (config_.use_ipv6 && type == DNS_TYPE_AAAA))
         {
-            push( new Job(endpoint, request) );
-            cond.notify_all();
+            std::cout << __FUNCTION__ << ": got something\n";
+            idle_.list.push( new Job(endpoint, request) );
+            idle_.cond.notify_all();
         }
         else
             send_error(request, DNS_RCODE_REFUSED, endpoint);
     }
+}
 
-    for (int i = 0; i < nthreads; ++i)
+void Processor::run_idle()
+{
+    std::unique_lock<std::mutex> guard(idle_.mutex);
+
+    while (running_)
     {
-        cond.notify_all();
-        pool[i].thread->join();
-        delete pool[i].thread;
+        Job *job = idle_.list.pop();
+        if (job == nullptr)
+        {
+            idle_.cond.wait_for(guard, std::chrono::seconds(1));
+            continue;
+        }
+print_job("run_idle got", *job);
+        const dns_message_t &request = job->request;
+        bool is_heuristic = false;
+        bool is_blocked = false;
+
+        // check whether the domain is blocked
+        if (useFiltering_)
+        {
+            if (whitelist_.match(request.questions[0].qname) == nullptr)
+            {
+                if (useHeuristics_)
+                    is_blocked = is_heuristic = isRandomDomain(request.questions[0].qname);
+                if (!is_blocked)
+                    is_blocked = blacklist_.match(request.questions[0].qname) != nullptr;
+            }
+        }
+
+        // if the domain is blocked, returns an 'invalid' IP address
+        if (is_heuristic)
+            job->result = DNSB_STATUS_HEURISTIC;
+        else
+        if (is_blocked)
+            job->result = DNSB_STATUS_BLOCKED;
+        else
+        // assume NXDOMAIN for domains without dots (e.g. local host names)
+        // otherwise we try the external DNS
+        if (request.questions[0].qname.find('.') == std::string::npos)
+            job->result = DNSB_STATUS_NXDOMAIN;
+        else
+        if (request.header.flags & DNS_FLAG_RD)
+            job->result = DNSB_STATUS_RECURSIVE;
+        else
+            job->result = DNSB_STATUS_NXDOMAIN;
+
+        if (job->result == DNSB_STATUS_RECURSIVE)
+        {
+            std::cout << "Job is going to pending ->" << job->result << '\n';
+            pending_.list.push(job);
+            pending_.cond.notify_all();
+        }
+        else
+        {
+            std::cout << "Job is going to done ->" << job->result << '\n';
+            done_.list.push(job);
+            done_.cond.notify_all();
+        }
+    }
+}
+
+void Processor::run_pending()
+{
+    std::unique_lock<std::mutex> guard(pending_.mutex);
+    auto default_dns_ = named_value<ipv4_t>("default", UDP::hostToIPv4("8.8.8.8"));
+
+    while (running_)
+    {
+        Job *job = pending_.list.pop();
+        if (job == nullptr)
+        {
+            pending_.cond.wait_for(guard, std::chrono::seconds(1));
+            continue;
+        }
+print_job("run_pending got", *job);
+        // should never happen
+        if (job->result != DNSB_STATUS_RECURSIVE)
+        {
+            done_.list.push(job);
+            done_.cond.notify_all();
+            continue;
+        }
+
+        const dns_message_t &request = job->request;
+        std::string domain = request.questions[0].qname;
+
+        // check wheter we have a match in the cache
+        if (request.questions[0].type == ADDR_TYPE_AAAA)
+            job->result = cache_->find(domain, &job->ipv6);
+        else
+            job->result = cache_->find(domain, &job->ipv4);
+        // if we have a cache miss try to solve with external DNS
+        if (job->result != DNSB_STATUS_FAILURE)
+            job->result = DNSB_STATUS_CACHE;
+        else
+            job->result = Resolver::initiate_recursive(*conn_.priv, domain, request.questions[0].type,
+                default_dns_.value, job->priv_id);
+
+        done_.list.push(job);
+        done_.cond.notify_all();
+    }
+}
+
+static void answer( UDP &conn, dns_message_t &request, Endpoint &endpoint, const ipv4_t &ipv4, const ipv6_t &ipv6 )
+{
+    // response message
+    buffer bio;
+    dns_message_t response;
+    response.header.id = request.header.id;
+    response.header.flags |= DNS_FLAG_QR;
+    if (request.header.flags & DNS_FLAG_RD)
+    {
+        response.header.flags |= DNS_FLAG_RA;
+        response.header.flags |= DNS_FLAG_RD;
+    }
+    // copy the request question
+    response.questions.push_back(request.questions[0]);
+    dns_record_t answer;
+    answer.qname = request.questions[0].qname;
+    answer.type = request.questions[0].type;
+    answer.clazz = request.questions[0].clazz;
+    answer.ttl = DNS_ANSWER_TTL;
+    if (request.questions[0].type == ADDR_TYPE_AAAA)
+        memcpy(answer.rdata, ipv6.values, 16);
+    else
+        memcpy(answer.rdata, ipv4.values, 4);
+    response.answers.push_back(answer);
+
+    response.write(bio);
+    conn.send(endpoint, bio.data(), bio.cursor());
+}
+
+void Processor::run_done()
+{
+    static constexpr int CYCLE_SIZE = 5;
+    std::unique_lock<std::mutex> guard(done_.mutex);
+    ipv4_t ipv4;
+    ipv6_t ipv6;
+
+    while (running_)
+    {
+        if (done_.list.empty())
+            done_.cond.wait_for(guard, std::chrono::seconds(1));
+
+        for (int i = 0; i < CYCLE_SIZE * 2; ++i)
+        {
+            auto job = done_.list.pop_done();
+            if (job == nullptr) break;
+print_job("run_done got", *job);
+            if (job->result == DNSB_STATUS_HEURISTIC || job->result == DNSB_STATUS_BLOCKED)
+            {
+                if (job->request.questions[0].type == ADDR_TYPE_AAAA)
+                    job->ipv6 = IPV6_BLOCK_ADDRESS;
+                else
+                    job->ipv4 = IPV4_BLOCK_ADDRESS;
+                answer(*conn_.pub, job->request, job->endpoint, job->ipv4, job->ipv6);
+            }
+            else
+            if (job->result == DNSB_STATUS_CACHE)
+                answer(*conn_.pub, job->request, job->endpoint, job->ipv4, job->ipv6);
+            else
+            if (job->result == DNSB_STATUS_FAILURE)
+                send_error(job->request, DNS_RCODE_SERVFAIL, job->endpoint);
+            else
+                send_error(job->request, DNS_RCODE_NXDOMAIN, job->endpoint);
+        }
+
+        if (done_.list.empty()) continue;
+
+        for (int i = 0; i < CYCLE_SIZE; ++i)
+        {
+            if (!conn_.priv->poll(500)) break;
+
+            // receive the UDP message
+            Endpoint endpoint;
+            buffer bio;
+            size_t size = bio.size();
+            if (!conn_.priv->receive(endpoint, bio.data(), &size, 1000)) break;
+            bio.resize(size);
+            // parse the message
+            dns_message_t response;
+            response.read(bio);
+
+std::cout << "run_done: got DNS response (id = " << response.header.id << "\n";
+            Job *job = done_.list.pop_priv(response.header.id);
+            if (job == nullptr) continue;
+print_job("run_done got", *job);
+            // use the first compatible answer
+            if (response.header.rcode == 0 &&
+                response.answers.size() > 0 &&
+                response.questions.size() == 1 &&
+                response.questions[0].qname == job->request.questions[0].qname)
+            {
+                for (auto it = response.answers.begin(); it != response.answers.end(); ++it)
+                {
+                    if (it->type == job->request.questions[0].type)
+                    {
+                        if (it->type == ADDR_TYPE_AAAA)
+                            ipv6 = ipv6_t((uint16_t*)it->rdata);
+                        else
+                            ipv4 = ipv4_t(it->rdata);
+                        answer(*conn_.pub, job->request, job->endpoint, ipv4, ipv6);
+                        break;
+                    }
+                }
+            }
+
+            delete job;
+        }
+
+        // TODO: handle expired jobs
+    }
+}
+
+void Processor::run(int nthreads)
+{
+    running_ = true;
+
+    std::thread *pool[3];
+    pool[0] = new std::thread( [this]() { this->run_idle(); } );
+    pool[1] = new std::thread( [this]() { this->run_pending(); } );
+    pool[2] = new std::thread( [this]() { this->run_done(); } );
+
+    run_main();
+
+    for (int i = 0; i < 3; ++i)
+    {
+        pool[i]->join();
+        delete pool[i];
     }
 }
 

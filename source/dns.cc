@@ -107,6 +107,10 @@ dns_message_t::dns_message_t()
 {
 }
 
+dns_message_t::dns_message_t( dns_message_t &&that )
+{
+    swap(that);
+}
 
 void dns_message_t::swap( dns_message_t &that )
 {
@@ -339,12 +343,40 @@ void Cache::cleanup( uint32_t ttl )
 
 Resolver::Resolver( Cache &cache, int timeout ) : cache_(cache), timeout_(timeout)
 {
-    default_dns_ = named_value<ipv4_t>("default", UDP::hostToIPv4("8.8.4.4"));
+    default_dns_ = named_value<ipv4_t>("default", UDP::hostToIPv4("8.8.8.8"));
     hits_.cache = hits_.external = 0;
 }
 
 Resolver::~Resolver()
 {
+}
+
+int Resolver::initiate_recursive( UDP &conn, const std::string &host, int type, const ipv4_t &dnsAddress, uint16_t &id )
+{
+    static std::atomic<uint16_t> lastId(1);
+
+    // build the query message
+    dns_message_t message;
+    id = message.header.id = lastId.fetch_add(1);
+    if (message.header.id == 0)
+        id = message.header.id = lastId.fetch_add(1);
+    message.header.flags |= DNS_FLAG_RD;
+    message.header.flags |= DNS_FLAG_AD;
+    dns_question_t question;
+    question.qname = host;
+    question.type = (uint16_t) type;
+    question.clazz = 1;
+    message.questions.push_back(question);
+    // encode the message
+    buffer bio;
+    message.write(bio);
+
+    // send the query to the recursive DNS
+    Endpoint endpoint(dnsAddress, 53);
+    std::cout << endpoint.address.to_string() << '\n';
+	if (!conn.send(endpoint, bio.data(), bio.cursor()))
+        return DNSB_STATUS_FAILURE;
+    return DNSB_STATUS_RECURSIVE;
 }
 
 int Resolver::recursive( const std::string &host, int type, const ipv4_t &dnsAddress, ipv4_t *ipv4, ipv6_t *ipv6 )
