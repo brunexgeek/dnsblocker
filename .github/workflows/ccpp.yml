@@ -6,12 +6,12 @@ jobs:
   build:
 
     runs-on: ubuntu-18.04
-    
+
     steps:
     - uses: actions/checkout@v1
     - name: dependencies
       run: sudo apt-get install cmake make g++
     - name: prepare
-      run: cmake .
+      run: cmake -DENABLE_IPV6=TRUE .
     - name: compilation
       run: make

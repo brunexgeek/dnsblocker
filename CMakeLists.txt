@@ -11,7 +11,8 @@ add_definitions(-DDNSB_VERSION="${DNSB_MAJOR_VERSION}.${DNSB_MINOR_VERSION}.${DN
 set(CMAKE_BUILD_TYPE "Release"  CACHE STRING  "Specify the build type")
 set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release")
 
-set(ENABLE_DNS_CONSOLE TRUE CACHE BOOLEAN "Enable to manage the server using HTTP REST")
+set(ENABLE_DNS_CONSOLE TRUE CACHE BOOL "Enable to manage the server using HTTP REST")
+set(ENABLE_IPV6 FALSE CACHE BOOL "Enable support for IPv6")
 
 if (CMAKE_BUILD_TYPE STREQUAL "")
     message(STATUS "No build type selected, default to 'Release'")

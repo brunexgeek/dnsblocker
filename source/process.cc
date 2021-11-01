@@ -16,9 +16,11 @@
 namespace dnsblocker {
 
 static const uint8_t IPV4_BLOCK_VALUES[] = DNS_BLOCKED_IPV4_ADDRESS;
-static const uint16_t IPV6_BLOCK_VALUES[] = DNS_BLOCKED_IPV6_ADDRESS;
 static const ipv4_t IPV4_BLOCK_ADDRESS(IPV4_BLOCK_VALUES);
+#ifdef ENABLE_IPV6
+static const uint16_t IPV6_BLOCK_VALUES[] = DNS_BLOCKED_IPV6_ADDRESS;
 static const ipv6_t IPV6_BLOCK_ADDRESS(IPV6_BLOCK_VALUES);
+#endif
 
 Processor::Processor( const Configuration &config, Console *console ) :
     config_(config), running_(false), useHeuristics_(false), useFiltering_(true),
@@ -273,9 +275,19 @@ bool Processor::isRandomDomain( std::string name )
     return false;
 }
 
-static void print_request( const std::string &host, const std::string &remote, const std::string &dns_name,
-    int type, const Configuration &config, bool is_blocked, int result, ipv4_t &ipv4, ipv6_t &ipv6,
-    bool is_heuristic, bool colors )
+static void print_request(
+    const std::string &host,
+    const std::string &remote,
+    const std::string &dns_name,
+    int type, const Configuration &config,
+    bool is_blocked,
+    int result,
+    ipv4_t &ipv4,
+#ifdef ENABLE_IPV6
+    ipv6_t &ipv6,
+#endif
+    bool is_heuristic,
+    bool colors )
 {
     const char *COLOR_RED = "\033[31m";
     const char *COLOR_YELLOW = "\033[33m";
@@ -290,12 +302,14 @@ static void print_request( const std::string &host, const std::string &remote, c
         COLOR_RESET = "";
     }
 
-    static const char *IPV4_FORMAT = "%s%-15s  %s %c  %-8s  %-15s  %s%s\n";
-    static const char *IPV6_FORMAT = "%s%-40s  %s %c  %-8s  %-40s  %s%s\n";
     static const char *FORMAT = nullptr;
+    static const char *IPV4_FORMAT = "%s%-15s  %s %c  %-8s  %-15s  %s%s\n";
+    #ifdef ENABLE_IPV6
+    static const char *IPV6_FORMAT = "%s%-40s  %s %c  %-8s  %-40s  %s%s\n";
     if (config.use_ipv6)
         FORMAT = IPV6_FORMAT;
     else
+    #endif
         FORMAT = IPV4_FORMAT;
 
     const char *status = nullptr;
@@ -337,17 +351,25 @@ static void print_request( const std::string &host, const std::string &remote, c
         std::string addr;
         if (result == DNSB_STATUS_CACHE || result == DNSB_STATUS_RECURSIVE)
         {
+            #ifdef ENABLE_IPV6
             if (type == ADDR_TYPE_AAAA)
                 addr = ipv6.to_string();
             else
+            #endif
                 addr = ipv4.to_string();
         }
+
+        #ifdef ENABLE_IPV6
+        char proto = (type == ADDR_TYPE_AAAA) ? '6' : '4';
+        #else
+        char proto = '4';
+        #endif
 
         LOG_EVENT(FORMAT,
             color,
             remote.c_str(),
             status,
-            (type == ADDR_TYPE_AAAA) ? '6' : '4',
+            proto,
             (is_heuristic) ? "*" : dns_name.c_str(),
             addr.c_str(),
             host.c_str(),
@@ -376,7 +398,9 @@ void Processor::process(
         Endpoint &endpoint = job->endpoint;
         dns_message_t &request = job->request;
         ipv4_t ipv4;
+        #ifdef ENABLE_IPV6
         ipv6_t ipv6;
+        #endif
         std::string dns_name;
         int result = DNSB_STATUS_FAILURE;
         bool is_heuristic = false;
@@ -397,9 +421,11 @@ void Processor::process(
         // if the domain is blocked, returns an 'invalid' IP address
         if (is_blocked)
         {
+            #ifdef ENABLE_IPV6
             if (request.questions[0].type == ADDR_TYPE_AAAA)
                 ipv6 = IPV6_BLOCK_ADDRESS;
             else
+            #endif
                 ipv4 = IPV4_BLOCK_ADDRESS;
         }
         else
@@ -411,9 +437,11 @@ void Processor::process(
             else
             if (request.header.flags & DNS_FLAG_RD)
             {
+                #ifdef ENABLE_IPV6
                 if (request.questions[0].type == ADDR_TYPE_AAAA)
                     result = object->resolver_->resolve_ipv6(request.questions[0].qname, dns_name, ipv6);
                 else
+                #endif
                     result = object->resolver_->resolve_ipv4(request.questions[0].qname, dns_name, ipv4);
             }
             else
@@ -421,8 +449,19 @@ void Processor::process(
         }
 
         // print information about the request
-        print_request(request.questions[0].qname, endpoint.address.to_string(), dns_name, request.questions[0].type, object->config_,
-            is_blocked, result, ipv4, ipv6, is_heuristic, false);
+        print_request(request.questions[0].qname,
+            endpoint.address.to_string(),
+            dns_name,
+            request.questions[0].type,
+            object->config_,
+            is_blocked,
+            result,
+            ipv4,
+            #ifdef ENABLE_IPV6
+            ipv6,
+            #endif
+            is_heuristic,
+            false);
 
         // send the response
         if (!is_blocked && result != DNSB_STATUS_CACHE && result != DNSB_STATUS_RECURSIVE)
@@ -451,9 +490,11 @@ void Processor::process(
             answer.type = request.questions[0].type;
             answer.clazz = request.questions[0].clazz;
             answer.ttl = DNS_ANSWER_TTL;
+            #ifdef ENABLE_IPV6
             if (request.questions[0].type == ADDR_TYPE_AAAA)
                 memcpy(answer.rdata, ipv6.values, 16);
             else
+            #endif
                 memcpy(answer.rdata, ipv4.values, 4);
             response.answers.push_back(answer);
 
@@ -499,7 +540,11 @@ void Processor::run(int nthreads)
         // ignore messages with the number of questions other than 1
         int type = 0;
         if (request.questions.size() == 1) type = request.questions[0].type;
+        #ifdef ENABLE_IPV6
         if (type == DNS_TYPE_A || (config_.use_ipv6 && type == DNS_TYPE_AAAA))
+        #else
+        if (type == DNS_TYPE_A)
+        #endif
         {
             push( new Job(endpoint, request) );
             cond.notify_all();

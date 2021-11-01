@@ -46,8 +46,9 @@ dns_question_t::dns_question_t( const dns_question_t &obj )
 
 dns_record_t::dns_record_t()
 {
-    type = clazz = 0;
+    type = clazz = rdlen = 0;
     ttl = 0;
+    memset(rdata, 0, sizeof(rdata));
 }
 
 void dns_header_t::read(
@@ -165,8 +166,7 @@ void dns_message_t::print() const
 }
 
 
-void dns_record_t::write(
-    buffer &bio )
+void dns_record_t::write( buffer &bio )
 {
     bio.writeQName(qname);
     bio.writeU16(type);
@@ -179,6 +179,7 @@ void dns_record_t::write(
             bio.writeU8(rdata[i]);
     }
     else
+    #ifdef ENABLE_IPV6
     if (type == ADDR_TYPE_AAAA)
     {
         const uint16_t *ptr = (const uint16_t*) rdata;
@@ -187,6 +188,7 @@ void dns_record_t::write(
             bio.writeU16(ptr[i]);
     }
     else
+    #endif
     {
         // never should get here!
         bio.writeU16(4);
@@ -194,8 +196,7 @@ void dns_record_t::write(
     }
 }
 
-void dns_record_t::read(
-    buffer &bio )
+void dns_record_t::read( buffer &bio )
 {
     qname = bio.readQName();
     type = bio.readU16();
@@ -208,6 +209,7 @@ void dns_record_t::read(
             rdata[i] = bio.readU8();
     }
     else
+    #ifdef ENABLE_IPV6
     if (rdlen == 16)
     {
         uint16_t *ptr = (uint16_t*) rdata;
@@ -215,6 +217,7 @@ void dns_record_t::read(
             ptr[i] = bio.readU16();
     }
     else
+    #endif
         bio.skip(rdlen);
 }
 
@@ -260,7 +263,11 @@ Cache::~Cache()
 
 int Cache::find( const std::string &host, ipv4_t *value )
 {
+    #ifdef ENABLE_IPV6
     if (get(host, value, nullptr))
+    #else
+    if (get(host, value))
+    #endif
     {
         if (value->operator==(ipv4_t::NXDOMAIN))
             return DNSB_STATUS_NXDOMAIN;
@@ -272,6 +279,7 @@ int Cache::find( const std::string &host, ipv4_t *value )
     return DNSB_STATUS_FAILURE;
 }
 
+#ifdef ENABLE_IPV6
 int Cache::find( const std::string &host, ipv6_t *value )
 {
     if (get(host, nullptr, value))
@@ -285,10 +293,20 @@ int Cache::find( const std::string &host, ipv6_t *value )
     }
     return DNSB_STATUS_FAILURE;
 }
+#endif
 
+#ifdef ENABLE_IPV6
 bool Cache::get( const std::string &host, ipv4_t *ipv4, ipv6_t *ipv6 )
+#else
+bool Cache::get( const std::string &host, ipv4_t *ipv4 )
+#endif
 {
-    if ((!ipv4 && !ipv6) || host.empty()) return false;
+    #ifdef ENABLE_IPV6
+    if (!ipv4 && !ipv6) return false;
+    #else
+    if (!ipv4) return false;
+    #endif
+    if (host.empty()) return false;
     uint64_t now = dns_time();
 
     std::shared_lock<std::shared_mutex> guard(lock_);
@@ -301,7 +319,9 @@ bool Cache::get( const std::string &host, ipv4_t *ipv4, ipv6_t *ipv6 )
         if (now <= it->second.timestamp + ttl_)
         {
             if (ipv4) *ipv4 = it->second.ipv4;
+            #ifdef ENABLE_IPV6
             if (ipv6) *ipv6 = it->second.ipv6;
+            #endif
             it->second.timestamp = now;
             //std::cerr << "Found cache for " << host << ": ipv4=" << ipv4->to_string() << "  ipv6=" << ipv6->to_string() << std::endl;
             return true;
@@ -347,7 +367,11 @@ Resolver::~Resolver()
 {
 }
 
+#ifdef ENABLE_IPV6
 int Resolver::recursive( const std::string &host, int type, const ipv4_t &dnsAddress, ipv4_t *ipv4, ipv6_t *ipv6 )
+#else
+int Resolver::recursive( const std::string &host, int type, const ipv4_t &dnsAddress, ipv4_t *ipv4 )
+#endif
 {
     static std::atomic<uint16_t> lastId(1);
 
@@ -376,7 +400,7 @@ int Resolver::recursive( const std::string &host, int type, const ipv4_t &dnsAdd
     bio.reset();
 
     size_t size = bio.size();
-	if (!conn.receive(endpoint, bio.data(), &size)) return DNSB_STATUS_FAILURE;
+	if (!conn.receive(endpoint, bio.data(), &size, 0)) return DNSB_STATUS_FAILURE;
     bio.resize(size);
 
     // decode the response
@@ -392,9 +416,11 @@ int Resolver::recursive( const std::string &host, int type, const ipv4_t &dnsAdd
         {
             if (it->type == type)
             {
+                #ifdef ENABLE_IPV6
                 if (type == ADDR_TYPE_AAAA)
                     *ipv6 = ipv6_t((uint16_t*)it->rdata);
                 else
+                #endif
                     *ipv4 = ipv4_t(it->rdata);
                 return DNSB_STATUS_RECURSIVE;
             }
@@ -417,26 +443,49 @@ int Resolver::resolve_ipv4( const std::string &host, std::string &name, ipv4_t &
     auto node = target_dns_.match(host);
     if (node != nullptr && !node->value.value.empty())
     {
-        result = recursive(host, ADDR_TYPE_A, node->value.value, &output, nullptr);
+        result = recursive(host,
+            ADDR_TYPE_A,
+            node->value.value,
+            &output
+            #ifdef ENABLE_IPV6
+            , nullptr
+            #endif
+            );
         if (result == DNSB_STATUS_RECURSIVE) name = node->value.name;
     }
     // try to resolve the domain using the defaylt external DNS
     if (result != DNSB_STATUS_RECURSIVE)
     {
-        result = recursive(host, ADDR_TYPE_A, default_dns_.value, &output, nullptr);
+        result = recursive(host,
+            ADDR_TYPE_A,
+            default_dns_.value,
+            &output
+            #ifdef ENABLE_IPV6
+            ,nullptr
+            #endif
+            );
         if (result == DNSB_STATUS_RECURSIVE) name = default_dns_.name;
     }
 
     if (result == DNSB_STATUS_FAILURE) return result;
 
     if (result == DNSB_STATUS_RECURSIVE)
+        #ifdef ENABLE_IPV6
         cache_.add(host, &output, nullptr);
+        #else
+        cache_.add(host, &output);
+        #endif
     else
+        #ifdef ENABLE_IPV6
         cache_.add(host, &ipv4_t::NXDOMAIN, nullptr);
+        #else
+        cache_.add(host, &ipv4_t::NXDOMAIN);
+        #endif
 
     return result;
 }
 
+#ifdef ENABLE_IPV6
 int Resolver::resolve_ipv6( const std::string &host, std::string &name, ipv6_t &output )
 {
     output.clear();
@@ -469,6 +518,7 @@ int Resolver::resolve_ipv6( const std::string &host, std::string &name, ipv6_t &
 
     return result;
 }
+#endif
 
 void Cache::dump( std::ostream &out )
 {
@@ -485,11 +535,13 @@ void Cache::dump( std::ostream &out )
             out << "{\"ver\":\"4\",\"addr\":\"" << it.second.ipv4.to_string() << "\",\"name\":\"" << it.first << "\"}";
         }
 
+        #ifdef ENABLE_IPV6
         if (!it.second.ipv6.empty())
         {
             if (!it.second.ipv4.empty()) out << ',';
             out << "{\"ver\":\"6\",\"addr\":\"" << it.second.ipv6.to_string() << "\",\"name\":\"" << it.first << "\"}";
         }
+        #endif
 
         first = false;
     }
@@ -517,7 +569,11 @@ void Resolver::set_dns( const std::string &dns, const std::string &name, const s
     target_dns_.add(rule, named_value<ipv4_t>(name, UDP::hostToIPv4(dns)));
 }
 
+#ifdef ENABLE_IPV6
 void Cache::add( const std::string &host, const ipv4_t *ipv4, const ipv6_t *ipv6 )
+#else
+void Cache::add( const std::string &host, const ipv4_t *ipv4 )
+#endif
 {
     std::unique_lock<std::shared_mutex> guard(lock_);
 
@@ -525,14 +581,18 @@ void Cache::add( const std::string &host, const ipv4_t *ipv4, const ipv6_t *ipv6
     if (it != cache_.end())
     {
         if (ipv4) it->second.ipv4 = *ipv4;
+        #ifdef ENABLE_IPV6
         if (ipv6) it->second.ipv6 = *ipv6;
+        #endif
         it->second.timestamp = dns_time();
     }
     else
     {
         CacheEntry entry;
         if (ipv4) entry.ipv4 = *ipv4;
+        #ifdef ENABLE_IPV6
         if (ipv6) entry.ipv6 = *ipv6;
+        #endif
         entry.timestamp = dns_time();
         cache_.insert(std::pair<std::string, CacheEntry>(host, entry));
     }

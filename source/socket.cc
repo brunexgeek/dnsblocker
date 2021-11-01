@@ -180,6 +180,8 @@ std::string ipv4_t::to_string() const
 // ipv6_t
 //
 
+#ifdef ENABLE_IPV6
+
 static const uint16_t IPV6_NXDOMAIN[] = DNS_NXDOMAIN_IPV6_ADDRESS;
 const ipv6_t ipv6_t::NXDOMAIN(IPV6_NXDOMAIN);
 
@@ -233,6 +235,8 @@ std::string ipv6_t::to_string() const
 		values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7]);
 	return output;
 }
+
+#endif
 
 //
 // Endpoint
@@ -302,7 +306,7 @@ bool UDP::receive( Endpoint &endpoint, uint8_t *data, size_t *size, int timeout 
     struct sockaddr_in address;
 	TYPE_SOCKETLEN length = sizeof(address);
 
-	if (!poll(timeout)) return false;
+	if (timeout > 0 && !poll(timeout)) return false;
 
     int result = (int) recvfrom(CTX.socketfd, (char*) data, (int) *size, 0,
         (struct sockaddr *) &address, &length);
