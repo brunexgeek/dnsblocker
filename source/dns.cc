@@ -323,20 +323,21 @@ bool Cache::get( const std::string &host, ipv4_t *ipv4 )
             if (ipv6) *ipv6 = it->second.ipv6;
             #endif
             it->second.timestamp = now;
-            //std::cerr << "Found cache for " << host << ": ipv4=" << ipv4->to_string() << "  ipv6=" << ipv6->to_string() << std::endl;
             return true;
         }
     }
     return false;
 }
 
-void Cache::reset()
+size_t Cache::reset()
 {
     std::unique_lock<std::shared_mutex> guard(lock_);
+    auto size = cache_.size();
     cache_.clear();
+    return size;
 }
 
-void Cache::cleanup( uint32_t ttl )
+size_t Cache::cleanup( uint32_t ttl )
 {
     if (ttl <= 0) ttl = ttl_;
 
@@ -352,9 +353,11 @@ void Cache::cleanup( uint32_t ttl )
         else
              ++it;
     }
+    count = count - cache_.size();
 
-    if (count != cache_.size())
-        LOG_MESSAGE("\nCache: removed %d entries and kept %d entries\n\n", count - cache_.size(), cache_.size());
+    if (count != 0)
+        LOG_MESSAGE("\nCache: removed %d entries and kept %d entries\n\n", count, cache_.size());
+    return count;
 }
 
 Resolver::Resolver( Cache &cache, int timeout ) : cache_(cache), timeout_(timeout)

@@ -145,8 +145,8 @@ struct Cache
         void add( const std::string &host, const ipv4_t *ipv4 );
         #endif
         void dump( std::ostream &out );
-        void cleanup( uint32_t ttl );
-        void reset();
+        size_t cleanup( uint32_t ttl );
+        size_t reset();
 
     private:
         int size_;

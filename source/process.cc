@@ -175,12 +175,6 @@ bool Processor::console( const std::string &command )
         cache_->reset(); // TODO: we really need this?
     }
     else
-    if (command == "forget")
-    {
-        cache_->reset();
-        LOG_MESSAGE("\nCONSOLE: Cache reset\n");
-    }
-    else
     if (command == "filter/on")
     {
         LOG_MESSAGE("\nCONSOLE: Filtering enabled\n");
