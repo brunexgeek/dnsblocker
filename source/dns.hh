@@ -84,7 +84,11 @@ struct dns_record_t
     uint16_t clazz;
     uint32_t ttl;
     uint16_t rdlen;
+    #ifdef ENABLE_IPV6
     uint8_t rdata[16];  // IPv4 or IPv6
+    #else
+    uint8_t rdata[4];  // IPv4
+    #endif
 
     dns_record_t();
     void read( buffer &bio );
@@ -122,8 +126,10 @@ struct named_value
 struct CacheEntry
 {
     uint64_t timestamp;
-    ipv6_t ipv6;
     ipv4_t ipv4;
+    #ifdef ENABLE_IPV6
+    ipv6_t ipv6;
+    #endif
 };
 
 struct Cache
@@ -132,11 +138,15 @@ struct Cache
         Cache( int size = DNS_CACHE_LIMIT, int ttl = DNS_CACHE_TTL );
         ~Cache();
         int find( const std::string &host, ipv4_t *value );
+        #ifdef ENABLE_IPV6
         int find( const std::string &host, ipv6_t *value );
         void add( const std::string &host, const ipv4_t *ipv4, const ipv6_t *ipv6 );
+        #else
+        void add( const std::string &host, const ipv4_t *ipv4 );
+        #endif
         void dump( std::ostream &out );
-        void cleanup( uint32_t ttl );
-        void reset();
+        size_t cleanup( uint32_t ttl );
+        size_t reset();
 
     private:
         int size_;
@@ -144,19 +154,25 @@ struct Cache
         std::unordered_map<std::string, CacheEntry> cache_;
         std::shared_mutex lock_;
 
+        #ifdef ENABLE_IPV6
         bool get( const std::string &host, ipv4_t *ipv4, ipv6_t *ipv6 );
+        #else
+        bool get( const std::string &host, ipv4_t *ipv4 );
+        #endif
 };
 
 class Resolver
 {
     public:
-        Resolver( Cache &cache, int timeout = 1000 );
+        Resolver( Cache &cache, int timeout = DNS_TIMEOUT );
         ~Resolver();
         void set_dns( const std::string &dns, const std::string &name );
         void set_dns( const std::string &dns, const std::string &name, const std::string &rule );
         //int resolve( const std::string &host, int type, std::string &name, Address &output );
         int resolve_ipv4( const std::string &host, std::string &name, ipv4_t &output );
+        #ifdef ENABLE_IPV6
         int resolve_ipv6( const std::string &host, std::string &name, ipv6_t &output );
+        #endif
 
     private:
         struct
@@ -169,7 +185,11 @@ class Resolver
         Cache &cache_;
         int timeout_;
 
+        #ifdef ENABLE_IPV6
         int recursive( const std::string &host, int type, const ipv4_t &dnsAddress, ipv4_t *ipv4, ipv6_t *ipv6 );
+        #else
+        int recursive( const std::string &host, int type, const ipv4_t &dnsAddress, ipv4_t *ipv4 );
+        #endif
 };
 
 }

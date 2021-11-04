@@ -1,6 +1,7 @@
 #ifndef DNSB_SOCKET_HH
 #define DNSB_SOCKET_HH
 
+#include "defs.hh"
 #include <string>
 #include <stdint.h>
 
@@ -27,6 +28,7 @@ struct ipv4_t
 	std::string to_string() const;
 };
 
+#ifdef ENABLE_IPV6
 struct ipv6_t
 {
 	static const ipv6_t EMPTY;
@@ -43,6 +45,7 @@ struct ipv6_t
 	bool empty() const;
 	std::string to_string() const;
 };
+#endif
 
 struct Endpoint
 {
@@ -63,7 +66,7 @@ class UDP
 		~UDP();
 
 		bool send( const Endpoint &endpoint, const uint8_t *data, size_t size );
-		bool receive( Endpoint &endpoint, uint8_t *data, size_t *size, int timeout = 10000 );
+		bool receive( Endpoint &endpoint, uint8_t *data, size_t *size, int timeout = 0 );
 		bool poll( int timeout );
 		static ipv4_t hostToIPv4( const std::string &host );
 		void close();
@@ -74,4 +77,4 @@ class UDP
 };
 
 
-#endif //DNSB_SOCKET_HH
+#endif // DNSB_SOCKET_HH

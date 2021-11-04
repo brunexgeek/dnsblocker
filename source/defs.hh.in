@@ -19,10 +19,15 @@
 #define CONSOLE_IPV4_ADDRESS          "127.0.0.2"
 #define CONSOLE_IPV4_PORT             53022
 
+#cmakedefine ENABLE_IPV6
+
 #define DNS_CACHE_TTL                 (10 * 60) // 10 minutes
-#define DNS_CACHE_LIMIT               1000
+#ifdef ENABLE_IPV6
+  #define DNS_CACHE_LIMIT               2000
+#else
+  #define DNS_CACHE_LIMIT               5000
+#endif
 #define DNS_ANSWER_TTL                (3 * 60) // 3 minutes
-#define DNS_BUFFER_SIZE               1024
 #define DNS_TIMEOUT                   2000 // ms
 #define DNS_BUFFER_SIZE               1024 // bytes
 
@@ -34,5 +39,8 @@
 #define MONITOR_SHOW_NXDOMAIN    0x08
 #define MONITOR_SHOW_ALLOWED     (MONITOR_SHOW_RECURSIVE | MONITOR_SHOW_CACHE | MONITOR_SHOW_FAILURE | MONITOR_SHOW_NXDOMAIN)
 #define MONITOR_SHOW_DENIED      0x10
+
+#cmakedefine DNSB_BUILD_DEBUG
+#cmakedefine DNSB_BUILD_RELEASE
 
 #endif // DNSB_CONFIG_HH

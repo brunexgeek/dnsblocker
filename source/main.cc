@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200112L
 
 #include "defs.hh"
+#include "git.hh"
 
 #include <iostream>
 #include <cstdlib>
@@ -68,8 +69,7 @@ static std::string main_realPath( const std::string &path )
 
 #ifdef __WINDOWS__
 
-static BOOL WINAPI main_signalHandler(
-  _In_ DWORD dwCtrlType )
+static BOOL WINAPI main_signalHandler( _In_ DWORD dwCtrlType )
 {
 	(void) dwCtrlType;
     if (context.processor->finish()) exit(1);
@@ -86,14 +86,18 @@ static void main_signalHandler( int handle )
 
 #endif
 
+std::string main_info()
+{
+    std::stringstream out;
+    out << "dnsblocker " << DNSB_VERSION << " (" << GIT_HEAD_SHA1 << (GIT_IS_DIRTY?"-dirty":"") << ')';
+    return out.str();
+}
 
 void main_usage()
 {
-    std::cerr << "dnsblocker " << DNSB_VERSION << std::endl;
-    std::cout << "Usage: dnsblocker <configuration> [ <log directory> ]\n";
+    std::cout << main_info() << "\nUsage: dnsblocker <configuration> [ <log directory> ]\n";
     exit(EXIT_FAILURE);
 }
-
 
 void main_error( const std::string &message )
 {
@@ -101,9 +105,7 @@ void main_error( const std::string &message )
     exit(EXIT_FAILURE);
 }
 
-void main_parseArguments(
-    int argc,
-    char **argv )
+void main_parseArguments( int argc, char **argv )
 {
 	if (argc != 2 && argc != 3) main_usage();
 
@@ -126,11 +128,10 @@ Configuration main_defaultConfig()
     config.binding.address = "127.0.0.2";
     config.cache.limit = DNS_CACHE_LIMIT;
     config.cache.ttl = DNS_CACHE_TTL;
-    config.use_ipv6 = true;
+    config.use_ipv6 = false;
     config.threads = 2;
     return config;
 }
-
 
 static std::string main_basePath( const std::string &path )
 {
@@ -160,7 +161,7 @@ static std::string main_basePath( const std::string &path )
 
 void main_prepare()
 {
-    LOG_MESSAGE("\ndnsblocker %s\n\n", DNSB_VERSION);
+    LOG_MESSAGE(main_info().c_str());
 
     // extract the base path from the configuration file name
     context.basePath = context.configFileName = main_realPath(context.configFileName);
@@ -230,8 +231,6 @@ void main_prepare()
     }
 
     int flags = 0;
-    if (context.config.monitoring.empty())
-        context.config.monitoring.push_back("all");
     for (auto item : context.config.monitoring)
     {
         if (item == "allowed") flags |= MONITOR_SHOW_ALLOWED;
@@ -378,16 +377,14 @@ VOID WINAPI serviceMain( DWORD argc, LPSTR *argv )
 		return;
 	}
 
-	LOG_MESSAGE("dnsblocker %d.%d.%d (Windows Service)\n", MAJOR_VERSION, MINOR_VERSION, PATCH_VERSION);
-
 	main_prepare();
 	context.processor = new Processor(context.config);
 
     #ifdef ENABLE_DNS_CONSOLE
-    Console console(CONSOLE_IPV4_ADDRESS, CONSOLE_IPV4_PORT, *context.processor);
+    Console console(CONSOLE_IPV4_ADDRESS, CONSOLE_IPV4_PORT, *context.processor, context.logPath);
     console.start();
     #endif
-    context.processor->run();
+    context.processor->run(context.config.threads);
     #ifdef ENABLE_DNS_CONSOLE
     console.stop();
     #endif
@@ -409,7 +406,7 @@ int main(int argc, char **argv)
 	main_parseArguments(argc, argv);
 	Log::instance = new Log( context.logPath.c_str() );
 
-    LOG_MESSAGE("Windows service arguments:\n", i, argv[i]);
+    LOG_MESSAGE("Windows service arguments:\n");
 	for (int i = 0; i < argc; ++i)
 		LOG_MESSAGE("   argv[%d] = %s\n", i, argv[i]);
 

@@ -37,11 +37,19 @@ struct ConsoleListener : public webster::HttpListener
         return WBERR_OK;
     }
 
-    int return_ok( webster::Message &response )
+    int return_ok( webster::Message &response, const std::string &custom = "" )
     {
         response.header.status = 200;
         response.header.fields.set(WBFI_CONTENT_TYPE, "application/json");
-        response << "{\"status\":\"ok\"}";
+        response.write("{\"status\":\"ok\"");
+        if (!custom.empty())
+        {
+            response.write(",");
+            response.write(custom);
+            response.write("}");
+        }
+        else
+            response.write("}");
         return WBERR_OK;
     }
 
@@ -170,6 +178,12 @@ struct ConsoleListener : public webster::HttpListener
             else
             if (command == "cache")
                 return return_cache(response);
+            else
+            if (command == "cache/reset")
+            {
+                auto count = proc_.cache_->reset();
+                return return_ok(response, "\"removed\":" + std::to_string(count));
+            }
             else
             if (!proc_.console(command))
                 return return_error(response, 404, "Unable to process command '" + command + "'");
