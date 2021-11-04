@@ -164,7 +164,7 @@ struct Cache
 class Resolver
 {
     public:
-        Resolver( Cache &cache, int timeout = 1000 );
+        Resolver( Cache &cache, int timeout = DNS_TIMEOUT );
         ~Resolver();
         void set_dns( const std::string &dns, const std::string &name );
         void set_dns( const std::string &dns, const std::string &name, const std::string &rule );

@@ -364,6 +364,7 @@ Resolver::Resolver( Cache &cache, int timeout ) : cache_(cache), timeout_(timeou
 {
     default_dns_ = named_value<ipv4_t>("default", UDP::hostToIPv4("8.8.4.4"));
     hits_.cache = hits_.external = 0;
+    if (timeout_ < 0) timeout_ = 100;
 }
 
 Resolver::~Resolver()

@@ -128,7 +128,7 @@ Configuration main_defaultConfig()
     config.binding.address = "127.0.0.2";
     config.cache.limit = DNS_CACHE_LIMIT;
     config.cache.ttl = DNS_CACHE_TTL;
-    config.use_ipv6 = true;
+    config.use_ipv6 = false;
     config.threads = 2;
     return config;
 }
