@@ -383,10 +383,10 @@ VOID WINAPI serviceMain( DWORD argc, LPSTR *argv )
 	context.processor = new Processor(context.config);
 
     #ifdef ENABLE_DNS_CONSOLE
-    Console console(CONSOLE_IPV4_ADDRESS, CONSOLE_IPV4_PORT, *context.processor);
+    Console console(CONSOLE_IPV4_ADDRESS, CONSOLE_IPV4_PORT, *context.processor, context.logPath);
     console.start();
     #endif
-    context.processor->run();
+    context.processor->run(context.config.threads);
     #ifdef ENABLE_DNS_CONSOLE
     console.stop();
     #endif
@@ -408,7 +408,7 @@ int main(int argc, char **argv)
 	main_parseArguments(argc, argv);
 	Log::instance = new Log( context.logPath.c_str() );
 
-    LOG_MESSAGE("Windows service arguments:\n", i, argv[i]);
+    LOG_MESSAGE("Windows service arguments:\n");
 	for (int i = 0; i < argc; ++i)
 		LOG_MESSAGE("   argv[%d] = %s\n", i, argv[i]);
 
