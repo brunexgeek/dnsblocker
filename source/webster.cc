@@ -21,7 +21,6 @@
 #ifndef WEBSTER_STREAM_HH
 #define WEBSTER_STREAM_HH
 
-
 #include "webster.hh"
 
 #ifdef WB_WINDOWS
@@ -77,6 +76,7 @@ class DataStream
 		uint8_t *data_;
 		StreamType type_;
 		int count_;
+		int bufsize_;
 };
 
 }
@@ -259,9 +259,10 @@ class SocketNetwork : public Network
 namespace webster {
 
 DataStream::DataStream( Client &client, StreamType type ) : client_(client),
-	type_(type), count_(0)
+	type_(type), count_(0), bufsize_(0)
 {
-	data_ = new(std::nothrow) uint8_t[client_.get_parameters().buffer_size];
+	bufsize_ = client_.get_parameters().buffer_size;
+	data_ = new(std::nothrow) uint8_t[bufsize_];
 }
 
 DataStream::~DataStream()
@@ -283,17 +284,17 @@ int DataStream::write( const uint8_t *buffer, int size )
 	auto &params = client_.get_parameters();
 	int result = WBERR_OK;
 
-
-	int fit = params.buffer_size - count_;
+	int fit = bufsize_ - count_;
 	if (size >= fit)
 	{
-		flush();
-		while (size > (int) params.buffer_size)
+		result = flush();
+		if (result != WBERR_OK) return result;
+		while (size > (int) bufsize_)
 		{
-			result = params.network->send(client_.get_channel(), buffer, params.buffer_size, params.write_timeout);
+			result = params.network->send(client_.get_channel(), buffer, bufsize_, params.write_timeout);
 			if (result != WBERR_OK) return result;
-			buffer += params.buffer_size;
-			size -= params.buffer_size;
+			buffer += bufsize_;
+			size -= bufsize_;
 		}
 	}
 
@@ -376,9 +377,9 @@ int DataStream::read_line( char *buffer, int size )
 			}
 		}
 
-		if (count_ < params.buffer_size)
+		if (count_ < bufsize_)
 		{
-			int bytes = (int) (params.buffer_size - count_) - 1;
+			int bytes = (int) (bufsize_ - count_) - 1;
 			if (bytes == 0) return WBERR_TOO_LONG;
 
 			int result = params.network->receive(client_.get_channel(), data_ + count_, bytes, &bytes, params.read_timeout);
