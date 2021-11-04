@@ -231,8 +231,6 @@ void main_prepare()
     }
 
     int flags = 0;
-    if (context.config.monitoring.empty())
-        context.config.monitoring.push_back("all");
     for (auto item : context.config.monitoring)
     {
         if (item == "allowed") flags |= MONITOR_SHOW_ALLOWED;

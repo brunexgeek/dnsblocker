@@ -41,10 +41,10 @@ To configure `dnsblocker` you use pairs of key-value stored in a JSON file.
   * `failure` - show requests that failed
   * `nxdomain` - show requests for unknown domains
 * **cache** &ndash; Cache configuration.
-  * **ttl** &ndash; TTL (time to live) in seconds for DNS responses. The default value is 10 minutes (600 seconds).
-  * **limit** &ndash; Maximum number of entries in the cache. The default value is 1000.
-* **use_ipv6** &ndash; Enable support for IPv6 queries.
-* **threads** &ndash; Especify the amount of threads the program should spawn to handle requests. The default value is 2.
+  * **ttl** &ndash; TTL (time to live) in seconds for DNS entries in the cache. The default value is 10 minutes (600 seconds).
+  * **limit** &ndash; Maximum number of entries in the cache. The default value is 2000 if IPv6 is enable at compile time and 5000 otherwise.
+* **use_ipv6** &ndash; Enable IPv6 queries. Make sure the binary is compiled with IPv6 support.
+* **threads** &ndash; Especify the amount of threads the program should spawn to handle requests concurrently. The default value is 2.
 
 ```json
 {
