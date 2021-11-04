@@ -11,7 +11,7 @@ static constexpr const char *GIT_AUTHOR_NAME = "@GIT_AUTHOR_NAME@";
 static constexpr const char *GIT_AUTHOR_EMAIL = "@GIT_AUTHOR_EMAIL@";
 static constexpr const char *GIT_COMMIT_DATE_ISO8601 = "@GIT_COMMIT_DATE_ISO8601@";
 static constexpr const char *GIT_COMMIT_SUBJECT = "@GIT_COMMIT_SUBJECT@";
-static constexpr const char *GIT_COMMIT_BODY = "@GIT_COMMIT_BODY@";
+static constexpr const char *GIT_COMMIT_BODY = @GIT_COMMIT_BODY@;
 static constexpr const char *GIT_DESCRIBE = "@GIT_DESCRIBE@";
 #endif
 
