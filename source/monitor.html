@@ -1,0 +1,150 @@
+<html>
+    <head>
+        <title>dnsblocker</title>
+        <style type='text/css'>
+        body { font-family: sans-serif; font-size: 16px; }
+        #content { padding-top: 4em; }
+        #content p { font-family: monospace; line-height: 1.4em; margin: 0; white-space: pre; }
+        .de {background-color: rgb(251, 172, 172)}
+        .nx {background-color: rgb(251, 230, 172)}
+        .fa {background-color: rgb(223, 223, 223)}
+        .ibtn { background-color: #369; color: #fff; font-size: .9em; padding: .2em .6em; border-radius: 5px; text-decoration: none; }
+        .toolbar { width: 100%; padding: 1em; margin: 0; position: fixed; background-color: #fff;}
+        #monitor { border-spacing: 0; border-collapse: collapse; }
+        #monitor td { padding: .2em .4em .2em 0; }
+        label { cursor: pointer };
+        </style>
+        <meta http-equiv="x-dns-prefetch-control" content="off">
+        <script type="text/JavaScript">
+            let REFRESH_PERIOD = 5000;
+            let last_event_id = -1;
+            function cleanup()
+            {
+                let HARD_LIMIT = 1000;
+                let SOFT_LIMIT = 800;
+                let tbody = document.getElementById('monitor-body');
+                if (tbody.children.length > HARD_LIMIT)
+                {
+                    let count = tbody.children.length - SOFT_LIMIT;
+                    console.log(`Cleanup operation removing ${count} entries`);
+                    while (count-- > 0)
+                        tbody.removeChild(tbody.children[0]);
+                }
+            }
+            function refresh_page()
+            {
+                if (document.querySelector('#refresh').checked)
+                {
+                    cleanup();
+                    fetch('/console/monitor/events?' + (last_event_id + 1))
+                        .then(res => res.json())
+                        .then(res => add_entries(res))
+                        .then(function(){auto_refresh(REFRESH_PERIOD)})
+                        .catch(err => console.error(err));
+                }
+                return true;
+            }
+            function auto_refresh(period)
+            {
+                setTimeout(refresh_page, period);
+                return true;
+            }
+            function pad_value(value, len, pad)
+            {
+                var pad_char = typeof pad !== 'undefined' ? pad : '0';
+                var pad = new Array(1 + len).join(pad_char);
+                return (pad + value).slice(-pad.length);
+            }
+            function add_entries( content )
+            {
+                let tbody = document.querySelector('#monitor-body');
+                for (let i = 0; i < content.length; i++)
+                {
+                    let etime = new Date(content[i].time * 1000);
+                    tr = tbody.insertRow(-1);
+                    if (content[i].type == 'DE')
+                        tr.className = 'de';
+                    else
+                    if (content[i].type == 'FA')
+                        tr.className = 'fa';
+                    else
+                    if (content[i].type == 'NX')
+                        tr.className = 'nx';
+
+                    let stime = document.createElement('span')
+                    stime.title = etime.toLocaleString();
+                    stime.appendChild(document.createTextNode(`${pad_value(etime.getHours(), 2)}:${pad_value(etime.getMinutes(), 2)}:${pad_value(etime.getSeconds(), 2)}`));
+
+                    let link = document.createElement('a');
+                    link.appendChild(document.createTextNode(content[i].domain));
+                    link.href = 'http://' + content[i].domain;
+                    link.target = '_blank';
+
+                    let buttons = document.createElement('div');
+                    let tmp = document.createElement('a');
+                    tmp.innerHTML = 'Add';
+                    tmp.onclick = function() { call_rest(`/console/allow/**.${content[i].domain}`) };
+                    tmp.className = 'ibtn';
+                    tmp.href='#';
+                    tmp.title = 'Add temporary exception';
+                    buttons.appendChild(tmp);
+
+                    tr.insertCell(-1).appendChild(stime);
+                    tr.insertCell(-1).innerHTML = content[i].source;
+                    tr.insertCell(-1).innerHTML = content[i].type + (content[i].heuristic?'*':'');
+                    tr.insertCell(-1).innerHTML = content[i].server;
+                    tr.insertCell(-1).innerHTML = content[i].ip;
+                    tr.insertCell(-1).appendChild(link);
+                    let cell = tr.insertCell(-1);
+                    if (content[i].heuristic)
+                        cell.appendChild(buttons);
+                    if (content[i].id > last_event_id)
+                        last_event_id = content[i].id;
+                }
+            }
+        </script>
+    </head>
+    <body onload="javascript: auto_refresh(REFRESH_PERIOD);">
+        <script type="text/javascript">
+            function call_rest(url)
+            {
+                let xhr = new XMLHttpRequest();
+                xhr.responseType = 'json'
+                xhr.timeout = 2000;
+                xhr.open('GET', url)
+                xhr.onload = function()
+                {
+                    if (xhr.response.status != 'ok')
+                        alert(`ERROR: ${xhr.response.message}`);
+                };
+                xhr.send();
+                return true;
+            }
+        </script>
+
+        <div class='toolbar'>
+            <button onclick="call_rest('/console/filter/on')">Enable filter</button>
+            <button onclick="call_rest('/console/filter/off')">Disable filter</button>
+            <button onclick="call_rest('/console/heuristic/on')">Enable heuristics</button>
+            <button onclick="call_rest('/console/heuristic/off')">Disable heuristics</button>
+            <button onclick="call_rest('/console/reload')">Reload rules</button>
+            <button onclick="call_rest('/console/forget')">Clear cache</button>&nbsp;
+            <label><input type="checkbox" id='refresh' checked></input>Auto refresh</label>
+        </div>
+
+        <div id='content'>
+            <table id='monitor'>
+                <colgroup>
+                    <col width="1%">
+                    <col width="10%">
+                    <col width="1%">
+                    <col width="1%">
+                    <col width="10%">
+                    <col width="60%">
+                    <col width="4%">
+                </colgroup>
+                <tbody id='monitor-body'></tbody>
+            </table>
+        </div>
+    </body>
+    </html>

@@ -4,60 +4,50 @@
 
 #include <stdio.h>
 #include <string>
+#include <list>
 #include <mutex>
+#include <atomic>
 #include "webster.hh"
 
 
 #define LOG_MESSAGE(...)    Log::instance->log(__VA_ARGS__)
-#define LOG_EVENT(...)      Log::instance->event(__VA_ARGS__)
+#define LOG_EVENT(event)    Log::instance->event(event)
 
-class Buffer
+struct Event
+{
+    uint64_t id = 0;
+    uint64_t time = 0;
+    std::string source;
+    std::string type;
+    uint8_t proto = 0;
+    std::string server;
+    std::string ip;
+    std::string domain;
+    bool heuristic = false;
+};
+
+class EventRing
 {
     public:
-        class Iterator
-        {
-            public:
-                using iterator_category = std::input_iterator_tag;
-                using difference_type   = std::ptrdiff_t;
-                using value_type        = char;
-                using pointer           = const char*;
-                using reference         = const char&;
+        typedef std::list<Event>::const_iterator Iterator;
 
-                Iterator(pointer s, pointer e, pointer c) : s_(s), e_(e), c_(c), m_(c) {}
-                std::string operator*() const;
-                pointer operator->() const { return c_; }
-                Iterator& operator++() { next(); return *this; }
-                Iterator operator++(int) { Iterator tmp = *this; next(); return tmp; }
-                friend bool operator== (const Iterator& a, const Iterator& b) { return a.c_ == b.c_; };
-                friend bool operator!= (const Iterator& a, const Iterator& b) { return a.c_ != b.c_; };
-                pointer next();
-
-            private:
-                pointer s_;
-                pointer e_;
-                pointer c_;
-                pointer m_;
-        };
-
-        Buffer( size_t size );
-        Buffer( const Buffer &that );
-        Buffer( Buffer &&that );
-        virtual ~Buffer();
-        void append( const char *value );
-        void erase();
+        EventRing( size_t capacity );
+        ~EventRing() = default;
+        EventRing( const EventRing& );
+        EventRing( EventRing&& );
+        void append( const Event & );
+        void append( Event && );
         void clear();
-        void dump() const;
-        int etag() const { return count_; }
+        int etag() const { return etag_; }
+        size_t size() const { return entries_.size(); }
+        size_t capacity() const { return max_; }
         Iterator begin() const;
         Iterator end() const;
 
     private:
-        char *ptr_;
-        size_t size_;
-        char *cur_;
-        uint32_t count_;
-
-        void append( char value );
+        size_t max_ = 0;
+        std::list<Event> entries_;
+        int etag_ = 0;
 };
 
 class Log
@@ -66,20 +56,18 @@ class Log
         static Log *instance;
 
         Log( const char *path );
-
         ~Log();
-
         void log( const char *format, ... );
-        void event( const char *format, ... );
-        Buffer get_events() const;
+        void event( const Event& );
+        EventRing get_events( uint64_t index = 0 ) const;
         void print_events( webster::Message &output );
-        int etag() const { return events.etag(); }
+        int etag() const { return events_.etag(); }
         static std::string format( bool timed, const char *format, ... );
 
     private:
-        FILE *output;
-        Buffer events;
-        mutable std::mutex lock;
+        FILE *output_;
+        EventRing events_;
+        mutable std::mutex lock_;
 
         static std::string vaformat( bool timed, const char *format, va_list args );
 };

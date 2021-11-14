@@ -451,6 +451,10 @@ class Message
         virtual int write( const char *buffer ) = 0;
         virtual int write( const std::string &buffer ) = 0;
         virtual int write( const std::vector<uint8_t> &buffer ) = 0;
+        int write( char value )
+        {
+            return write((const uint8_t*)&value, sizeof(value));
+        }
         template<typename T, typename std::enable_if<std::is_integral<T>::value, bool>::type = true>
         int write( const T &value )
         {
@@ -493,7 +497,7 @@ class Message
             write(value);
             return *this;
         }
-        Message &operator<<( const char &value )
+        Message &operator<<( const char *value )
         {
             write(value);
             return *this;

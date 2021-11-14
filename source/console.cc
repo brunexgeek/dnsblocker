@@ -11,8 +11,7 @@
 
 #include "console.hh"
 #include "process.hh"
-#include "html1.hh"
-#include "html2.hh"
+#include "monitor.hh"
 #include <fstream>
 
 
@@ -65,59 +64,45 @@ struct ConsoleListener : public webster::HttpListener
         return WBERR_OK;
     }
 
-    void print_events( webster::Message &response )
+    int return_events( webster::Message &request, webster::Message &response )
     {
-        Buffer events( std::move(Log::instance->get_events()) );
-        int count = 0;
+        size_t start = strtol(request.header.target.query.c_str(), nullptr, 10);
 
-        for (auto line : events)
+        response.header.status = 200;
+        response.header.fields.set(WBFI_CONTENT_TYPE, "application/json");
+        response.header.fields.set(WBFI_CACHE_CONTROL, "no-cache");
+
+        int etag = Log::instance->etag();
+        response.header.fields.set(WBFI_ETAG, etag);
+        // check if the file changed
+        if (false && request.header.fields.get(WBFI_IF_NONE_MATCH, (int)0) == etag)
         {
-            std::string css;
-            if (line.empty())
-                response.write("<p>&nbsp;</p>\n");
-            else
-            if (line.length() >= 3 && isdigit(line[0]) && isdigit(line[1]) && line[2] == ':')
-            {
-                // set the line color
-                if (line.find("DE ") != std::string::npos)
-                    response.write("<p class='de'>");
-                else
-                if (line.find("NX ") != std::string::npos)
-                    response.write("<p class='nx'>");
-                else
-                if (line.find("FA ") != std::string::npos)
-                    response.write("<p class='fa'>");
-                else
-                    response.write("<p>");
-                // extract the domain name
-                auto pos = line.rfind(' ');
-                auto name = line.substr(pos+1);
-                line.erase(pos+1);
-                // write the line
-                response.write(line);
-                // write the domain name as hyperlink
-                response.write("<a target='_blank' href='http://");
-                response.write(name);
-                response.write("'>");
-                response.write(name);
-                response.write("</a>");
-                if (line.find("*") != std::string::npos)
-                {
-                    std::string btn = "addbtn";
-                    btn += std::to_string(count++);
-                    response.write("<button onclick=\"javascript: call_rest('/console/allow/**.");
-                    response.write(name);
-                    response.write("');\" class='ibtn'>+</button>");
-                }
-                response.write("</p>\n");
-            }
-            else
-            {
-                response.write("<p>");
-                response.write(line);
-                response.write("</p>\n");
-            }
+            response.header.status = 304; // Not Modified
+            response.header.fields.set(WBFI_CONTENT_LENGTH, 0);
+            return WBERR_OK;
         }
+
+        EventRing events( std::move(Log::instance->get_events(start)) );
+        bool first = true;
+
+        response.write("[");
+        for (auto entry : events)
+        {
+            if (!first) response << ',';
+            response << "{\"id\":" << entry.id << ',';
+            response << "\"time\":" << entry.time << ',';
+            response << "\"source\":\"" << entry.source << "\",";
+            response << "\"type\":\"" << entry.type << "\",";
+            response << "\"proto\":" << (int) entry.proto << ',';
+            response << "\"server\":\"" << entry.server << "\",";
+            response << "\"ip\":\"" << entry.ip << "\",";
+            response << "\"heuristic\":" << (entry.heuristic?"true":"false") << ",";
+            response << "\"domain\":\"" << entry.domain << "\"}";
+            first = false;
+        }
+        response.write("]");
+
+        return WBERR_OK;
     }
 
     int whitelist( webster::Message &request, webster::Message &response )
@@ -140,23 +125,10 @@ struct ConsoleListener : public webster::HttpListener
 
         response.header.status = 200;
         response.header.fields.set(WBFI_CONTENT_TYPE, "text/html");
+        response.header.fields.set(WBFI_CONTENT_LENGTH, HTML_MONITOR_SIZE);
         response.header.fields.set("X-DNS-Prefetch-Control", "off");
         response.header.fields.set(WBFI_CACHE_CONTROL, "max-age=300000, must-revalidate");
-
-        int etag = Log::instance->etag();
-        response.header.fields.set(WBFI_ETAG, etag);
-
-        // check if the file changed
-        if (request.header.fields.get(WBFI_IF_NONE_MATCH, (int)0) == etag)
-        {
-            response.header.status = 304; // Not Modified
-            response.header.fields.set(WBFI_CONTENT_LENGTH, 0);
-            return WBERR_OK;
-        }
-
-        response.write((const char*)HTML_HEADER);
-        print_events(response);
-        response.write((const char*)HTML_FOOTER);
+        response.write((const char*)HTML_MONITOR);
         return WBERR_OK;
     }
 
@@ -172,6 +144,9 @@ struct ConsoleListener : public webster::HttpListener
             auto command = request.header.target.path.substr(9);
             if (command == "monitor")
                 return return_monitor(request, response);
+            else
+            if (command == "monitor/events")
+                return return_events(request, response);
             else
             if (command.find("allow/") == 0)
                 return whitelist(request, response);

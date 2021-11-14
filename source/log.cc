@@ -11,42 +11,35 @@
 
 Log *Log::instance = nullptr;
 
-Log::Log( const char *path ) : output(nullptr), events(16 * 1024)
+Log::Log( const char *path ) : output_(nullptr), events_(16 * 1024)
 {
-    if (path != nullptr && path[0] != 0) output = fopen(path, "wt");
-    if (output == nullptr) output = stdout;
+    if (path != nullptr && path[0] != 0) output_ = fopen(path, "wt");
+    if (output_ == nullptr) output_ = stdout;
 }
 
 Log::~Log()
 {
-    if (output != stdout) fclose(output);
+    if (output_ != stdout) fclose(output_);
 }
 
 void Log::log( const char *format, ... )
 {
-    if (output == nullptr) return;
+    if (output_ == nullptr) return;
 
     va_list args;
     va_start(args, format);
 	std::string text = Log::vaformat(false, format, args);
 	va_end(args);
 
-    std::lock_guard<std::mutex> guard(lock);
-    fputs(text.c_str(), output);
-    fflush(output);
+    std::lock_guard<std::mutex> guard(lock_);
+    fputs(text.c_str(), output_);
+    fflush(output_);
 }
 
-void Log::event( const char *format, ... )
+void Log::event( const Event &event )
 {
-    if (output == nullptr) return;
-
-    va_list args;
-    va_start(args, format);
-	std::string text = Log::vaformat(true, format, args);
-	va_end(args);
-
-    std::lock_guard<std::mutex> guard(lock);
-    events.append(text.c_str());
+    std::lock_guard<std::mutex> guard(lock_);
+    events_.append(event);
 }
 
 std::string Log::format( bool timed, const char *format, ... )
@@ -86,151 +79,74 @@ std::string Log::vaformat(
     }
 
     vsnprintf(temp, sizeof(temp) - 1, format, args);
-    auto last = strlen(temp);
-    while (last > 0 && (temp[last] == 0 || temp[last] == '\n'))
-        temp[last--] = 0;
+    //auto last = strlen(temp);
+    //while (last > 0 && (temp[last] == 0 || temp[last] == '\n'))
+    //    temp[last--] = 0;
     out += temp;
     return out;
 }
 
-Buffer Log::get_events() const
+EventRing Log::get_events( uint64_t id ) const
 {
-    std::lock_guard<std::mutex> guard(lock);
-    return Buffer(events);
-}
+    std::lock_guard<std::mutex> guard(lock_);
 
-const char *Buffer::Iterator::next()
-{
-    // find the end of the current string
-    while (*c_ != 0)
+    if (id == 0)
+        return EventRing(events_);
+    else
     {
-        ++c_;
-        if (c_ >= e_) c_ = s_;
-        if (c_ == m_) return c_ = e_;
-    }
-    // skip the null-terminator
-    ++c_;
-    if (c_ >= e_) c_ = s_;
-    if (*c_ == 0) c_ = e_;
-    return c_;
-}
-
-std::string Buffer::Iterator::operator*() const
-{
-    std::string out;
-    const char *ptr = c_;
-    while (*ptr != 0)
-    {
-        out += *ptr;
-        ++ptr;
-        if (ptr >= e_) ptr = s_;
-    }
-    return out;
-}
-
-Buffer::Buffer( size_t size ) : size_(size), count_(1)
-{
-    if (size_ < 16) size_ = 16;
-    ptr_ = new(std::nothrow) char[size_]();
-    cur_ = ptr_ + 1;
-}
-
-Buffer::Buffer( const Buffer &that ) : size_(that.size_), count_(that.count_)
-{
-    ptr_ = new(std::nothrow) char[size_];
-    memcpy(ptr_, that.ptr_, size_);
-    cur_ = ptr_ + (that.cur_ - that.ptr_);
-}
-
-Buffer::Buffer( Buffer &&that ) : size_(that.size_), count_(that.count_)
-{
-    ptr_ = that.ptr_;
-    cur_ = that.cur_;
-    that.ptr_ = that.cur_ = nullptr;
-    that.size_ = 0;
-    that.count_ = 0;
-}
-
-Buffer::~Buffer()
-{
-    delete[] ptr_;
-}
-
-void Buffer::append( const char *value )
-{
-    auto len = strlen(value);
-    if (len + 2 > size_) return;
-    ++count_;
-    if (count_ == 0) count_ = 1;
-
-    // copy the string
-    size_t count = std::min((size_t)(ptr_ + size_ - cur_), len);
-    memcpy(cur_, value, count);
-    if (count < len)
-    {
-        memcpy(ptr_, value + count, len - count);
-        count = len - count;
-        cur_ = ptr_;
-    }
-    cur_ += count;
-    if (cur_ >= ptr_ + size_) cur_ = ptr_;
-    // append two null-terminators (append + erase)
-    append('\0');
-    erase();
-}
-
-void Buffer::erase()
-{
-    if (*cur_ != 0)
-    {
-        char *p = cur_;
-        while (*p != 0)
+        EventRing temp(events_.size());
+        auto it = events_.begin();
+        while (it != events_.end() && it->id < id)
+            ++it;
+        while (it != events_.end())
         {
-            *p = 0;
-            ++p;
-            if (p >= ptr_ + size_) p = ptr_;
+            temp.append(*it);
+            ++it;
         }
+        return temp;
     }
 }
 
-void Buffer::append( char value )
+EventRing::EventRing( size_t capacity ) : max_(capacity)
 {
-    *cur_ = value;
-    ++cur_;
-    if (cur_ >= ptr_ + size_) cur_ = ptr_;
 }
 
-void Buffer::clear()
+EventRing::EventRing( const EventRing &that ) : max_(that.max_), entries_(that.entries_)
 {
-    memset(ptr_, 0, size_);
-    cur_ = ptr_ + 1;
 }
 
-void Buffer::dump() const
+EventRing::EventRing( EventRing &&that ) : max_(that.max_)
 {
-    for (size_t i = 0; i < size_; ++i)
-    {
-        if (i > 0 && (i % 8) == 0) std::cout << '\n';
-        std::cout << ((ptr_ + i == cur_) ? '!' : ' ') << ((ptr_[i] == 0) ? '_' : ptr_[i]) << ' ';
-    }
-    std::cout << "\n\n";
+    entries_.swap(that.entries_);
 }
 
-Buffer::Iterator Buffer::begin() const
+void EventRing::append( const Event &value )
 {
-    const char *ptr = cur_ + 1;
-    if (ptr >= ptr_ + size_) ptr = ptr_;
-
-    while (*ptr == 0 && ptr != cur_)
-    {
-        ++ptr;
-        if (ptr >= ptr_ + size_) ptr = ptr_;
-    }
-    if (ptr == cur_) return end();
-    return Iterator(ptr_, ptr_+ size_, ptr);
+    if (entries_.size() >= max_)
+        entries_.pop_front();
+    entries_.push_back(value);
+    ++etag_;
 }
 
-Buffer::Iterator Buffer::end() const
+void EventRing::append( Event &&value )
 {
-    return Iterator(ptr_, ptr_+ size_, ptr_ + size_);
+    if (entries_.size() >= max_)
+        entries_.pop_front();
+    entries_.push_back(std::move(value));
+    ++etag_;
+}
+
+void EventRing::clear()
+{
+    entries_.clear();
+}
+
+EventRing::Iterator EventRing::begin() const
+{
+    return entries_.cbegin();
+}
+
+EventRing::Iterator EventRing::end() const
+{
+    return entries_.cend();
 }

@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <limits.h>
 #include <chrono>
+#include <atomic>
 #include <defs.hh>
 
 #ifdef __WINDOWS__
@@ -269,6 +270,17 @@ bool Processor::isRandomDomain( std::string name )
     return false;
 }
 
+static uint64_t current_epoch()
+{
+    #ifdef __WINDOWS__
+    return _time64(NULL);
+    #else
+    struct timespec current;
+    clock_gettime(CLOCK_REALTIME, &current);
+    return (uint64_t) current.tv_sec;
+    #endif
+}
+
 static void print_request(
     const std::string &host,
     const std::string &remote,
@@ -280,65 +292,27 @@ static void print_request(
 #ifdef ENABLE_IPV6
     ipv6_t &ipv6,
 #endif
-    bool is_heuristic,
-    bool colors )
+    bool is_heuristic )
 {
-    const char *COLOR_RED = "\033[31m";
-    const char *COLOR_YELLOW = "\033[33m";
-    const char *COLOR_RESET = "\033[39m";
-
-#if !defined(_WIN32) && !defined(_WIN64)
-    if (!colors)
-#endif
-    {
-        COLOR_RED = "";
-        COLOR_YELLOW = "";
-        COLOR_RESET = "";
-    }
-
-    static const char *FORMAT = nullptr;
-    static const char *IPV4_FORMAT = "%s%-15s  %s %c  %-8s  %-15s  %s%s\n";
-    #ifdef ENABLE_IPV6
-    static const char *IPV6_FORMAT = "%s%-40s  %s %c  %-8s  %-40s  %s%s\n";
-    if (config.use_ipv6)
-        FORMAT = IPV6_FORMAT;
-    else
-    #endif
-        FORMAT = IPV4_FORMAT;
-
+    Event event;
     const char *status = nullptr;
-    const char *color = COLOR_RED;
     int32_t flags = config.monitoring_;
+    static std::atomic<uint64_t> last_id(1);
 
     if (is_blocked && flags & MONITOR_SHOW_DENIED)
-    {
         status = "DE";
-        color = COLOR_RED;
-    }
     else
     if (result == DNSB_STATUS_CACHE && flags & MONITOR_SHOW_CACHE)
-    {
         status = "CA";
-        color = COLOR_RESET;
-    }
     else
     if (result == DNSB_STATUS_RECURSIVE && flags & MONITOR_SHOW_RECURSIVE)
-    {
         status = "RE";
-        color = COLOR_RESET;
-    }
     else
     if (result == DNSB_STATUS_FAILURE && flags & MONITOR_SHOW_FAILURE)
-    {
         status = "FA";
-        color = COLOR_YELLOW;
-    }
     else
     if (result == DNSB_STATUS_NXDOMAIN && flags & MONITOR_SHOW_NXDOMAIN)
-    {
         status = "NX";
-        color = COLOR_YELLOW;
-    }
 
     if (status != nullptr)
     {
@@ -349,25 +323,28 @@ static void print_request(
             if (type == ADDR_TYPE_AAAA)
                 addr = ipv6.to_string();
             else
+            #else
+            (void) type;
             #endif
                 addr = ipv4.to_string();
         }
 
         #ifdef ENABLE_IPV6
-        char proto = (type == ADDR_TYPE_AAAA) ? '6' : '4';
+        const int proto = (type == ADDR_TYPE_AAAA) ? 6 : 4;
         #else
-        char proto = '4';
+        constexpr int proto = 4;
         #endif
 
-        LOG_EVENT(FORMAT,
-            color,
-            remote.c_str(),
-            status,
-            proto,
-            (is_heuristic) ? "*" : dns_name.c_str(),
-            addr.c_str(),
-            host.c_str(),
-            COLOR_RESET);
+        event.id = last_id.fetch_add(1, std::memory_order::memory_order_relaxed);
+        event.time = current_epoch();
+        event.source = remote;
+        event.ip = addr;
+        event.server = dns_name;
+        event.domain = host;
+        event.proto = proto;
+        event.type = status;
+        event.heuristic = is_heuristic;
+        LOG_EVENT(event);
     }
 }
 
@@ -454,8 +431,7 @@ void Processor::process(
             #ifdef ENABLE_IPV6
             ipv6,
             #endif
-            is_heuristic,
-            false);
+            is_heuristic);
 
         // send the response
         if (!is_blocked && result != DNSB_STATUS_CACHE && result != DNSB_STATUS_RECURSIVE)
