@@ -5,8 +5,9 @@ cmake_minimum_required(VERSION 2.8)
 set(DNSB_MAJOR_VERSION 0)
 set(DNSB_MINOR_VERSION 20)
 set(DNSB_PATCH_VERSION 0)
+set(DNSB_VERSION "${DNSB_MAJOR_VERSION}.${DNSB_MINOR_VERSION}.${DNSB_PATCH_VERSION}")
 
-add_definitions(-DDNSB_VERSION="${DNSB_MAJOR_VERSION}.${DNSB_MINOR_VERSION}.${DNSB_PATCH_VERSION}")
+add_definitions(-DDNSB_VERSION="${DNSB_VERSION}")
 
 set(CMAKE_BUILD_TYPE "Release"  CACHE STRING  "Specify the build type")
 set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release")
@@ -42,9 +43,10 @@ endif()
 find_package(Threads)
 
 configure_file("source/defs.hh.in" "__include/defs.hh")
+configure_file("source/monitor.html" "__web/monitor.html" @ONLY)
 
 include(cmake/bin2h.cmake)
-bin2h(SOURCE_FILE "source/monitor.html" HEADER_FILE "${CMAKE_BINARY_DIR}/__include/monitor.hh" VARIABLE_NAME "HTML_MONITOR" NULL_TERMINATE)
+bin2h(SOURCE_FILE "${CMAKE_BINARY_DIR}/__web/monitor.html" HEADER_FILE "${CMAKE_BINARY_DIR}/__include/monitor.hh" VARIABLE_NAME "HTML_MONITOR" NULL_TERMINATE)
 
 add_executable(dnsblocker
     "source/socket.cc"

@@ -1,17 +1,20 @@
 <html>
     <head>
-        <title>dnsblocker</title>
+        <title>dnsblocker @DNSB_VERSION@</title>
         <style type='text/css'>
-        body { font-family: sans-serif; font-size: 16px; }
-        #content { padding-top: 4em; }
+        body { font-family: sans-serif; font-size: 13px; margin: .5em; }
+        #content { padding-top: 4em; font-size: 16px; }
+        #content table { font-size: 16px; }
         #content p { font-family: monospace; line-height: 1.4em; margin: 0; white-space: pre; }
-        .de {background-color: rgb(251, 172, 172)}
-        .nx {background-color: rgb(251, 230, 172)}
-        .fa {background-color: rgb(223, 223, 223)}
+        .de {background-color: rgb(251, 172, 172) !important}
+        .nx {background-color: rgb(251, 230, 172) !important}
+        .fa {background-color: rgb(223, 223, 223) !important}
         .ibtn { background-color: #369; color: #fff; font-size: .9em; padding: .2em .6em; border-radius: 5px; text-decoration: none; }
-        .toolbar { width: 100%; padding: 1em; margin: 0; position: fixed; background-color: #fff;}
+        .toolbar { width: 100%; padding: 1em; margin: 0; position: fixed; background-color: #fff; left: 0; top: 0; }
         #monitor { border-spacing: 0; border-collapse: collapse; }
-        #monitor td { padding: .2em .4em .2em 0; }
+        #monitor td { padding: .2em .3em .2em .3em; }
+        label { cursor: pointer };
+        #content table tr:nth-child(even) {background-color: #e7e7e7;}
         label { cursor: pointer };
         </style>
         <meta http-equiv="x-dns-prefetch-control" content="off">

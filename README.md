@@ -28,7 +28,7 @@ To configure `dnsblocker` you use pairs of key-value stored in a JSON file.
   * **address** &ndash; IPv4 address. The default value is `127.0.0.2`.
   * **port** &ndash; Port number (0-65535). The default value is `53`.
 * **external_dns** &ndash; Array of objects containing external DNS servers to be used by recursive queries. Each object has the following fields:
-  * **name** &ndash; entry name.
+  * **name** &ndash; Entry name.
   * **address** &ndash; Required IPv4 address of the external name server.
   * **targets** &ndash; Optional array of expressions (see _List of rules_ section below). When the requested domain matches with one of those expressions, this name server will be used. If the name server is unavaiable, the default name server will be used instead. If this option is omited, this entry will be set as default external name server.
 * **use_heuristics** &ndash; Enable (`true`) or disable (`false`) heuristics to detect random domains (used by some tracking and advertising APIs)

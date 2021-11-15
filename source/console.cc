@@ -134,7 +134,6 @@ struct ConsoleListener : public webster::HttpListener
 
 	int operator()( webster::Message &request, webster::Message &response )
 	{
-        std::vector<uint8_t> data;
         request.ready();
         request.finish();
         if (request.header.method != webster::Method::WBM_GET)
