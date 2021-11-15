@@ -1,4 +1,4 @@
-# dnsblocker  [![Build Status](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fbrunexgeek%2Fdnsblocker%2Fbadge%3Fref%3Dmaster&label=build&logo=none)](https://actions-badge.atrox.dev/brunexgeek/dnsblocker/goto?ref=master) ![Version](https://img.shields.io/badge/version-0.19-blue)
+# dnsblocker  [![Build Status](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fbrunexgeek%2Fdnsblocker%2Fbadge%3Fref%3Dmaster&label=build&logo=none)](https://actions-badge.atrox.dev/brunexgeek/dnsblocker/goto?ref=master) ![Version](https://img.shields.io/badge/version-0.20-blue)
 
 Simple DNS server to filter domains using pattern matching. The ideia is to block TCP/UDP communication to specific domains/subdomains by manipulating DNS answers. This program enables you to use patterns and you don't have to know all subdomains a priori, as you would be if using ``iptables`` or *hosts* file. This program is compatible with GNU/Linux and Windows.
 
@@ -113,9 +113,11 @@ If any path contains spaces, you must use additional escaped quotes between the 
 Console functionality is enable by default using the CMake option `ENABLE_DNS_CONSOLE`. When the console is enabled, `dnsblocker` will expose a set of HTTP REST endpoints at http://127.0.0.2:53022.
 
 * **GET /console/reload** &ndash; Reload blacklists and whitelists.
-* **GET /console/forget** &ndash; Clear the cache.
 * **GET /console/cache** &ndash; Returns the cache content as JSON.
+* **GET /console/cache/reset** &ndash; Clean the cache.
 * **GET /console/monitor** &ndash; Monitoring page showing the latest DNS queries.
+* **GET /console/monitor/events** &ndash; Returns the latest DNS queries as a JSON array.
+* **GET /console/allow/\<rule\>** &ndash; Temporarily add a rule to the whitelist.
 * **GET /console/filter/on** &ndash; Enable DNS filtering.
 * **GET /console/filter/off** &ndash; Disable DNS filtering. The blacklist will be ignored.
 * **GET /console/heuristic/on** &ndash; Enable heuristics to detect random domains.
@@ -124,7 +126,7 @@ Console functionality is enable by default using the CMake option `ENABLE_DNS_CO
 Example:
 
 ```
-# curl https://127.0.0.2:53022/console/reload
+# curl http://127.0.0.2:53022/console/reload
 ```
 
 ## Limitations
