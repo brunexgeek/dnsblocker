@@ -170,7 +170,7 @@ bool Processor::console( const std::string &command )
 {
     if (command == "reload")
     {
-        // TODO: protect with lock
+        std::lock_guard<std::shared_mutex> guard(lock_);
         load_rules(config_.blacklist, blacklist_);
         load_rules(config_.whitelist, whitelist_);
         cache_->reset(); // TODO: we really need this?
@@ -385,7 +385,10 @@ void Processor::process(
                 if (object->useHeuristics_)
                     is_blocked = is_heuristic = isRandomDomain(request.questions[0].qname);
                 if (!is_blocked)
+                {
+                    std::shared_lock<std::shared_mutex> guard(object->lock_);
                     is_blocked = object->blacklist_.match(request.questions[0].qname) != nullptr;
+                }
             }
         }
 

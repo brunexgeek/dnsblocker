@@ -3,8 +3,9 @@
 
 
 #include <list>
-#include <mutex>
 #include <thread>
+#include <mutex>
+#include <shared_mutex>
 #include <condition_variable>
 #include "socket.hh"
 #include "dns.hh"
@@ -55,6 +56,7 @@ class Processor
         bool useHeuristics_;
         bool useFiltering_;
         Console *console_;
+        std::shared_mutex lock_;
 
         static void process( Processor *object, int num, std::mutex *mutex, std::condition_variable *cond );
         bool send_error(
