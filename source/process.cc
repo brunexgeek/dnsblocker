@@ -223,50 +223,55 @@ bool Processor::send_error(
 
 bool Processor::isRandomDomain( std::string name )
 {
-    if (name.find("www.") == 0)
-        name = name.c_str() + 4;
-    if (name.find("cloudfront") == std::string::npos)
+    static const int MINLEN = 8;
+
+    if (name.length() < 8) return false;
+
+    const char *p = name.c_str();
+    while (*p != 0)
     {
-        int i = 0;
-        for (char c : name) if (c == '.') ++i;
-        if (i > 1) return false;
-    }
+        while (*p == '.') ++p;
 
-    auto pos = name.find('.');
-    if (pos == std::string::npos) return false;
-    name = name.substr(0, pos);
+        int gon = 0; // group of numbers (a0bc32de1 = 3 groups)
+        char gs = 0; // group size
+        char bgs = 0; // biggest group size
+        int vc = 0; // vowel count
+        int cc = 0; // consonant count
+        int len = 0;
 
-    if (name.length() < 10) return false;
+        while (*p != 0 && *p != '.')
+        {
+            if (isdigit(*p))
+                ++gs;
+            else
+            {
+                if (strchr("aeiouyAEIOUY", *p) != nullptr)
+                    ++vc;
+                else
+                if (*p != '-')
+                    ++cc;
+                if (gs > 0)
+                {
+                    ++gon;
+                    if (bgs < gs) bgs = gs;
+                    gs = 0;
+                }
+            }
+            ++p;
+            ++len;
+        }
 
-    int gon = 0; // group of numbers a0bc32de1 = 3
-    char gs = 0; // group size
-    char bgs = 0; // biggest group size
-    int vc = 0; // vowel count
-    int cc = 0; // consonant count
-
-    const char *c = name.c_str();
-    while (*c != 0)
-    {
-        if (isdigit(*c))
-            ++gs;
-        else
-        if (strchr("aeiouAEIOU", *c) != nullptr)
-            ++vc;
-        else
-            ++cc;
         if (gs > 0)
         {
             ++gon;
             if (bgs < gs) bgs = gs;
-            gs = 0;
         }
-        ++c;
-    }
 
-    //if (gon == 0) return false; // require digits
-    if (bgs > 4) return true; // at least 5 digits in the biggest group
-    if (gon > 1) return true; // at least 2 groups
-    if ((float) vc / (float) name.length() < 0.3F) return true; // less than 30% of vowels
+        if (len < MINLEN) continue;
+        if (bgs > 4) return std::cerr << name << ": bgs\n", true; // at least 5 digits in the biggest group
+        if (gon > 1) return std::cerr << name << ": gon\n", true; // at least 2 groups of digits
+        if ((float) vc / (float) cc < 0.3F) return std::cerr << name << ": vowels" << vc << ' ' << cc << "\n", true; // less than 30% of vowels
+    }
     return false;
 }
 
