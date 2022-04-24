@@ -268,9 +268,9 @@ bool Processor::isRandomDomain( std::string name )
         }
 
         if (len < MINLEN) continue;
-        if (bgs > 4) return std::cerr << name << ": bgs\n", true; // at least 5 digits in the biggest group
-        if (gon > 1) return std::cerr << name << ": gon\n", true; // at least 2 groups of digits
-        if ((float) vc / (float) cc < 0.3F) return std::cerr << name << ": vowels" << vc << ' ' << cc << "\n", true; // less than 30% of vowels
+        if (bgs > 4) return true; // at least 5 digits in the biggest group
+        if (gon > 1) return true; // at least 2 groups of digits
+        if ((float) vc / (float) cc < 0.3F) return true; // less than 30% of vowels
     }
     return false;
 }
