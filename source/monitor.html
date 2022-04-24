@@ -112,7 +112,7 @@
     </head>
     <body onload="javascript: auto_refresh(REFRESH_PERIOD);">
         <script type="text/javascript">
-            function call_rest(url)
+            function call_rest(url, err = false)
             {
                 let xhr = new XMLHttpRequest();
                 xhr.responseType = 'json'
@@ -120,7 +120,7 @@
                 xhr.open('GET', url)
                 xhr.onload = function()
                 {
-                    if (xhr.response.status != 'ok')
+                    if (err && xhr.response.status != 'ok')
                         alert(`ERROR: ${xhr.response.message}`);
                 };
                 xhr.send();

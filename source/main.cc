@@ -161,7 +161,7 @@ static std::string main_basePath( const std::string &path )
 
 void main_prepare()
 {
-    LOG_MESSAGE(main_info().c_str());
+    LOG_MESSAGE("%s\n", main_info().c_str());
 
     // extract the base path from the configuration file name
     context.basePath = context.configFileName = main_realPath(context.configFileName);

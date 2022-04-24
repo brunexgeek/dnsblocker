@@ -24,6 +24,24 @@ struct Event
     std::string ip;
     std::string domain;
     bool heuristic = false;
+
+    bool operator!=( const Event &that ) const
+    {
+        return *this != that;
+    }
+
+    bool operator==( const Event &that ) const
+    {
+        return
+            source == that.source &&
+            proto == that.proto &&
+            server == that.server &&
+            ip == that.ip &&
+            domain == that.domain &&
+            heuristic == that.heuristic;
+    }
+
+
 };
 
 class EventRing
