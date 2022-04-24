@@ -387,13 +387,14 @@ void Processor::process(
         {
             if (object->whitelist_.match(request.questions[0].qname) == nullptr)
             {
-                if (object->useHeuristics_)
-                    is_blocked = is_heuristic = isRandomDomain(request.questions[0].qname);
-                if (!is_blocked)
+                // try the blacklist
                 {
                     std::shared_lock<std::shared_mutex> guard(object->lock_);
                     is_blocked = object->blacklist_.match(request.questions[0].qname) != nullptr;
                 }
+                // try the heuristics
+                if (!is_blocked && object->useHeuristics_)
+                    is_blocked = is_heuristic = isRandomDomain(request.questions[0].qname);
             }
         }
 
