@@ -221,11 +221,14 @@ bool Processor::send_error(
     return conn_->send(endpoint, bio.data(), bio.cursor());
 }
 
-bool Processor::isRandomDomain( std::string name )
+uint8_t Processor::detect_heuristic( std::string name )
 {
+    constexpr uint8_t RULE_BGS = 1;
+    constexpr uint8_t RULE_GON = 2;
+    constexpr uint8_t RULE_VOW = 3;
     static const int MINLEN = 8;
 
-    if (name.length() < 8) return false;
+    if (name.length() < 8) return 0;
 
     const char *p = name.c_str();
     while (*p != 0)
@@ -268,11 +271,11 @@ bool Processor::isRandomDomain( std::string name )
         }
 
         if (len < MINLEN) continue;
-        if (bgs > 4) return true; // at least 5 digits in the biggest group
-        if (gon > 1) return true; // at least 2 groups of digits
-        if ((float) vc / (float) cc < 0.3F) return true; // less than 30% of vowels
+        if (bgs > 4) return RULE_BGS; // at least 5 digits in the biggest group
+        if (gon > 1) return RULE_GON; // at least 2 groups of digits
+        if ((float) vc / (float) len < 0.3F) return RULE_VOW; // less than 30% of vowels
     }
-    return false;
+    return 0;
 }
 
 static uint64_t current_epoch()
@@ -297,7 +300,7 @@ static void print_request(
 #ifdef ENABLE_IPV6
     ipv6_t &ipv6,
 #endif
-    bool is_heuristic )
+    uint8_t heuristic )
 {
     Event event;
     const char *status = nullptr;
@@ -348,7 +351,7 @@ static void print_request(
         event.domain = host;
         event.proto = proto;
         event.type = status;
-        event.heuristic = is_heuristic;
+        event.heuristic = heuristic;
         LOG_EVENT(event);
     }
 }
@@ -379,8 +382,8 @@ void Processor::process(
         #endif
         std::string dns_name;
         int result = DNSB_STATUS_FAILURE;
-        bool is_heuristic = false;
         bool is_blocked = false;
+        uint8_t heuristic = 0;
 
         // check whether the domain is blocked
         if (object->useFiltering_)
@@ -394,7 +397,7 @@ void Processor::process(
                 }
                 // try the heuristics
                 if (!is_blocked && object->useHeuristics_)
-                    is_blocked = is_heuristic = isRandomDomain(request.questions[0].qname);
+                    is_blocked = (heuristic = detect_heuristic(request.questions[0].qname)) != 0;
             }
         }
 
@@ -440,7 +443,7 @@ void Processor::process(
             #ifdef ENABLE_IPV6
             ipv6,
             #endif
-            is_heuristic);
+            heuristic);
 
         // send the response
         if (!is_blocked && result != DNSB_STATUS_CACHE && result != DNSB_STATUS_RECURSIVE)

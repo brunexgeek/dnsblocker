@@ -23,7 +23,7 @@ struct Event
     std::string server;
     std::string ip;
     std::string domain;
-    bool heuristic = false;
+    uint8_t heuristic = 0;
 
     bool operator!=( const Event &that ) const
     {

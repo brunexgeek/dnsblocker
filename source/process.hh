@@ -38,7 +38,7 @@ class Processor
         Job *pop();
         void run( int nthreads );
         bool finish();
-        static bool isRandomDomain( std::string name );
+        static uint8_t detect_heuristic( std::string name );
         bool console( const std::string &command );
 
     private:
