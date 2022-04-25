@@ -102,16 +102,53 @@ Job *Processor::pop()
     return result;
 }
 
+static bool is_ipv4( const std::string &value, ipv4_t &ipv4 )
+{
+    if (value.length() < 8 && value.length() > 15) return false;
+    int number = 0;
+    int dots = 0;
+
+    char temp[16] = { 0 };
+    // copy ignoring leading and trailing whitespaces
+    for (size_t i = 0, j = 0; j < value.length(); ++j)
+    {
+        if (isdigit(value[j]))
+        {
+            ++number;
+            temp[i++] = value[j];
+        }
+        else
+        if (value[j] == '.')
+        {
+            if (number == 0) return false;
+            temp[i++] = value[j];
+            number = 0;
+            ++dots;
+        }
+        else
+        if (value[j] == ' ' || value[j] == '\t')
+            continue;
+        else
+            return false;
+    }
+    if (temp[0] != 0 && dots == 3 && number > 0)
+    {
+        ipv4 = ipv4_t(temp);
+        return true;
+    }
+    return false;
+}
 
 bool Processor::load_rules( const std::vector<std::string> &fileNames, Tree<uint8_t> &tree )
 {
     if (fileNames.empty()) return false;
 
     tree.clear();
+    //ipv4list_.clear();
 
     for (auto it = fileNames.begin(); it != fileNames.end(); ++it)
     {
-        int c = 0;
+        int rc = 0, ic = 0;
         LOG_MESSAGE("Loading rules from '%s'\n", it->c_str());
 
         std::ifstream rules(it->c_str());
@@ -128,23 +165,33 @@ bool Processor::load_rules( const std::vector<std::string> &fileNames, Tree<uint
             size_t pos = line.find('#');
             if (pos != std::string::npos) line = line.substr(0, pos);
 
-            int result = tree.add(line, 0, &line);
-            if (line.empty()) continue;
-
-            if (result == DNSBERR_OK)
+            ipv4_t ipv4;
+            if (is_ipv4(line, ipv4))
             {
-                ++c;
-                continue;
+                ipv4list_.emplace(ipv4);
+                ++ic;
             }
             else
-            if (result == DNSBERR_DUPLICATED_RULE)
-                LOG_MESSAGE("  [!] Duplicated '%s'\n", line.c_str());
-            else
-                LOG_MESSAGE("  [!] Invalid rule '%s'\n", line.c_str());
+            {
+                int result = tree.add(line, 0, &line);
+                if (line.empty()) continue;
+
+                if (result == DNSBERR_OK)
+                {
+                    ++rc;
+                    continue;
+                }
+                else
+                if (result == DNSBERR_DUPLICATED_RULE)
+                    LOG_MESSAGE("  [!] Duplicated '%s'\n", line.c_str());
+                else
+                    LOG_MESSAGE("  [!] Invalid rule '%s'\n", line.c_str());
+            }
         }
 
         rules.close();
-        LOG_MESSAGE("  Loaded %d rules\n", c);
+        LOG_MESSAGE("  Loaded %d rules\n", rc);
+        LOG_MESSAGE("  Loaded %d IPs\n", ic);
     }
 
     float mem = (float) tree.memory();
@@ -171,6 +218,7 @@ bool Processor::console( const std::string &command )
     if (command == "reload")
     {
         std::lock_guard<std::shared_mutex> guard(lock_);
+        ipv4list_.clear();
         load_rules(config_.blacklist, blacklist_);
         load_rules(config_.whitelist, whitelist_);
         cache_->reset(); // TODO: we really need this?
@@ -425,7 +473,20 @@ void Processor::process(
                     result = object->resolver_->resolve_ipv6(request.questions[0].qname, dns_name, ipv6);
                 else
                 #endif
+                {
                     result = object->resolver_->resolve_ipv4(request.questions[0].qname, dns_name, ipv4);
+                    {
+                        std::shared_lock<std::shared_mutex> guard(object->lock_);
+                        if (object->ipv4list_.find(ipv4) != object->ipv4list_.end())
+                        {
+                            std::cerr << "Blocked by IP " << ipv4.to_string() << '\n';
+                            ipv4 = IPV4_BLOCK_ADDRESS;
+                            dns_name.clear();
+                            result = DNSB_STATUS_FAILURE;
+                            is_blocked = true;
+                        }
+                    }
+                }
             }
             else
                 result = DNSB_STATUS_NXDOMAIN;

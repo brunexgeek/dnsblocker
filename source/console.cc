@@ -179,6 +179,8 @@ void Console::thread_proc( Console *instance )
 {
     Parameters params;
     params.buffer_size = 1024;
+    params.connect_timeout = 3000;
+    params.read_timeout = 3000;
 	HttpServer server(params);
     std::string url = "http://" + instance->host_ + ":" + std::to_string(instance->port_);
 	if (server.start(url) == WBERR_OK)

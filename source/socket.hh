@@ -19,6 +19,7 @@ struct ipv4_t
 	explicit ipv4_t( const uint32_t & );
 	ipv4_t( const ipv4_t & );
 	ipv4_t( ipv4_t && );
+	ipv4_t( const std::string & );
 	bool operator==( const ipv4_t & ) const;
 	ipv4_t &operator=( const ipv4_t & );
 	ipv4_t &operator=( const uint32_t & );
@@ -26,6 +27,15 @@ struct ipv4_t
 	void clear();
 	bool empty() const;
 	std::string to_string() const;
+};
+
+template<>
+struct std::hash<ipv4_t>
+{
+    std::size_t operator()(ipv4_t const& value) const noexcept
+    {
+        return value.to_uint32();
+    }
 };
 
 #ifdef ENABLE_IPV6

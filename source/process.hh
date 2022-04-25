@@ -3,6 +3,7 @@
 
 
 #include <list>
+#include <unordered_set>
 #include <thread>
 #include <mutex>
 #include <shared_mutex>
@@ -52,6 +53,7 @@ class Processor
         Tree<uint8_t> blacklist_;
         Tree<uint8_t> whitelist_;
         Tree<uint32_t> nameserver_;
+        std::unordered_set<ipv4_t> ipv4list_;
         bool running_;
         bool useHeuristics_;
         bool useFiltering_;

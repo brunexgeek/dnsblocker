@@ -1,6 +1,7 @@
 #include "defs.hh"
 #include "socket.hh"
 #include <cstring>
+#include <vector>
 
 #ifndef __WINDOWS__
 #include <netinet/in.h>
@@ -109,6 +110,7 @@ ipv4_t::ipv4_t()
 
 ipv4_t::ipv4_t( const uint8_t *that )
 {
+	clear();
 	if (that) memcpy(values, that, sizeof(values));
 }
 
@@ -118,6 +120,38 @@ ipv4_t::ipv4_t( const uint32_t &that )
 	values[1] = (uint8_t) (that >> 8) & 0xFF;
 	values[2] = (uint8_t) (that >> 16) & 0xFF;
 	values[3] = (uint8_t) (that >> 24) & 0xFF;
+}
+
+static std::vector<std::string> split_string( const std::string &value, char delim )
+	{
+	std::vector<std::string> out;
+	std::string buf = "";
+	size_t i = 0;
+	while (i < value.length())
+	{
+		if (value[i] != delim)
+			buf += value[i];
+		else
+		if (buf.length() > 0) {
+			out.push_back(buf);
+			buf = "";
+		}
+		i++;
+	}
+    if (!buf.empty())
+        out.push_back(buf);
+    return out;
+}
+
+ipv4_t::ipv4_t( const std::string &that )
+{
+	clear();
+	auto temp = split_string(that, '.');
+	if (temp.size() != 4) return;
+	values[0] = (uint8_t) atoi(temp[0].c_str());
+	values[1] = (uint8_t) atoi(temp[1].c_str());
+	values[2] = (uint8_t) atoi(temp[2].c_str());
+	values[3] = (uint8_t) atoi(temp[3].c_str());
 }
 
 ipv4_t::ipv4_t( const ipv4_t &that )
