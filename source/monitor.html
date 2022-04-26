@@ -69,6 +69,7 @@
             }
             function add_entries( content )
             {
+                let is_bottom = (window.innerHeight + window.scrollY) >= document.body.offsetHeight;
                 let tbody = document.querySelector('#monitor-body');
                 for (let i = 0; i < content.length; i++)
                 {
@@ -107,6 +108,7 @@
                     if (content[i].id > last_event_id)
                         last_event_id = content[i].id;
                 }
+                if (is_bottom) window.scrollTo(0,document.body.scrollHeight);
             }
         </script>
     </head>
