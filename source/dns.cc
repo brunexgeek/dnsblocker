@@ -431,7 +431,7 @@ int Resolver::recursive( const std::string &host, int type, const ipv4_t &dnsAdd
         }
     }
 
-    return DNSB_STATUS_NXDOMAIN;
+    return (message.header.rcode == DNS_RCODE_NXDOMAIN) ? DNSB_STATUS_NXDOMAIN : DNSB_STATUS_FAILURE;
 }
 
 int Resolver::resolve_ipv4( const std::string &host, std::string &name, ipv4_t &output )
