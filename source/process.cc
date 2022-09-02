@@ -404,6 +404,118 @@ static void print_request(
     }
 }
 
+static const int MAX_PENDINGS = 10;
+
+enum class Status
+{
+    PENDING,
+    BLOCK,
+    WAITING,
+    NXDOMAIN,
+    ERROR,
+};
+
+struct Pending
+{
+    Job *job;
+    uint16_t id; // DNS message id (zero means empty)
+    Status status;
+    #ifdef ENABLE_IPV6
+    ipv6_t ipv6; // union with ipv4?
+    #endif
+    ipv4_t ipv4;
+
+    Pending() = default;
+    Pending( const Pending &that ) : job(that.job), id(that.id) {};
+    Pending( Pending &&that ) : job(that.job), id(that.id) { that.job = nullptr; that.id = 0; }
+};
+
+Pending *add_pending( std::vector<Pending> &list, uint16_t id, Job *job )
+{
+    if (id == 0 || job == nullptr) return nullptr;
+
+    auto it = list.begin();
+    while (it != list.end() && it->id != 0) ++it;
+    if (it == list.end()) return nullptr;
+
+    it->id = id;
+    it->job = job;
+    it->status = Status::PENDING;
+    return &(*it);
+}
+
+uint16_t next_id( std::atomic<uint16_t> &counter )
+{
+    auto value = counter.fetch_add(1);
+    if (value == 0) value = counter.fetch_add(1);
+    return value;
+}
+
+#ifdef ENABLE_IPV6
+void send_success_response( UDP &conn, const Endpoint &endpoint, const dns_message_t &request,
+    const ipv4_t &ipv4, const ipv6_t &ipv6 )
+#else
+void send_success_response( UDP &conn, const Endpoint &endpoint, const dns_message_t &request,
+    const ipv4_t &ipv4 )
+#endif
+{
+    // response message
+    buffer bio;
+    dns_message_t response;
+    response.header.id = request.header.id;
+    response.header.flags |= DNS_FLAG_QR;
+    if (request.header.flags & DNS_FLAG_RD)
+    {
+        response.header.flags |= DNS_FLAG_RA;
+        response.header.flags |= DNS_FLAG_RD;
+    }
+    // copy the request question
+    response.questions.push_back(request.questions[0]);
+    dns_record_t answer;
+    answer.qname = request.questions[0].qname;
+    answer.type = request.questions[0].type;
+    answer.clazz = request.questions[0].clazz;
+    answer.ttl = DNS_ANSWER_TTL;
+    #ifdef ENABLE_IPV6
+    if (request.questions[0].type == ADDR_TYPE_AAAA)
+        memcpy(answer.rdata, ipv6.values, 16);
+    else
+    #endif
+        memcpy(answer.rdata, ipv4.values, 4);
+    response.answers.push_back(answer);
+
+    response.write(bio);
+    conn.send(endpoint, bio.data(), bio.cursor());
+}
+
+void send_blocked_response( UDP &conn, const Endpoint &endpoint, const dns_message_t &request )
+{
+    send_success_response(conn, endpoint, request, IPV4_BLOCK_ADDRESS
+    #ifdef ENABLE_IPV6
+    , IPV6_BLOCK_ADDRESS
+    #endif
+    );
+}
+
+bool forward_request( UDP &conn, const Endpoint &endpoint, Pending &pending )
+{
+    // build the query message
+    dns_message_t message;
+    message.header.id = pending.id;
+    message.header.flags |= DNS_FLAG_RD;
+    message.header.flags |= DNS_FLAG_AD;
+    dns_question_t question;
+    question.qname = pending.job->request.questions[0].qname;
+    question.type = pending.job->request.questions[0].type;
+    question.clazz = 1;
+    message.questions.push_back(question);
+    // encode the message
+    buffer bio;
+    message.write(bio);
+
+    return conn.send(endpoint, bio.data(), bio.cursor());
+}
+
 void Processor::process(
     Processor *object,
     int num,
@@ -412,85 +524,139 @@ void Processor::process(
 {
     (void) num;
     std::unique_lock<std::mutex> guard(*mutex);
+    //Resolver resolver(*object->cache_);
+    UDP extns; // external name server
+    Endpoint extep("8.8.8.8", 53);
+    std::vector<Pending> pending(MAX_PENDINGS);
+    int available = MAX_PENDINGS;
+    std::atomic<uint16_t> counter(1);
 
     while (object->running_)
     {
-        Job *job = object->pop();
-        if (job == nullptr)
-        {
-            cond->wait_for(guard, std::chrono::seconds(1));
-            continue;
-        }
+        Job *job = nullptr;
 
-        Endpoint &endpoint = job->endpoint;
-        dns_message_t &request = job->request;
-        ipv4_t ipv4;
-        #ifdef ENABLE_IPV6
-        ipv6_t ipv6;
-        #endif
-        std::string dns_name;
-        int result = DNSB_STATUS_FAILURE;
-        bool is_blocked = false;
-        uint8_t heuristic = 0;
-
-        // check whether the domain is blocked
-        if (object->useFiltering_)
+        // try to pick another job
+        if (available > 0)
         {
-            if (object->whitelist_.match(request.questions[0].qname) == nullptr)
+            job = object->pop();
+            if (job != nullptr)
             {
-                // try the blacklist
-                {
-                    std::shared_lock<std::shared_mutex> guard(object->lock_);
-                    is_blocked = object->blacklist_.match(request.questions[0].qname) != nullptr;
-                }
-                // try the heuristics
-                if (!is_blocked && object->useHeuristics_)
-                    is_blocked = (heuristic = detect_heuristic(request.questions[0].qname)) != 0;
+                Pending *current = add_pending(pending, next_id(counter), job);
+                available--;
+                if (current == nullptr) abort(); // shouldn't happen
             }
+            else
+            if (available == MAX_PENDINGS) // no jobs and no pendings
+                cond->wait_for(guard, std::chrono::seconds(2));
         }
 
-        // if the domain is blocked, returns an 'invalid' IP address
-        if (is_blocked)
+        // process jobs from the internal list
+        for (auto &item : pending)
         {
-            #ifdef ENABLE_IPV6
-            if (request.questions[0].type == ADDR_TYPE_AAAA)
-                ipv6 = IPV6_BLOCK_ADDRESS;
-            else
-            #endif
-                ipv4 = IPV4_BLOCK_ADDRESS;
-        }
-        else
-        {
-            // assume NXDOMAIN for domains without periods (e.g. local host names)
-            // otherwise we try the external DNS
-            if (request.questions[0].qname.find('.') == std::string::npos)
-                result = DNSB_STATUS_NXDOMAIN;
-            else
-            if (request.header.flags & DNS_FLAG_RD)
+            if (item.status == Status::BLOCK)
             {
-                #ifdef ENABLE_IPV6
-                if (request.questions[0].type == ADDR_TYPE_AAAA)
-                    result = object->resolver_->resolve_ipv6(request.questions[0].qname, dns_name, ipv6);
-                else
-                #endif
+                send_blocked_response(*object->conn_, job->endpoint, job->request);
+                item.id = 0;
+                item.job = nullptr;
+                available++;
+            }
+            else
+            if (item.status == Status::ERROR)
+            {
+                object->send_error(job->request, DNS_RCODE_SERVFAIL, job->endpoint);
+                item.id = 0;
+                item.job = nullptr;
+                available++;
+            }
+            else
+            if (item.status == Status::NXDOMAIN)
+            {
+                object->send_error(job->request, DNS_RCODE_NXDOMAIN, job->endpoint);
+                item.id = 0;
+                item.job = nullptr;
+                available++;
+            }
+            else
+            if (item.status == Status::PENDING)
+            {
+                const dns_message_t &request = job->request;
+                bool is_blocked = false;
+                bool heuristic = false;
+
+                // check whether the domain is blocked
+                if (object->useFiltering_)
                 {
-                    result = object->resolver_->resolve_ipv4(request.questions[0].qname, dns_name, ipv4);
+                    if (object->whitelist_.match(request.questions[0].qname) == nullptr)
                     {
-                        std::shared_lock<std::shared_mutex> guard(object->lock_);
-                        if (object->ipv4list_.find(ipv4) != object->ipv4list_.end())
+                        // try the blacklist
                         {
-                            std::cerr << "Blocked by IP " << ipv4.to_string() << '\n';
-                            ipv4 = IPV4_BLOCK_ADDRESS;
-                            dns_name.clear();
-                            result = DNSB_STATUS_FAILURE;
-                            is_blocked = true;
+                            std::shared_lock<std::shared_mutex> guard(object->lock_);
+                            is_blocked = object->blacklist_.match(request.questions[0].qname) != nullptr;
                         }
+                        // try the heuristics
+                        if (!is_blocked && object->useHeuristics_)
+                            is_blocked = (heuristic = detect_heuristic(request.questions[0].qname)) != 0;
                     }
                 }
+
+                if (is_blocked)
+                    item.status = Status::BLOCK;
+                else
+                {
+                    // assume NXDOMAIN for domains without periods (e.g. local host names)
+                    // otherwise we try the external DNS
+                    if (request.questions[0].qname.find('.') != std::string::npos && request.header.flags & DNS_FLAG_RD)
+                    {
+                        std::string dns_name; // external DNS name in configuration file
+                        ipv4_t ipv4;
+
+                        if (!forward_request(extns, extep, item))
+                            item.status = Status::ERROR;
+                        else
+                            item.status = Status::WAITING;
+                    }
+                    else
+                        item.status = Status::NXDOMAIN;
+                }
             }
-            else
-                result = DNSB_STATUS_NXDOMAIN;
         }
+
+        // process each UDP response
+        Endpoint endpoint;
+        buffer buf;
+        while (extns.poll(0))
+        {
+            size_t size = buf.size();
+            if (extns.receive(endpoint, buf.data(), &size))
+            {
+                dns_message_t message;
+                message.read(buf); // TODO: just parse the header
+
+                // look for a matching pending entry
+                auto match = pending.begin();
+                while (match->id != message.header.id) match++;
+                if (match != pending.end())
+                {
+                    send_success_response(extns, match->job->endpoint, match->job->request, /*message.answers[0].rdata*/ IPV4_BLOCK_ADDRESS);
+                    match->id = 0;
+                    match->job = nullptr;
+                    available++;
+                }
+            }
+        }
+    }
+
+#if 0
+                                std::shared_lock<std::shared_mutex> guard(object->lock_);
+                                if (object->ipv4list_.find(ipv4) != object->ipv4list_.end())
+                                {
+                                    std::cerr << "Blocked by IP " << ipv4.to_string() << '\n';
+                                    ipv4 = IPV4_BLOCK_ADDRESS;
+                                    dns_name.clear();
+                                    result = DNSB_STATUS_FAILURE;
+                                    is_blocked = true;
+                                }
+
 
         // print information about the request
         print_request(request.questions[0].qname,
@@ -547,6 +713,7 @@ void Processor::process(
 
         delete job;
     }
+#endif
 }
 
 struct process_unit_t
