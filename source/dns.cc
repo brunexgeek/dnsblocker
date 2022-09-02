@@ -9,6 +9,7 @@
 #include <atomic>
 #include <iostream>
 #include <iomanip>
+#include <shared_mutex>
 
 #ifndef __WINDOWS__
 #include <poll.h>
@@ -26,22 +27,20 @@ typedef int ssize_t;
 
 namespace dnsblocker {
 
-dns_header_t::dns_header_t()
+dns_header_t::dns_header_t() : id(0), flags(0), opcode(0), rcode(0)
 {
-    id = flags = qdcount = ancount = nscount = arcount = 0;
-    opcode = rcode = 0;
 }
 
-dns_question_t::dns_question_t()
+void dns_header_t::swap( dns_header_t &that )
 {
-    type = clazz = 0;
+    std::swap(id, that.id);
+    std::swap(flags, that.flags);
+    std::swap(opcode, that.opcode);
+    std::swap(rcode, that.rcode);
 }
 
-dns_question_t::dns_question_t( const dns_question_t &obj )
+dns_question_t::dns_question_t() : type(0), clazz(0)
 {
-    qname = obj.qname;
-    type = obj.type;
-    clazz = obj.clazz;
 }
 
 dns_record_t::dns_record_t()
@@ -51,76 +50,30 @@ dns_record_t::dns_record_t()
     memset(rdata, 0, sizeof(rdata));
 }
 
-void dns_header_t::read(
-    buffer &bio )
-{
-    id = bio.readU16();
-    flags = bio.readU16();
-    opcode = DNS_GET_OPCODE(flags);
-    rcode = DNS_GET_RCODE(flags);
-    qdcount = bio.readU16();
-    ancount = bio.readU16();
-    nscount = bio.readU16();
-    arcount = bio.readU16();
-}
-
-
-void dns_header_t::write(
-    buffer &bio )
-{
-    DNS_SET_OPCODE(flags, opcode);
-    DNS_SET_RCODE(flags, rcode);
-
-    bio.writeU16(id);
-    bio.writeU16(flags);
-    bio.writeU16(qdcount);
-    bio.writeU16(ancount);
-    bio.writeU16(nscount);
-    bio.writeU16(arcount);
-}
-
-
-void dns_question_t::read(
-    buffer &bio )
+void dns_question_t::read( buffer &bio )
 {
     qname = bio.readQName();
     type = bio.readU16();
     clazz = bio.readU16();
 }
 
-void dns_question_t::write(
-    buffer &bio )
+void dns_question_t::write( buffer &bio ) const
 {
     bio.writeQName(qname);
     bio.writeU16(type);
     bio.writeU16(clazz);
 }
 
-
-void dns_question_t::print() const
-{
-    LOG_MESSAGE("   [qname: '%s', type: %d, class: %d]\n",
-        qname.c_str(), type, clazz);
-}
-
-
-dns_message_t::dns_message_t()
-{
-}
-
-
 void dns_message_t::swap( dns_message_t &that )
 {
-    header = that.header;
+    header.swap(that.header);
     questions.swap(that.questions);
     answers.swap(that.answers);
     authority.swap(that.authority);
     additional.swap(that.additional);
 }
 
-
-void dns_message_t::read(
-    buffer &bio )
+void dns_message_t::read( buffer &bio )
 {
     questions.clear();
     answers.clear();
@@ -128,45 +81,61 @@ void dns_message_t::read(
     additional.clear();
 
     // read the message header
-    header.read(bio);
-    header.nscount = 0;
-    header.arcount = 0;
+    header.id = bio.readU16();
+    header.flags = bio.readU16();
+    header.opcode = DNS_GET_OPCODE(header.flags);
+    header.rcode = DNS_GET_RCODE(header.flags);
+    uint16_t qdc = bio.readU16(); // query count
+    uint16_t anc = bio.readU16(); // answer count
+    uint16_t nsc = bio.readU16(); // name server count
+    uint16_t arc = bio.readU16(); // additional record count
     // read the questions
-    questions.resize(header.qdcount);
-    for (auto it = questions.begin(); it != questions.end(); ++it) it->read(bio);
-    // read the answer records
-    answers.resize(header.ancount);
-    for (auto it = answers.begin(); it != answers.end(); ++it) it->read(bio);
+    questions.resize(qdc);
+    for (auto &item : questions) item.read(bio);
+    // read the answers
+    answers.resize(anc);
+    for (auto &item : answers) item.read(bio);
+    #if 0
+    // read the name servers
+    authority.resize(nsc);
+    for (auto &item : authority) item.read(bio);
+    // read the additional records
+    additional.resize(arc);
+    for (auto &item : additional) item.read(bio);
+    #endif
 }
 
-
-void dns_message_t::write(
-    buffer &bio )
+void dns_message_t::write( buffer &bio ) const
 {
-    header.qdcount = (uint16_t) questions.size();
-    header.ancount = (uint16_t) answers.size();
-    header.nscount = 0;
-    header.arcount = 0;
-
     // write the header
-    header.write(bio);
-    // write the questions
-    for (auto it = questions.begin(); it != questions.end(); ++it) it->write(bio);
-    // write the answer records
-    for (auto it = answers.begin(); it != answers.end(); ++it) it->write(bio);
+    uint16_t flags = header.flags;
+    DNS_SET_OPCODE(flags, header.opcode);
+    DNS_SET_RCODE(flags, header.rcode);
+    bio.writeU16(header.id);
+    bio.writeU16(flags);
+    bio.writeU16( (uint16_t) questions.size() );
+    bio.writeU16( (uint16_t) answers.size() );
+    bio.writeU16( (uint16_t) authority.size() );
+    bio.writeU16( (uint16_t) additional.size() );
+    for (const auto &item : questions) item.write(bio);
+    for (const auto &item : answers) item.write(bio);
+    #if 0
+    for (const auto &item : authority) item.write(bio);
+    for (const auto &item : additional) item.write(bio);
+    #endif
 }
-
 
 void dns_message_t::print() const
 {
     LOG_MESSAGE("[qdcount: %d, ancount: %d, nscount: %d, arcount: %d]\n",
-        header.qdcount, header.ancount, header.nscount, header.arcount);
-    for (auto it = questions.begin(); it != questions.end(); ++it) it->print();
-    for (auto it = answers.begin(); it != answers.end(); ++it) it->print();
+        (int) questions.size(), (int) answers.size(), (int) authority.size(), (int) additional.size());
+
+    //LOG_MESSAGE("   [qname: '%s', type: %d, class: %d]\n", qname.c_str(), type, clazz);
+    //for (auto it = questions.begin(); it != questions.end(); ++it) it->print();
+    //for (auto it = answers.begin(); it != answers.end(); ++it) it->print();
 }
 
-
-void dns_record_t::write( buffer &bio )
+void dns_record_t::write( buffer &bio ) const
 {
     bio.writeQName(qname);
     bio.writeU16(type);
@@ -222,9 +191,9 @@ void dns_record_t::read( buffer &bio )
 }
 
 
-void dns_record_t::print() const
+/*void dns_record_t::print() const
 {
-    /*if (!rdata.empty())
+    if (!rdata.empty())
     {
         LOG_MESSAGE("   [qname: '%s', type: %d, class: %d, ttl: %d, len: %d, addr: %d.%d.%d.%d]\n",
             qname.c_str(), type, clazz, ttl, rdlen, rdata.to_string().c_str());
@@ -233,8 +202,8 @@ void dns_record_t::print() const
     {
         LOG_MESSAGE("   [qname: '%s', type: %d, class: %d, ttl: %d, len: %d]\n",
             qname.c_str(), type, clazz, ttl, rdlen);
-    }*/
-}
+    }
+}*/
 
 
 #ifdef __WINDOWS__

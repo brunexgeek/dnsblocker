@@ -56,14 +56,11 @@ struct dns_header_t
     uint16_t flags;
     uint8_t opcode;
     uint8_t rcode;
-    uint16_t qdcount; // query count
-    uint16_t ancount; // answer count
-    uint16_t nscount; // name server count
-    uint16_t arcount; // additional record count
 
     dns_header_t();
-    void read( buffer &bio );
-    void write( buffer &bio );
+    dns_header_t( const dns_header_t & ) = default;
+    dns_header_t( dns_header_t && ) = default;
+    void swap( dns_header_t & );
 };
 
 struct dns_question_t
@@ -73,10 +70,10 @@ struct dns_question_t
     uint16_t clazz;
 
     dns_question_t();
-    dns_question_t( const dns_question_t &obj );
+    dns_question_t( const dns_question_t & ) = default;
+    dns_question_t( dns_question_t && ) = default;
     void read( buffer &bio );
-    void write( buffer &bio );
-    void print() const;
+    void write( buffer &bio ) const;
 };
 
 struct dns_record_t
@@ -93,9 +90,10 @@ struct dns_record_t
     #endif
 
     dns_record_t();
+    dns_record_t( const dns_record_t & ) = default;
+    dns_record_t( dns_record_t && ) = default;
     void read( buffer &bio );
-    void write( buffer &bio );
-    void print() const;
+    void write( buffer &bio ) const;
 };
 
 struct dns_message_t
@@ -106,10 +104,12 @@ struct dns_message_t
     std::vector<dns_record_t> authority;
     std::vector<dns_record_t> additional;
 
-    dns_message_t();
+    dns_message_t() = default;
+    dns_message_t( const dns_message_t & ) = delete;
+    dns_message_t( dns_message_t && ) = delete;
     void swap( dns_message_t &that );
     void read( buffer &bio );
-    void write( buffer &bio );
+    void write( buffer &bio ) const;
     void print() const;
 };
 
