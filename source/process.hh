@@ -27,16 +27,17 @@ enum class Status
 struct Job
 {
     Endpoint endpoint;
-    dns_message_t request;
-    dns_message_t *response;
+    dns_buffer_t request;
+    //dns_buffer_t *response;
+    uint16_t oid; // original DNS message id (from the client)
     uint16_t id; // DNS message id (zero means empty)
     Status status;
 
-    Job( const Endpoint &ep, dns_message_t &req )
+    Job( const Endpoint &ep, const dns_buffer_t &req )
     {
         endpoint = ep;
-        request.swap(req);
-        response = nullptr;
+        request = req;
+        //response = nullptr;
         id = 0;
         status = Status::PENDING;
     }
@@ -87,7 +88,7 @@ class Processor
         void send_success( const Endpoint &endpoint, const dns_message_t &request, const ipv4_t &ipv4 );
         #endif
         void send_blocked( const Endpoint &endpoint, const dns_message_t &request );
-        bool send_success( const Endpoint &endpoint, const dns_message_t &request, const std::vector<dns_record_t> &answers );
+        bool send_success( const Endpoint &endpoint, const dns_buffer_t &response );
         bool forward_request( UDP &conn, const Endpoint &endpoint, const dns_message_t &request, uint16_t id );
 
         friend struct ConsoleListener;

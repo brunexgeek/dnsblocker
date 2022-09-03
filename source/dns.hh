@@ -109,6 +109,18 @@ struct dns_message_t
     void print() const;
 };
 
+struct dns_visitor_t
+{
+    dns_visitor_t() = default;
+    dns_visitor_t( const dns_visitor_t& ) = delete;
+    dns_visitor_t( dns_visitor_t&& ) = delete;
+    virtual bool visit_message_header( uint16_t &id, const uint16_t flags, const uint8_t opcode, const uint8_t rcode );
+    virtual bool visit_question( const uint16_t type, uint16_t clazz, const std::string &qname );
+    virtual bool visit_answer( const std::string &qname, const uint16_t type, const uint16_t clazz, uint32_t &ttl,
+        const uint16_t rdlen, const uint8_t *rdata );
+    bool visit( const uint8_t *buffer, size_t size );
+};
+
 template<class T>
 struct named_value
 {
@@ -121,10 +133,38 @@ struct named_value
     named_value( const std::string &name, T &&value ) : name(name), value(value) {}
 };
 
+struct dns_header_tt
+{
+	uint16_t id; // identification number
+
+	uint8_t rd :1; // recursion desired
+	uint8_t tc :1; // truncated message
+	uint8_t aa :1; // authoritive answer
+	uint8_t opcode :4; // purpose of message
+	uint8_t qr :1; // query/response flag
+
+	uint8_t rcode :4; // response code
+	uint8_t cd :1; // checking disabled
+	uint8_t ad :1; // authenticated data
+	uint8_t z :1; // its z! reserved
+	uint8_t ra :1; // recursion available
+
+	uint16_t q_count; // number of question entries
+	uint16_t ans_count; // number of answer entries
+	uint16_t auth_count; // number of authority entries
+	uint16_t add_count; // number of resource entries
+};
+
+struct dns_buffer_t
+{
+    uint8_t content[DNS_MESSAGE_SIZE];
+    size_t size = DNS_MESSAGE_SIZE;
+};
+
 struct CacheEntry
 {
     uint64_t timestamp;
-    std::vector<dns_record_t> answers;
+    dns_buffer_t message;
     bool nxdomain;
 };
 
@@ -133,11 +173,11 @@ struct Cache
     public:
         Cache( int size = DNS_CACHE_LIMIT, int ttl = DNS_CACHE_TTL );
         ~Cache();
-        int find_ipv4( const std::string &host, dns_message_t &response );
-        void append_ipv4( const std::string &host, const dns_message_t &response );
+        int find_ipv4( const std::string &host, dns_buffer_t &response );
+        void append_ipv4( const std::string &host, const dns_buffer_t &response );
         #ifdef ENABLE_IPV6
-        int find_ipv6( const std::string &host, dns_message_t &response );
-        void append_ipv6( const std::string &host, const dns_message_t &response );
+        int find_ipv6( const std::string &host, dns_buffer_t &response );
+        void append_ipv6( const std::string &host, const dns_buffer_t &response );
         #endif
         void dump( std::ostream &out );
         size_t cleanup( uint32_t ttl );
@@ -149,14 +189,8 @@ struct Cache
         std::unordered_map<std::string, CacheEntry> cache_;
         std::shared_mutex lock_;
 
-        int find( const std::string &host, dns_message_t &response );
-        void append( const std::string &host, const dns_message_t &response );
-};
-
-struct ExternalResolver
-{
-    UDP conn;
-
+        int find( const std::string &host, dns_buffer_t &response );
+        void append( const std::string &host, const dns_buffer_t &response );
 };
 
 class Resolver
@@ -164,8 +198,8 @@ class Resolver
     public:
         Resolver( int timeout = DNS_TIMEOUT );
         ~Resolver();
-        uint16_t send( Endpoint &endpoint, const std::string &host, int type );
-        int receive( dns_message_t &response, int timeout = 0);
+        uint16_t send( Endpoint &endpoint, dns_buffer_t &response );
+        int receive( dns_buffer_t &response, int timeout = 0);
 
     private:
         UDP conn_;

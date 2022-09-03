@@ -236,36 +236,23 @@ uint16_t Resolver::next_id()
     return id_;
 }
 
-uint16_t Resolver::send( Endpoint &endpoint, const std::string &host, int type )
+uint16_t Resolver::send( Endpoint &endpoint, dns_buffer_t &response )
 {
-    // build the query message
-    dns_message_t message;
-    message.header.id = next_id();
-    message.header.flags = DNS_FLAG_RD | DNS_FLAG_AD;
-    message.questions.resize(1);
-    message.questions[0].qname = host;
-    message.questions[0].type = (uint16_t) type;
-    message.questions[0].clazz = 1;
-    // encode the message
-    buffer bio;
-    message.write(bio);
+    dns_header_tt &header = *((dns_header_tt*) response.content);
+    header.id = next_id();
 
-    if (!conn_.send(endpoint, bio.data(), bio.cursor()))
+    if (!conn_.send(endpoint, response.content, response.size))
         return 0;
     else
-        return message.header.id;
+        return header.id;
 }
 
-int Resolver::receive( dns_message_t &response, int timeout )
+int Resolver::receive( dns_buffer_t &response, int timeout )
 {
     Endpoint endpoint;
-    buffer buf;
-    size_t size = buf.size();
-    if (conn_.receive(endpoint, buf.data(), &size, timeout))
-    {
-        response.read(buf);
-        return size;
-    }
+    size_t size = response.size = sizeof(response.content);
+    if (conn_.receive(endpoint, response.content, &size, timeout))
+        return response.size = size;
     return -1;
 }
 
@@ -277,19 +264,19 @@ Cache::~Cache()
 {
 }
 
-int Cache::find_ipv4( const std::string &host, dns_message_t &response )
+int Cache::find_ipv4( const std::string &host, dns_buffer_t &response )
 {
     return find(host + "_4", response);
 }
 
 #ifdef ENABLE_IPV6
-int Cache::find_ipv6( const std::string &host, dns_message_t &response )
+int Cache::find_ipv6( const std::string &host, dns_buffer_t &response )
 {
     return find(host + "_6", response);
 }
 #endif
 
-int Cache::find( const std::string &host, dns_message_t &response )
+int Cache::find( const std::string &host, dns_buffer_t &response )
 {
     std::shared_lock<std::shared_mutex> guard(lock_);
     uint64_t now = dns_time();
@@ -304,9 +291,7 @@ int Cache::find( const std::string &host, dns_message_t &response )
         // is it NXDOMAIN?
         if (it->second.nxdomain)
             return DNSB_STATUS_NXDOMAIN;
-        // copy all answers
-        for (const auto &item : it->second.answers)
-            response.answers.push_back(item);
+        response = it->second.message;
         return DNSB_STATUS_CACHE;
     }
     return DNSB_STATUS_FAILURE;
@@ -374,18 +359,18 @@ void Cache::dump( std::ostream &out )
 }
 
 #ifdef ENABLE_IPV6
-void Cache::append_ipv6( const std::string &host, const dns_message_t &response )
+void Cache::append_ipv6( const std::string &host, const dns_buffer_t &response )
 {
     return append(host + "_6", response);
 }
 #endif
 
-void Cache::append_ipv4( const std::string &host, const dns_message_t &response )
+void Cache::append_ipv4( const std::string &host, const dns_buffer_t &response )
 {
     return append(host + "_4", response);
 }
 
-void Cache::append( const std::string &host, const dns_message_t &response )
+void Cache::append( const std::string &host, const dns_buffer_t &response )
 {
     std::unique_lock<std::shared_mutex> guard(lock_);
 
@@ -395,8 +380,7 @@ void Cache::append( const std::string &host, const dns_message_t &response )
         CacheEntry &entry = cache_[host];
         entry.nxdomain = false;
         entry.timestamp = dns_time();
-        for (const auto &item : response.answers)
-            entry.answers.push_back(item);
+        entry.message = response;
     }
 }
 
