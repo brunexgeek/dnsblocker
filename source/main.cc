@@ -218,11 +218,11 @@ void main_prepare()
         else
             ++it;
     }
-    if (context.config.blacklist.empty())
-    {
-        LOG_MESSAGE("No valid blacklist specified\n");
-        exit(1);
-    }
+    //if (context.config.blacklist.empty())
+    //{
+    //    LOG_MESSAGE("No valid blacklist specified\n");
+    //    exit(1);
+    //}
 
     if (context.config.external_dns.empty())
     {
@@ -251,9 +251,14 @@ void main_prepare()
 
     LOG_MESSAGE("    Base path: %s\n", context.basePath.c_str());
     LOG_MESSAGE("Configuration: %s\n", context.configFileName.c_str());
-    LOG_MESSAGE("    Blacklist: %s\n", context.config.blacklist[0].c_str());
-    for (auto it = context.config.blacklist.begin() + 1; it != context.config.blacklist.end(); ++it)
-        LOG_MESSAGE("               %s\n", it->c_str());
+    if (context.config.blacklist.empty())
+        LOG_MESSAGE("    Blacklist: \n");
+    else
+    {
+        LOG_MESSAGE("    Blacklist: %s\n", context.config.blacklist[0].c_str());
+        for (auto it = context.config.blacklist.begin() + 1; it != context.config.blacklist.end(); ++it)
+            LOG_MESSAGE("               %s\n", it->c_str());
+    }
     if (!context.config.whitelist.empty())
     {
         LOG_MESSAGE("    Whitelist: %s\n", context.config.whitelist[0].c_str());

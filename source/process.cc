@@ -253,10 +253,7 @@ bool Processor::console( const std::string &command )
 }
 #endif
 
-bool Processor::send_error(
-    const dns_message_t &request,
-    int rcode,
-    const Endpoint &endpoint )
+bool Processor::send_error( const Endpoint &endpoint,  const dns_message_t &request, int rcode )
 {
     if (request.questions.size() == 0) return false;
     buffer bio;
@@ -268,6 +265,8 @@ bool Processor::send_error(
     response.write(bio);
     return conn_->send(endpoint, bio.data(), bio.cursor());
 }
+
+
 
 uint8_t Processor::detect_heuristic( std::string name )
 {
@@ -406,56 +405,18 @@ static void print_request(
 
 static const int MAX_PENDINGS = 10;
 
-enum class Status
+uint16_t next_id( int thread_num, int &counter )
 {
-    PENDING,
-    BLOCK,
-    WAITING,
-    NXDOMAIN,
-    ERROR,
-};
-
-struct Pending
-{
-    Job *job;
-    uint16_t id; // DNS message id (zero means empty)
-    Status status;
-    #ifdef ENABLE_IPV6
-    ipv6_t ipv6; // union with ipv4?
-    #endif
-    ipv4_t ipv4;
-
-    Pending() = default;
-    Pending( const Pending &that ) : job(that.job), id(that.id) {};
-    Pending( Pending &&that ) : job(that.job), id(that.id) { that.job = nullptr; that.id = 0; }
-};
-
-Pending *add_pending( std::vector<Pending> &list, uint16_t id, Job *job )
-{
-    if (id == 0 || job == nullptr) return nullptr;
-
-    auto it = list.begin();
-    while (it != list.end() && it->id != 0) ++it;
-    if (it == list.end()) return nullptr;
-
-    it->id = id;
-    it->job = job;
-    it->status = Status::PENDING;
-    return &(*it);
-}
-
-uint16_t next_id( std::atomic<uint16_t> &counter )
-{
-    auto value = counter.fetch_add(1);
-    if (value == 0) value = counter.fetch_add(1);
-    return value;
+    counter = (counter + 1) & 0x0FFF;
+    if (counter == 0) counter = 1; // to avoid id = 0
+    return (uint16_t) (((thread_num & 0x0F) << 12) | counter);
 }
 
 #ifdef ENABLE_IPV6
-void send_success_response( UDP &conn, const Endpoint &endpoint, const dns_message_t &request,
+void Processor::send_success( const Endpoint &endpoint, const dns_message_t &request,
     const ipv4_t &ipv4, const ipv6_t &ipv6 )
 #else
-void send_success_response( UDP &conn, const Endpoint &endpoint, const dns_message_t &request,
+void Processor::send_success( const Endpoint &endpoint, const dns_message_t &request,
     const ipv4_t &ipv4 )
 #endif
 {
@@ -463,12 +424,9 @@ void send_success_response( UDP &conn, const Endpoint &endpoint, const dns_messa
     buffer bio;
     dns_message_t response;
     response.header.id = request.header.id;
-    response.header.flags |= DNS_FLAG_QR;
+    response.header.flags = DNS_FLAG_QR;
     if (request.header.flags & DNS_FLAG_RD)
-    {
-        response.header.flags |= DNS_FLAG_RA;
-        response.header.flags |= DNS_FLAG_RD;
-    }
+        response.header.flags |= DNS_FLAG_RA | DNS_FLAG_RD;
     // copy the request question
     response.questions.push_back(request.questions[0]);
     dns_record_t answer;
@@ -485,101 +443,113 @@ void send_success_response( UDP &conn, const Endpoint &endpoint, const dns_messa
     response.answers.push_back(answer);
 
     response.write(bio);
-    conn.send(endpoint, bio.data(), bio.cursor());
+    conn_->send(endpoint, bio.data(), bio.cursor());
 }
 
-void send_blocked_response( UDP &conn, const Endpoint &endpoint, const dns_message_t &request )
+void Processor::send_blocked( const Endpoint &endpoint, const dns_message_t &request )
 {
-    send_success_response(conn, endpoint, request, IPV4_BLOCK_ADDRESS
+    send_success(endpoint, request, IPV4_BLOCK_ADDRESS
     #ifdef ENABLE_IPV6
     , IPV6_BLOCK_ADDRESS
     #endif
     );
 }
 
-bool forward_request( UDP &conn, const Endpoint &endpoint, Pending &pending )
+/*
+ * Forward to the client the answers received by external DNS server.
+ */
+bool Processor::send_success( const Endpoint &endpoint, const dns_message_t &request, const std::vector<dns_record_t> &answers )
+{
+    // build the query message
+    dns_message_t response;
+    response.header.id = request.header.id;
+    response.header.flags = DNS_FLAG_QR;
+    if (request.header.flags & DNS_FLAG_RD)
+        response.header.flags |= DNS_FLAG_RA | DNS_FLAG_RD;
+    response.questions.push_back(request.questions[0]);
+    for (auto &item : answers)
+        response.answers.push_back(item);
+    // encode the message
+    buffer bio;
+    response.write(bio);
+
+    return conn_->send(endpoint, bio.data(), bio.cursor());
+}
+
+bool Processor::forward_request( UDP &conn, const Endpoint &endpoint, const dns_message_t &request, uint16_t id )
 {
     // build the query message
     dns_message_t message;
-    message.header.id = pending.id;
-    message.header.flags |= DNS_FLAG_RD;
-    message.header.flags |= DNS_FLAG_AD;
-    dns_question_t question;
-    question.qname = pending.job->request.questions[0].qname;
-    question.type = pending.job->request.questions[0].type;
-    question.clazz = 1;
-    message.questions.push_back(question);
+    message.header.id = id;
+    message.header.flags = DNS_FLAG_RD | DNS_FLAG_AD;
+    message.questions.push_back(request.questions[0]);
     // encode the message
     buffer bio;
     message.write(bio);
+
+    std::cerr << "Sending request #" << id << " to external DNS\n";
 
     return conn.send(endpoint, bio.data(), bio.cursor());
 }
 
 void Processor::process(
     Processor *object,
-    int num,
+    int thread_num,
     std::mutex *mutex,
     std::condition_variable *cond )
 {
-    (void) num;
     std::unique_lock<std::mutex> guard(*mutex);
     //Resolver resolver(*object->cache_);
     UDP extns; // external name server
     Endpoint extep("8.8.8.8", 53);
-    std::vector<Pending> pending(MAX_PENDINGS);
-    int available = MAX_PENDINGS;
-    std::atomic<uint16_t> counter(1);
+    std::list<Job*> jobs;
+    int counter = 0; // per-thread counter
 
     while (object->running_)
     {
-        Job *job = nullptr;
-
         // try to pick another job
-        if (available > 0)
+        if (jobs.size() < MAX_PENDINGS)
         {
-            job = object->pop();
+            Job *job = object->pop();
             if (job != nullptr)
             {
-                Pending *current = add_pending(pending, next_id(counter), job);
-                available--;
-                if (current == nullptr) abort(); // shouldn't happen
+                job->id = next_id(thread_num, counter);
+                jobs.push_back(job);
+
             }
             else
-            if (available == MAX_PENDINGS) // no jobs and no pendings
+            if (jobs.size() == 0) // no jobs
+            {
                 cond->wait_for(guard, std::chrono::seconds(2));
+                continue;
+            }
         }
 
         // process jobs from the internal list
-        for (auto &item : pending)
+        for (auto it = jobs.begin(); it != jobs.end(); ++it)
         {
+            auto &item = **it;
             if (item.status == Status::BLOCK)
             {
-                send_blocked_response(*object->conn_, job->endpoint, job->request);
-                item.id = 0;
-                item.job = nullptr;
-                available++;
+                object->send_blocked(item.endpoint, item.request);
+                it = jobs.erase(it);
             }
             else
             if (item.status == Status::ERROR)
             {
-                object->send_error(job->request, DNS_RCODE_SERVFAIL, job->endpoint);
-                item.id = 0;
-                item.job = nullptr;
-                available++;
+                object->send_error(item.endpoint, item.request, DNS_RCODE_SERVFAIL);
+                it = jobs.erase(it);
             }
             else
             if (item.status == Status::NXDOMAIN)
             {
-                object->send_error(job->request, DNS_RCODE_NXDOMAIN, job->endpoint);
-                item.id = 0;
-                item.job = nullptr;
-                available++;
+                object->send_error(item.endpoint, item.request, DNS_RCODE_NXDOMAIN);
+                it = jobs.erase(it);
             }
             else
             if (item.status == Status::PENDING)
             {
-                const dns_message_t &request = job->request;
+                const dns_message_t &request = item.request;
                 bool is_blocked = false;
                 bool heuristic = false;
 
@@ -610,7 +580,7 @@ void Processor::process(
                         std::string dns_name; // external DNS name in configuration file
                         ipv4_t ipv4;
 
-                        if (!forward_request(extns, extep, item))
+                        if (!object->forward_request(extns, extep, item.request, item.id))
                             item.status = Status::ERROR;
                         else
                             item.status = Status::WAITING;
@@ -629,18 +599,21 @@ void Processor::process(
             size_t size = buf.size();
             if (extns.receive(endpoint, buf.data(), &size))
             {
-                dns_message_t message;
-                message.read(buf); // TODO: just parse the header
+                dns_message_t response;
+                response.read(buf); // TODO: just parse the header
+                std::cerr << "Received response #" << response.header.id << "\n";
 
                 // look for a matching pending entry
-                auto match = pending.begin();
-                while (match->id != message.header.id) match++;
-                if (match != pending.end())
+                auto it = jobs.begin();
+                while (it != jobs.end() && (*it)->id != response.header.id)
+                    it++;
+                if (it != jobs.end())
                 {
-                    send_success_response(extns, match->job->endpoint, match->job->request, /*message.answers[0].rdata*/ IPV4_BLOCK_ADDRESS);
-                    match->id = 0;
-                    match->job = nullptr;
-                    available++;
+                    Job &item = **it;
+
+                    std::cerr << "Received response from external DNS for #" << item.id << "\n";
+                    object->send_success(item.endpoint, item.request, response.answers);
+                    it = jobs.erase(it);
                 }
             }
         }
@@ -760,7 +733,7 @@ void Processor::run(int nthreads)
             cond.notify_all();
         }
         else
-            send_error(request, DNS_RCODE_REFUSED, endpoint);
+            send_error(endpoint, request, DNS_RCODE_REFUSED);
     }
 
     for (int i = 0; i < nthreads; ++i)

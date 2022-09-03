@@ -15,16 +15,33 @@
 
 namespace dnsblocker {
 
+enum class Status
+{
+    PENDING,
+    BLOCK,
+    WAITING,
+    NXDOMAIN,
+    ERROR,
+};
+
 struct Job
 {
     Endpoint endpoint;
     dns_message_t request;
+    dns_message_t *response;
+    uint16_t id; // DNS message id (zero means empty)
+    Status status;
 
-    Job( Endpoint &endpoint, dns_message_t &request )
+    Job( const Endpoint &ep, dns_message_t &req )
     {
-        this->endpoint = endpoint;
-        this->request.swap(request);
+        endpoint = ep;
+        request.swap(req);
+        response = nullptr;
+        id = 0;
+        status = Status::PENDING;
     }
+    Job( const Job & ) = delete;
+    Job( Job && ) = delete;
 };
 
 class Console;
@@ -61,12 +78,17 @@ class Processor
         std::shared_mutex lock_;
 
         static void process( Processor *object, int num, std::mutex *mutex, std::condition_variable *cond );
-        bool send_error(
-            const dns_message_t &request,
-            int rcode,
-            const Endpoint &endpoint );
+        bool send_error(const Endpoint &endpoint,  const dns_message_t &request, int rcode);
         bool load_rules( const std::vector<std::string> &fileNames, Tree<uint8_t> &tree );
         static std::string realPath( const std::string &path );
+        #ifdef ENABLE_IPV6
+        void send_success( const Endpoint &endpoint, const dns_message_t &request, const ipv4_t &ipv4, const ipv6_t &ipv6 );
+        #else
+        void send_success( const Endpoint &endpoint, const dns_message_t &request, const ipv4_t &ipv4 );
+        #endif
+        void send_blocked( const Endpoint &endpoint, const dns_message_t &request );
+        bool send_success( const Endpoint &endpoint, const dns_message_t &request, const std::vector<dns_record_t> &answers );
+        bool forward_request( UDP &conn, const Endpoint &endpoint, const dns_message_t &request, uint16_t id );
 
         friend struct ConsoleListener;
 };

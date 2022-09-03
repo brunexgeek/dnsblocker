@@ -73,6 +73,8 @@ class UDP
 {
 	public:
 		UDP();
+		UDP( const UDP &) = delete;
+		UDP( UDP &&) = delete;
 		~UDP();
 
 		bool send( const Endpoint &endpoint, const uint8_t *data, size_t size );
