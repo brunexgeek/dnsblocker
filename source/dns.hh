@@ -86,8 +86,8 @@ struct dns_record_t
     uint8_t rdata[64];
 
     dns_record_t();
-    dns_record_t( const dns_record_t & ) = default;
-    dns_record_t( dns_record_t && ) = default;
+    dns_record_t( const dns_record_t & ) ;
+    dns_record_t( dns_record_t && ) ;
     bool read( buffer &bio );
     void write( buffer &bio ) const;
 };
@@ -153,35 +153,26 @@ struct Cache
         void append( const std::string &host, const dns_message_t &response );
 };
 
+struct ExternalResolver
+{
+    UDP conn;
+
+};
+
 class Resolver
 {
     public:
-        Resolver( Cache &cache, int timeout = DNS_TIMEOUT );
+        Resolver( int timeout = DNS_TIMEOUT );
         ~Resolver();
-        void set_dns( const std::string &dns, const std::string &name );
-        void set_dns( const std::string &dns, const std::string &name, const std::string &rule );
-        //int resolve( const std::string &host, int type, std::string &name, Address &output );
-        int resolve_ipv4( const std::string &host, std::string &name, ipv4_t &output );
-        #ifdef ENABLE_IPV6
-        int resolve_ipv6( const std::string &host, std::string &name, ipv6_t &output );
-        #endif
+        uint16_t send( Endpoint &endpoint, const std::string &host, int type );
+        int receive( dns_message_t &response, int timeout = 0);
 
     private:
-        struct
-        {
-            uint32_t cache;
-            uint32_t external;
-        } hits_;
-        named_value<ipv4_t> default_dns_;
-        Tree<named_value<ipv4_t>> target_dns_;
-        Cache &cache_;
-        int timeout_;
+        UDP conn_;
+        std::shared_mutex id_mutex_;
+        uint16_t id_;
 
-        #ifdef ENABLE_IPV6
-        int recursive( const std::string &host, int type, const ipv4_t &dnsAddress, ipv4_t *ipv4, ipv6_t *ipv6 );
-        #else
-        int recursive( const std::string &host, int type, const ipv4_t &dnsAddress, ipv4_t *ipv4 );
-        #endif
+        uint16_t next_id();
 };
 
 }

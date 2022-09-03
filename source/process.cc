@@ -49,20 +49,19 @@ Processor::Processor( const Configuration &config, Console *console ) :
     }
 
     cache_ = new Cache(config.cache.limit(), config.cache.ttl * 1000);
-    resolver_ = new Resolver(*cache_);
     bool found = false;
     for (auto it = config.external_dns.begin(); it != config.external_dns.end(); ++it)
     {
         if (it->targets.empty())
         {
-            resolver_->set_dns(it->address, it->name);
+            //resolver_->set_dns(it->address, it->name);
             found = true;
         }
         else
         {
             for (size_t i = 0; i < it->targets.size(); ++i)
             {
-                resolver_->set_dns(it->address, it->name, it->targets[i]);
+                //resolver_->set_dns(it->address, it->name, it->targets[i]);
             }
         }
     }
@@ -436,10 +435,16 @@ void Processor::send_success( const Endpoint &endpoint, const dns_message_t &req
     answer.ttl = DNS_ANSWER_TTL;
     #ifdef ENABLE_IPV6
     if (request.questions[0].type == ADDR_TYPE_AAAA)
+    {
+        answer.rdlen = 16;
         memcpy(answer.rdata, ipv6.values, 16);
+    }
     else
     #endif
+    {
+        answer.rdlen = 4;
         memcpy(answer.rdata, ipv4.values, 4);
+    }
     response.answers.push_back(answer);
 
     response.write(bio);
@@ -499,8 +504,7 @@ void Processor::process(
     std::condition_variable *cond )
 {
     std::unique_lock<std::mutex> guard(*mutex);
-    //Resolver resolver(*object->cache_);
-    UDP extns; // external name server
+    Resolver resolver;
     Endpoint extep("8.8.8.8", 53);
     std::list<Job*> jobs;
     int counter = 0; // per-thread counter
@@ -514,7 +518,7 @@ void Processor::process(
             Job *job = object->pop();
             if (job != nullptr)
             {
-                job->id = next_id(thread_num, counter);
+                job->id = 0;
                 jobs.push_back(job);
                 new_job = true;
             }
@@ -581,7 +585,11 @@ void Processor::process(
                         std::string dns_name; // external DNS name in configuration file
                         ipv4_t ipv4;
 
-                        if (!object->forward_request(extns, extep, item.request, item.id))
+                        //if (!object->forward_request(extns, extep, item.request, item.id))
+                        item.id = resolver.send(extep, item.request.questions[0].qname, DNS_TYPE_A);
+                        if (item.id > 0)
+                            std::cerr << "Sending request #" <<item.id << " to external DNS\n";
+                        if (item.id == 0)
                             item.status = Status::ERROR;
                         else
                             item.status = Status::WAITING;
@@ -597,29 +605,21 @@ void Processor::process(
         }
 
         // process each UDP response
-        Endpoint endpoint;
-        buffer buf;
-        while (extns.poll(new_job ? 0 : 250)) // wait up until 250ms only if no job was got in this iteration
+        dns_message_t response;
+        while (resolver.receive(response, new_job ? 0 : 250) > 0) // wait up until 250ms only if no job was got in this iteration
         {
-            size_t size = buf.size();
-            if (extns.receive(endpoint, buf.data(), &size))
+            std::cerr << "Received response #" << response.header.id << "\n";
+
+            // look for a matching pending entry
+            auto it = jobs.begin();
+            while (it != jobs.end() && (*it)->id != response.header.id)
+                it++;
+            if (it != jobs.end())
             {
-                dns_message_t response;
-                response.read(buf); // TODO: just parse the header
-                std::cerr << "Received response #" << response.header.id << "\n";
-
-                // look for a matching pending entry
-                auto it = jobs.begin();
-                while (it != jobs.end() && (*it)->id != response.header.id)
-                    it++;
-                if (it != jobs.end())
-                {
-                    Job &item = **it;
-
-                    std::cerr << "Received response from external DNS for #" << item.id << "\n";
-                    object->send_success(item.endpoint, item.request, response.answers);
-                    it = jobs.erase(it);
-                }
+                Job &item = **it;
+                std::cerr << "Received response from external DNS for #" << item.id << "\n";
+                object->send_success(item.endpoint, item.request, response.answers);
+                it = jobs.erase(it);
             }
         }
     }

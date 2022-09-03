@@ -9,6 +9,7 @@
 #include <atomic>
 #include <iostream>
 #include <iomanip>
+#include <cstring>
 #include <shared_mutex>
 
 #ifndef __WINDOWS__
@@ -49,6 +50,27 @@ dns_record_t::dns_record_t()
     ttl = 0;
     memset(rdata, 0, sizeof(rdata));
 }
+
+dns_record_t::dns_record_t( const dns_record_t &that )
+{
+    qname = that.qname;
+    type  = that.type ;
+    clazz = that.clazz;
+    ttl = that.ttl;
+    rdlen = that.rdlen;
+    memcpy(rdata, that.rdata, sizeof(rdata));
+}
+
+dns_record_t::dns_record_t( dns_record_t &&that )
+{
+    qname.swap(that.qname);
+    type  = that.type ;
+    clazz = that.clazz;
+    ttl = that.ttl;
+    rdlen = that.rdlen;
+    memcpy(rdata, that.rdata, sizeof(rdata));
+}
+
 
 void dns_question_t::read( buffer &bio )
 {
@@ -199,189 +221,52 @@ static uint64_t dns_time()
     return (uint64_t) std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count();
 }
 
-Resolver::Resolver( Cache &cache, int timeout ) : cache_(cache), timeout_(timeout)
+Resolver::Resolver( int timeout ) : id_(0)
 {
-    default_dns_ = named_value<ipv4_t>("default", UDP::hostToIPv4("8.8.4.4"));
-    hits_.cache = hits_.external = 0;
-    if (timeout_ < 0) timeout_ = 100;
 }
 
 Resolver::~Resolver()
 {
 }
 
-#ifdef ENABLE_IPV6
-int Resolver::recursive( const std::string &host, int type, const ipv4_t &dnsAddress, ipv4_t *ipv4, ipv6_t *ipv6 )
-#else
-int Resolver::recursive( const std::string &host, int type, const ipv4_t &dnsAddress, ipv4_t *ipv4 )
-#endif
+uint16_t Resolver::next_id()
 {
-    static std::atomic<uint16_t> lastId(1);
+    std::unique_lock<std::shared_mutex> guard(id_mutex_);
+    if (++id_ == 0) ++id_;
+    return id_;
+}
 
+uint16_t Resolver::send( Endpoint &endpoint, const std::string &host, int type )
+{
     // build the query message
     dns_message_t message;
-    message.header.id = lastId.fetch_add(1);
-    message.header.flags |= DNS_FLAG_RD;
-    message.header.flags |= DNS_FLAG_AD;
-    dns_question_t question;
-    question.qname = host;
-    question.type = (uint16_t) type;
-    question.clazz = 1;
-    message.questions.push_back(question);
+    message.header.id = next_id();
+    message.header.flags = DNS_FLAG_RD | DNS_FLAG_AD;
+    message.questions.resize(1);
+    message.questions[0].qname = host;
+    message.questions[0].type = (uint16_t) type;
+    message.questions[0].clazz = 1;
     // encode the message
     buffer bio;
     message.write(bio);
 
-    // send the query to the recursive DNS
-    Endpoint endpoint(dnsAddress, 53);
-	UDP conn;
-	if (!conn.send(endpoint, bio.data(), bio.cursor())) return DNSB_STATUS_FAILURE;
-
-	if (!conn.poll(timeout_)) return DNSB_STATUS_FAILURE;
-
-    // wait for the response
-    bio.reset();
-
-    size_t size = bio.size();
-	if (!conn.receive(endpoint, bio.data(), &size, 0)) return DNSB_STATUS_FAILURE;
-    bio.resize(size);
-
-    // decode the response
-    message.read(bio);
-
-    // use the first compatible answer
-    if (message.header.rcode == 0 &&
-        message.answers.size() > 0 &&
-        message.questions.size() == 1 &&
-        message.questions[0].qname == host)
-    {
-        for (auto it = message.answers.begin(); it != message.answers.end(); ++it)
-        {
-            if (it->type == type)
-            {
-                #ifdef ENABLE_IPV6
-                if (type == ADDR_TYPE_AAAA)
-                    *ipv6 = ipv6_t((uint16_t*)it->rdata);
-                else
-                #endif
-                    *ipv4 = ipv4_t(it->rdata);
-                return DNSB_STATUS_RECURSIVE;
-            }
-        }
-    }
-
-    return (message.header.rcode == DNS_RCODE_NXDOMAIN) ? DNSB_STATUS_NXDOMAIN : DNSB_STATUS_FAILURE;
-}
-
-int Resolver::resolve_ipv4( const std::string &host, std::string &name, ipv4_t &output )
-{
-    output.clear();
-
-    // check wheter we have a match in the cache
-    int result = cache_.find(host, &output);
-    if (result != DNSB_STATUS_FAILURE)
-        return result;
-
-    // try to resolve the domain using the custom external DNS, if any
-    auto node = target_dns_.match(host);
-    if (node != nullptr && !node->value.value.empty())
-    {
-        result = recursive(host,
-            ADDR_TYPE_A,
-            node->value.value,
-            &output
-            #ifdef ENABLE_IPV6
-            , nullptr
-            #endif
-            );
-        if (result == DNSB_STATUS_RECURSIVE) name = node->value.name;
-    }
-    // try to resolve the domain using the defaylt external DNS
-    if (result != DNSB_STATUS_RECURSIVE)
-    {
-        result = recursive(host,
-            ADDR_TYPE_A,
-            default_dns_.value,
-            &output
-            #ifdef ENABLE_IPV6
-            ,nullptr
-            #endif
-            );
-        if (result == DNSB_STATUS_RECURSIVE) name = default_dns_.name;
-    }
-
-    if (result == DNSB_STATUS_FAILURE) return result;
-
-    if (result == DNSB_STATUS_RECURSIVE)
-        #ifdef ENABLE_IPV6
-        cache_.add(host, &output, nullptr);
-        #else
-        cache_.add(host, &output);
-        #endif
+    if (!conn_.send(endpoint, bio.data(), bio.cursor()))
+        return 0;
     else
-        #ifdef ENABLE_IPV6
-        cache_.add(host, &ipv4_t::NXDOMAIN, nullptr);
-        #else
-        cache_.add(host, &ipv4_t::NXDOMAIN);
-        #endif
-
-    return result;
+        return message.header.id;
 }
 
-#ifdef ENABLE_IPV6
-int Resolver::resolve_ipv6( const std::string &host, std::string &name, ipv6_t &output )
+int Resolver::receive( dns_message_t &response, int timeout )
 {
-    output.clear();
-
-    // check wheter we have a match in the cache
-    int result = cache_.find(host, &output);
-    if (result != DNSB_STATUS_FAILURE)
-        return result;
-
-    // try to resolve the domain using the custom external DNS, if any
-    auto node = target_dns_.match(host);
-    if (node != nullptr && !node->value.value.empty())
+    Endpoint endpoint;
+    buffer buf;
+    size_t size = buf.size();
+    if (conn_.receive(endpoint, buf.data(), &size, timeout))
     {
-        result = recursive(host, ADDR_TYPE_AAAA, node->value.value, nullptr, &output);
-        if (result == DNSB_STATUS_RECURSIVE) name = node->value.name;
+        response.read(buf);
+        return size;
     }
-    // try to resolve the domain using the defaylt external DNS
-    if (result != DNSB_STATUS_RECURSIVE)
-    {
-        result = recursive(host, ADDR_TYPE_AAAA, default_dns_.value, nullptr, &output);
-        if (result == DNSB_STATUS_RECURSIVE) name = default_dns_.name;
-    }
-
-    if (result == DNSB_STATUS_FAILURE) return result;
-
-    if (result == DNSB_STATUS_RECURSIVE)
-        cache_.add(host, nullptr, &output);
-    else
-        cache_.add(host, nullptr, &ipv6_t::NXDOMAIN);
-
-    return result;
-}
-#endif
-
-/*
-uint32_t DNSCache::addressToIPv4( const std::string &host )
-{
-    if (host.empty()) return 0;
-
-    struct sockaddr_in address;
-    address.sin_family = AF_INET;
-    inet_pton(AF_INET, host.c_str(), &address.sin_addr);
-    return (uint32_t) address.sin_addr.s_addr;
-}*/
-
-void Resolver::set_dns( const std::string &dns, const std::string &name )
-{
-    default_dns_ = named_value<ipv4_t>(name, UDP::hostToIPv4(dns));
-}
-
-void Resolver::set_dns( const std::string &dns, const std::string &name, const std::string &rule )
-{
-    target_dns_.add(rule, named_value<ipv4_t>(name, UDP::hostToIPv4(dns)));
+    return -1;
 }
 
 Cache::Cache( int size , int ttl ) : size_(size), ttl_(ttl)
@@ -458,9 +343,9 @@ size_t Cache::cleanup( uint32_t ttl )
     return count;
 }
 
-#if 0
 void Cache::dump( std::ostream &out )
 {
+#if 0
     std::shared_lock<std::shared_mutex> raii(lock_);
     bool first = true;
 
@@ -485,8 +370,8 @@ void Cache::dump( std::ostream &out )
         first = false;
     }
     out << ']';
-}
 #endif
+}
 
 #ifdef ENABLE_IPV6
 void Cache::append_ipv6( const std::string &host, const dns_message_t &response )
