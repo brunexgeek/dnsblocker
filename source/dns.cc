@@ -93,8 +93,12 @@ void dns_message_t::read( buffer &bio )
     questions.resize(qdc);
     for (auto &item : questions) item.read(bio);
     // read the answers
-    answers.resize(anc);
-    for (auto &item : answers) item.read(bio);
+    for (int i = 0; i < anc; ++i)
+    {
+        dns_record_t entry;
+        if (entry.read(bio))
+        answers.push_back(std::move(entry));
+    }
     #if 0
     // read the name servers
     authority.resize(nsc);
@@ -137,59 +141,32 @@ void dns_message_t::print() const
 
 void dns_record_t::write( buffer &bio ) const
 {
+    if (rdlen > sizeof(rdata)) return;
     bio.writeQName(qname);
     bio.writeU16(type);
     bio.writeU16(clazz);
     bio.writeU32(ttl);
-    if (type == ADDR_TYPE_A)
-    {
-        bio.writeU16(4);
-        for (int i = 0; i < 4; ++i)
-            bio.writeU8(rdata[i]);
-    }
-    else
-    #ifdef ENABLE_IPV6
-    if (type == ADDR_TYPE_AAAA)
-    {
-        const uint16_t *ptr = (const uint16_t*) rdata;
-        bio.writeU16(16);
-        for (int i = 0; i < 8; ++i)
-            bio.writeU16(ptr[i]);
-    }
-    else
-    #endif
-    {
-        // never should get here!
-        bio.writeU16(4);
-        bio.writeU32(0);
-    }
+    bio.writeU16(rdlen);
+    for (int i = 0; i < rdlen; ++i)
+        bio.writeU8(rdata[i]);
 }
 
-void dns_record_t::read( buffer &bio )
+bool dns_record_t::read( buffer &bio )
 {
     qname = bio.readQName();
     type = bio.readU16();
     clazz = bio.readU16();
     ttl = bio.readU32();
     rdlen = bio.readU16();
-    if (rdlen == 4)
+    if (rdlen > sizeof(rdata))
     {
-        for (int i = 0; i < 4; ++i)
-            rdata[i] = bio.readU8();
-    }
-    else
-    #ifdef ENABLE_IPV6
-    if (rdlen == 16)
-    {
-        uint16_t *ptr = (uint16_t*) rdata;
-        for (int i = 0; i < 8; ++i)
-            ptr[i] = bio.readU16();
-    }
-    else
-    #endif
         bio.skip(rdlen);
+        return false;
+    }
+    for (int i = 0; i < rdlen; ++i)
+        rdata[i] = bio.readU8();
+    return true;
 }
-
 
 /*void dns_record_t::print() const
 {

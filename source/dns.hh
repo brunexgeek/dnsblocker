@@ -83,16 +83,12 @@ struct dns_record_t
     uint16_t clazz;
     uint32_t ttl;
     uint16_t rdlen;
-    #ifdef ENABLE_IPV6
-    uint8_t rdata[16];  // IPv4 or IPv6
-    #else
-    uint8_t rdata[4];  // IPv4
-    #endif
+    uint8_t rdata[64];  // IPv4 or IPv6 or CNAME
 
     dns_record_t();
     dns_record_t( const dns_record_t & ) = default;
     dns_record_t( dns_record_t && ) = default;
-    void read( buffer &bio );
+    bool read( buffer &bio );
     void write( buffer &bio ) const;
 };
 

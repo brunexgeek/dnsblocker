@@ -507,6 +507,7 @@ void Processor::process(
 
     while (object->running_)
     {
+        bool new_job = false;
         // try to pick another job
         if (jobs.size() < MAX_PENDINGS)
         {
@@ -515,7 +516,7 @@ void Processor::process(
             {
                 job->id = next_id(thread_num, counter);
                 jobs.push_back(job);
-
+                new_job = true;
             }
             else
             if (jobs.size() == 0) // no jobs
@@ -594,7 +595,7 @@ void Processor::process(
         // process each UDP response
         Endpoint endpoint;
         buffer buf;
-        while (extns.poll(0))
+        while (extns.poll(new_job ? 0 : 250)) // wait up until 250ms only if no job was got in this iteration
         {
             size_t size = buf.size();
             if (extns.receive(endpoint, buf.data(), &size))
