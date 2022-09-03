@@ -236,12 +236,12 @@ uint16_t Resolver::next_id()
     return id_;
 }
 
-uint16_t Resolver::send( Endpoint &endpoint, dns_buffer_t &response )
+uint16_t Resolver::send( Endpoint &endpoint, dns_buffer_t &request )
 {
-    dns_header_tt &header = *((dns_header_tt*) response.content);
+    dns_header_tt &header = *((dns_header_tt*) request.content);
     header.id = next_id();
 
-    if (!conn_.send(endpoint, response.content, response.size))
+    if (!conn_.send(endpoint, request.content, request.size))
         return 0;
     else
         return header.id;

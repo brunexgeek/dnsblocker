@@ -155,6 +155,10 @@ struct dns_header_tt
 	uint16_t add_count; // number of resource entries
 };
 
+#ifndef DNS_MESSAGE_SIZE
+#define DNS_MESSAGE_SIZE 512
+#endif
+
 struct dns_buffer_t
 {
     uint8_t content[DNS_MESSAGE_SIZE];

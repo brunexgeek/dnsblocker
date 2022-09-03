@@ -79,17 +79,16 @@ class Processor
         std::shared_mutex lock_;
 
         static void process( Processor *object, int num, std::mutex *mutex, std::condition_variable *cond );
-        bool send_error(const Endpoint &endpoint,  const dns_message_t &request, int rcode);
+        bool send_error(const Endpoint &endpoint,  const dns_buffer_t &request, int rcode);
         bool load_rules( const std::vector<std::string> &fileNames, Tree<uint8_t> &tree );
         static std::string realPath( const std::string &path );
         #ifdef ENABLE_IPV6
-        void send_success( const Endpoint &endpoint, const dns_message_t &request, const ipv4_t &ipv4, const ipv6_t &ipv6 );
+        void send_success( const Endpoint &endpoint, const dns_buffer_t &request, const ipv4_t *ipv4, const ipv6_t *ipv6 );
         #else
-        void send_success( const Endpoint &endpoint, const dns_message_t &request, const ipv4_t &ipv4 );
+        void send_success( const Endpoint &endpoint, const dns_buffer_t &request, const ipv4_t *ipv4 );
         #endif
-        void send_blocked( const Endpoint &endpoint, const dns_message_t &request );
-        bool send_success( const Endpoint &endpoint, const dns_buffer_t &response );
-        bool forward_request( UDP &conn, const Endpoint &endpoint, const dns_message_t &request, uint16_t id );
+        void send_blocked( const Endpoint &endpoint, const dns_buffer_t &request );
+        bool send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response );
 
         friend struct ConsoleListener;
 };

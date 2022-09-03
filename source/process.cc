@@ -252,9 +252,9 @@ bool Processor::console( const std::string &command )
 }
 #endif
 
-bool Processor::send_error( const Endpoint &endpoint,  const dns_message_t &request, int rcode )
+bool Processor::send_error( const Endpoint &endpoint, const dns_buffer_t &request, int rcode )
 {
-    if (request.questions.size() == 0) return false;
+    /*if (request.questions.size() == 0) return false;
     buffer bio;
     dns_message_t response;
     response.header.id = request.header.id;
@@ -263,6 +263,7 @@ bool Processor::send_error( const Endpoint &endpoint,  const dns_message_t &requ
     response.header.rcode = (uint8_t) rcode;
     response.write(bio);
     return conn_->send(endpoint, bio.data(), bio.cursor());
+    */ return false;
 }
 
 
@@ -411,51 +412,62 @@ uint16_t next_id( int thread_num, int &counter )
     return (uint16_t) (((thread_num & 0x0F) << 12) | counter);
 }
 
-#ifdef ENABLE_IPV6
-void Processor::send_success( const Endpoint &endpoint, const std::string &qname, uint16_t id,
-    const ipv4_t &ipv4, const ipv6_t &ipv6 )
-#else
-void Processor::send_success( const Endpoint &endpoint, const std::string &qname, uint16_t id,
-    const ipv4_t &ipv4 )
-#endif
+static int copy_prologue( const dns_buffer_t &request, dns_buffer_t &response )
 {
-    // response message
-    buffer bio;
-    dns_message_t response;
-    response.header.id = id;
-    response.header.flags = DNS_FLAG_QR;
-    if (request.header.flags & DNS_FLAG_RD)
-        response.header.flags |= DNS_FLAG_RA | DNS_FLAG_RD;
-    // copy the request question
-    dns_question_t question;
-    question.
-    response.questions.push_back(request.questions[0]);
-    dns_record_t answer;
-    answer.qname = request.questions[0].qname;
-    answer.type = request.questions[0].type;
-    answer.clazz = request.questions[0].clazz;
-    answer.ttl = DNS_ANSWER_TTL;
-    #ifdef ENABLE_IPV6
-    if (request.questions[0].type == ADDR_TYPE_AAAA)
-    {
-        answer.rdlen = 16;
-        memcpy(answer.rdata, ipv6.values, 16);
-    }
-    else
-    #endif
-    {
-        answer.rdlen = 4;
-        memcpy(answer.rdata, ipv4.values, 4);
-    }
-    response.answers.push_back(answer);
-
-    response.write(bio);
-    conn_->send(endpoint, bio.data(), bio.cursor());
+    dns_header_tt &header = *((dns_header_tt*) request.content);
+    if (header.q_count != 1) return -1;
+    const uint8_t *p = request.content + sizeof(dns_header_tt);
+    while (*p != 0) p += *p;
+    p += 1 + sizeof(uint16_t) * 2;
+    int offset = (int) (p - response.content);
+    memcpy(response.content, request.content, (size_t) offset);
+    return offset;
 }
 
-void Processor::send_blocked( const Endpoint &endpoint, const std::string &qname, uint16_t id )
+static uint8_t *write_u16( uint8_t *ptr, uint16_t value )
 {
-    send_success(endpoint, qname, id, IPV4_BLOCK_ADDRESS
+    ptr[0] = (uint8_t) (value >> 8);
+    ptr[1] = (uint8_t) value;
+    return ptr + sizeof(uint16_t);
+}
+
+static uint8_t *write_u32( uint8_t *ptr, uint16_t value )
+{
+    ptr[0] = (uint8_t) (value >> 24);
+    ptr[1] = (uint8_t) (value >> 16);
+    ptr[2] = (uint8_t) (value >> 8);
+    ptr[3] = (uint8_t) value;
+    return ptr + sizeof(uint32_t);
+}
+
+#ifdef ENABLE_IPV6
+void Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &request,
+    const ipv4_t *ipv4, const ipv6_t *ipv6 )
+#else
+void Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &request,
+    const ipv4_t *ipv4 )
+#endif
+{
+    dns_buffer_t response;
+    int offset = copy_prologue(request, response);
+    uint8_t *ptr = response.content + offset;
+
+    // qname (pointer)
+    ptr = write_u16(ptr, (uint16_t) (0xC0 | (uint16_t) sizeof(dns_header_tt)));
+    *ptr++ = 0;
+    ptr = write_u16(ptr, DNS_TYPE_A); // type
+    ptr = write_u16(ptr, 1); // clazz
+    ptr = write_u32(ptr, DNS_CACHE_TTL); // ttl
+    ptr = write_u16(ptr, 4); // rdlen
+    for (int i = 0; i < 4; ++i) // rdata
+        *ptr++ = ipv4->values[i];
+
+    conn_->send(endpoint, response.content, (size_t) (ptr - response.content));
+}
+
+void Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &request )
+{
+    send_success(endpoint, request, &IPV4_BLOCK_ADDRESS
     #ifdef ENABLE_IPV6
     , IPV6_BLOCK_ADDRESS
     #endif
@@ -465,7 +477,7 @@ void Processor::send_blocked( const Endpoint &endpoint, const std::string &qname
 /*
  * Forward to the client the answers received by external DNS server.
  */
-bool Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &response )
+bool Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response )
 {
     return conn_->send(endpoint, response.content, response.size);
 }
@@ -543,19 +555,19 @@ void Processor::process(
 
             if (item.status == Status::BLOCK)
             {
-                object->send_blocked(item.endpoint, qname, header.oid);
+                object->send_blocked(item.endpoint, item.request);
                 it = jobs.erase(it);
             }
             else
             if (item.status == Status::ERROR)
             {
-                object->send_error(item.endpoint, qname, header.oid, DNS_RCODE_SERVFAIL);
+                object->send_error(item.endpoint, item.request, DNS_RCODE_SERVFAIL);
                 it = jobs.erase(it);
             }
             else
             if (item.status == Status::NXDOMAIN)
             {
-                object->send_error(item.endpoint, qname, header.oid, DNS_RCODE_NXDOMAIN);
+                object->send_error(item.endpoint, item.request, DNS_RCODE_NXDOMAIN);
                 it = jobs.erase(it);
             }
             else
@@ -595,7 +607,7 @@ void Processor::process(
                         item.oid = header.id;
                         item.id = resolver.send(extep, item.request);
                         if (item.id > 0)
-                            std::cerr << "Sending request #" <<item.id << " to external DNS\n";
+                            std::cerr << "Sending request #" <<item.id << " (" << item.request.size << " bytes) to external DNS\n";
                         if (item.id == 0)
                             item.status = Status::ERROR;
                         else
@@ -616,7 +628,7 @@ void Processor::process(
         while (resolver.receive(response, new_job ? 0 : 250) > 0) // wait up until 250ms only if no job was got in this iteration
         {
             dns_header_tt &header = *((dns_header_tt*) response.content);
-            std::cerr << "Received response #" << header.id << "\n";
+            std::cerr << "Received response #" << header.id << " with " << response.size << " bytes\n";
 
             // look for a matching pending entry
             auto it = jobs.begin();
@@ -627,7 +639,7 @@ void Processor::process(
                 Job &item = **it;
                 std::cerr << "Received response from external DNS for #" << item.id << "\n";
                 header.id = item.oid; // recover the original ID
-                object->send_success(item.endpoint, response);
+                object->send_success(item.endpoint, item.request, response);
                 it = jobs.erase(it);
             }
         }
@@ -727,10 +739,12 @@ void Processor::run(int nthreads)
     {
         // receive the UDP message
         if (!conn_->receive(endpoint, buffer.content, &buffer.size, 2000)) continue;
+        std::cerr << "Received " << buffer.size << " bytes\n";
 
         // ignore messages with the number of questions other than 1
         dns_header_tt &header = *((dns_header_tt*) buffer.content);
-        if (header.q_count == 1)
+        std::cerr << "Query with " << be16toh(header.q_count) << " questions\n";
+        if (be16toh(header.q_count) == 1)
         {
             auto job = new Job(endpoint, buffer);
             job->oid = header.id;
