@@ -83,7 +83,7 @@ struct dns_record_t
     uint16_t clazz;
     uint32_t ttl;
     uint16_t rdlen;
-    uint8_t rdata[64];  // IPv4 or IPv6 or CNAME
+    uint8_t rdata[64];
 
     dns_record_t();
     dns_record_t( const dns_record_t & ) = default;
@@ -124,10 +124,8 @@ struct named_value
 struct CacheEntry
 {
     uint64_t timestamp;
-    ipv4_t ipv4;
-    #ifdef ENABLE_IPV6
-    ipv6_t ipv6;
-    #endif
+    std::vector<dns_record_t> answers;
+    bool nxdomain;
 };
 
 struct Cache
@@ -135,12 +133,11 @@ struct Cache
     public:
         Cache( int size = DNS_CACHE_LIMIT, int ttl = DNS_CACHE_TTL );
         ~Cache();
-        int find( const std::string &host, ipv4_t *value );
+        int find_ipv4( const std::string &host, dns_message_t &response );
+        void append_ipv4( const std::string &host, const dns_message_t &response );
         #ifdef ENABLE_IPV6
-        int find( const std::string &host, ipv6_t *value );
-        void add( const std::string &host, const ipv4_t *ipv4, const ipv6_t *ipv6 );
-        #else
-        void add( const std::string &host, const ipv4_t *ipv4 );
+        int find_ipv6( const std::string &host, dns_message_t &response );
+        void append_ipv6( const std::string &host, const dns_message_t &response );
         #endif
         void dump( std::ostream &out );
         size_t cleanup( uint32_t ttl );
@@ -152,11 +149,8 @@ struct Cache
         std::unordered_map<std::string, CacheEntry> cache_;
         std::shared_mutex lock_;
 
-        #ifdef ENABLE_IPV6
-        bool get( const std::string &host, ipv4_t *ipv4, ipv6_t *ipv6 );
-        #else
-        bool get( const std::string &host, ipv4_t *ipv4 );
-        #endif
+        int find( const std::string &host, dns_message_t &response );
+        void append( const std::string &host, const dns_message_t &response );
 };
 
 class Resolver

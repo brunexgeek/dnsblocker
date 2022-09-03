@@ -199,113 +199,6 @@ static uint64_t dns_time()
     return (uint64_t) std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count();
 }
 
-Cache::Cache( int size , int ttl ) : size_(size), ttl_(ttl)
-{
-}
-
-Cache::~Cache()
-{
-}
-
-int Cache::find( const std::string &host, ipv4_t *value )
-{
-    #ifdef ENABLE_IPV6
-    if (get(host, value, nullptr))
-    #else
-    if (get(host, value))
-    #endif
-    {
-        if (value->operator==(ipv4_t::NXDOMAIN))
-            return DNSB_STATUS_NXDOMAIN;
-        else
-        if (value->empty())
-            return DNSB_STATUS_FAILURE;
-        return DNSB_STATUS_CACHE;
-    }
-    return DNSB_STATUS_FAILURE;
-}
-
-#ifdef ENABLE_IPV6
-int Cache::find( const std::string &host, ipv6_t *value )
-{
-    if (get(host, nullptr, value))
-    {
-        if (value->operator==(ipv6_t::NXDOMAIN))
-            return DNSB_STATUS_NXDOMAIN;
-        else
-        if (value->empty())
-            return DNSB_STATUS_FAILURE;
-        return DNSB_STATUS_CACHE;
-    }
-    return DNSB_STATUS_FAILURE;
-}
-#endif
-
-#ifdef ENABLE_IPV6
-bool Cache::get( const std::string &host, ipv4_t *ipv4, ipv6_t *ipv6 )
-#else
-bool Cache::get( const std::string &host, ipv4_t *ipv4 )
-#endif
-{
-    #ifdef ENABLE_IPV6
-    if (!ipv4 && !ipv6) return false;
-    #else
-    if (!ipv4) return false;
-    #endif
-    if (host.empty()) return false;
-    uint64_t now = dns_time();
-
-    std::shared_lock<std::shared_mutex> guard(lock_);
-
-    auto it = cache_.find(host);
-    // try to use cache information
-    if (it != cache_.end())
-    {
-        // check whether the cache entry still valid
-        if (now <= it->second.timestamp + ttl_)
-        {
-            if (ipv4) *ipv4 = it->second.ipv4;
-            #ifdef ENABLE_IPV6
-            if (ipv6) *ipv6 = it->second.ipv6;
-            #endif
-            it->second.timestamp = now;
-            return true;
-        }
-    }
-    return false;
-}
-
-size_t Cache::reset()
-{
-    std::unique_lock<std::shared_mutex> guard(lock_);
-    auto size = cache_.size();
-    cache_.clear();
-    return size;
-}
-
-size_t Cache::cleanup( uint32_t ttl )
-{
-    if (ttl <= 0) ttl = ttl_;
-
-    std::unique_lock<std::shared_mutex> guard(lock_);
-
-    auto now = dns_time();
-    size_t count = cache_.size();
-
-    for (auto it = cache_.begin(); it != cache_.end();)
-    {
-        if (now <= it->second.timestamp + ttl)
-            it = cache_.erase(it);
-        else
-             ++it;
-    }
-    count = count - cache_.size();
-
-    if (count != 0)
-        LOG_MESSAGE("\nCache: removed %d entries and kept %d entries\n\n", count, cache_.size());
-    return count;
-}
-
 Resolver::Resolver( Cache &cache, int timeout ) : cache_(cache), timeout_(timeout)
 {
     default_dns_ = named_value<ipv4_t>("default", UDP::hostToIPv4("8.8.4.4"));
@@ -470,6 +363,102 @@ int Resolver::resolve_ipv6( const std::string &host, std::string &name, ipv6_t &
 }
 #endif
 
+/*
+uint32_t DNSCache::addressToIPv4( const std::string &host )
+{
+    if (host.empty()) return 0;
+
+    struct sockaddr_in address;
+    address.sin_family = AF_INET;
+    inet_pton(AF_INET, host.c_str(), &address.sin_addr);
+    return (uint32_t) address.sin_addr.s_addr;
+}*/
+
+void Resolver::set_dns( const std::string &dns, const std::string &name )
+{
+    default_dns_ = named_value<ipv4_t>(name, UDP::hostToIPv4(dns));
+}
+
+void Resolver::set_dns( const std::string &dns, const std::string &name, const std::string &rule )
+{
+    target_dns_.add(rule, named_value<ipv4_t>(name, UDP::hostToIPv4(dns)));
+}
+
+Cache::Cache( int size , int ttl ) : size_(size), ttl_(ttl)
+{
+}
+
+Cache::~Cache()
+{
+}
+
+int Cache::find_ipv4( const std::string &host, dns_message_t &response )
+{
+    return find(host + "_4", response);
+}
+
+#ifdef ENABLE_IPV6
+int Cache::find_ipv6( const std::string &host, dns_message_t &response )
+{
+    return find(host + "_6", response);
+}
+#endif
+
+int Cache::find( const std::string &host, dns_message_t &response )
+{
+    std::shared_lock<std::shared_mutex> guard(lock_);
+    uint64_t now = dns_time();
+
+    // try to use cache information
+    auto it = cache_.find(host);
+    if (it == cache_.end()) return DNSB_STATUS_FAILURE;
+    // check whether the cache entry still valid
+    if (now <= it->second.timestamp + ttl_)
+    {
+        it->second.timestamp = now;
+        // is it NXDOMAIN?
+        if (it->second.nxdomain)
+            return DNSB_STATUS_NXDOMAIN;
+        // copy all answers
+        for (const auto &item : it->second.answers)
+            response.answers.push_back(item);
+        return DNSB_STATUS_CACHE;
+    }
+    return DNSB_STATUS_FAILURE;
+}
+
+size_t Cache::reset()
+{
+    std::unique_lock<std::shared_mutex> guard(lock_);
+    auto size = cache_.size();
+    cache_.clear();
+    return size;
+}
+
+size_t Cache::cleanup( uint32_t ttl )
+{
+    if (ttl = 0) ttl = ttl_;
+
+    std::unique_lock<std::shared_mutex> guard(lock_);
+
+    auto now = dns_time();
+    size_t count = cache_.size();
+
+    for (auto it = cache_.begin(); it != cache_.end();)
+    {
+        if (now <= it->second.timestamp + ttl)
+            it = cache_.erase(it);
+        else
+             ++it;
+    }
+    count = count - cache_.size();
+
+    if (count != 0)
+        LOG_MESSAGE("\nCache: removed %d entries and kept %d entries\n\n", count, cache_.size());
+    return count;
+}
+
+#if 0
 void Cache::dump( std::ostream &out )
 {
     std::shared_lock<std::shared_mutex> raii(lock_);
@@ -497,54 +486,32 @@ void Cache::dump( std::ostream &out )
     }
     out << ']';
 }
-
-/*
-uint32_t DNSCache::addressToIPv4( const std::string &host )
-{
-    if (host.empty()) return 0;
-
-    struct sockaddr_in address;
-    address.sin_family = AF_INET;
-    inet_pton(AF_INET, host.c_str(), &address.sin_addr);
-    return (uint32_t) address.sin_addr.s_addr;
-}*/
-
-void Resolver::set_dns( const std::string &dns, const std::string &name )
-{
-    default_dns_ = named_value<ipv4_t>(name, UDP::hostToIPv4(dns));
-}
-
-void Resolver::set_dns( const std::string &dns, const std::string &name, const std::string &rule )
-{
-    target_dns_.add(rule, named_value<ipv4_t>(name, UDP::hostToIPv4(dns)));
-}
+#endif
 
 #ifdef ENABLE_IPV6
-void Cache::add( const std::string &host, const ipv4_t *ipv4, const ipv6_t *ipv6 )
-#else
-void Cache::add( const std::string &host, const ipv4_t *ipv4 )
+void Cache::append_ipv6( const std::string &host, const dns_message_t &response )
+{
+    return append(host + "_6", response);
+}
 #endif
+
+void Cache::append_ipv4( const std::string &host, const dns_message_t &response )
+{
+    return append(host + "_4", response);
+}
+
+void Cache::append( const std::string &host, const dns_message_t &response )
 {
     std::unique_lock<std::shared_mutex> guard(lock_);
 
     auto it = cache_.find(host);
-    if (it != cache_.end())
+    if (it == cache_.end())
     {
-        if (ipv4) it->second.ipv4 = *ipv4;
-        #ifdef ENABLE_IPV6
-        if (ipv6) it->second.ipv6 = *ipv6;
-        #endif
-        it->second.timestamp = dns_time();
-    }
-    else
-    {
-        CacheEntry entry;
-        if (ipv4) entry.ipv4 = *ipv4;
-        #ifdef ENABLE_IPV6
-        if (ipv6) entry.ipv6 = *ipv6;
-        #endif
+        CacheEntry &entry = cache_[host];
+        entry.nxdomain = false;
         entry.timestamp = dns_time();
-        cache_.insert(std::pair<std::string, CacheEntry>(host, entry));
+        for (const auto &item : response.answers)
+            entry.answers.push_back(item);
     }
 }
 

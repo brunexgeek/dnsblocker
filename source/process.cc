@@ -527,7 +527,7 @@ void Processor::process(
         }
 
         // process jobs from the internal list
-        for (auto it = jobs.begin(); it != jobs.end(); ++it)
+        for (auto it = jobs.begin(); it != jobs.end();)
         {
             auto &item = **it;
             if (item.status == Status::BLOCK)
@@ -589,7 +589,11 @@ void Processor::process(
                     else
                         item.status = Status::NXDOMAIN;
                 }
+                ++it;
             }
+            else
+                // current status is WAITING
+                ++it;
         }
 
         // process each UDP response
