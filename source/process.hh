@@ -31,15 +31,15 @@ struct Job
     //dns_buffer_t *response;
     uint16_t oid; // original DNS message id (from the client)
     uint16_t id; // DNS message id (zero means empty)
-    Status status;
+    std::string qname;
+    dns_header_tt *header = nullptr;
 
     Job( const Endpoint &ep, const dns_buffer_t &req )
     {
         endpoint = ep;
         request = req;
         //response = nullptr;
-        id = 0;
-        status = Status::PENDING;
+        oid = id = 0;
     }
     Job( const Job & ) = delete;
     Job( Job && ) = delete;

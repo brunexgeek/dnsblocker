@@ -524,119 +524,83 @@ void Processor::process(
 {
     (void) thread_num;
 
-    static const int MAX_PENDINGS = 20;
+    //static const int MAX_PENDINGS = 20;
     std::unique_lock<std::mutex> guard(*mutex);
     Resolver resolver;
-    std::list<Job*> jobs;
+    std::map<uint16_t, Job*> wait_list;
 
     while (object->running_)
     {
-        bool new_job = false;
-        // try to pick another job
-        if (jobs.size() < MAX_PENDINGS)
+        Job *job = object->pop();
+        if (job != nullptr)
         {
-            Job *job = object->pop();
-            if (job != nullptr)
-            {
-                job->id = 0;
-                jobs.push_back(job);
-                new_job = true;
-            }
-            else
-            if (jobs.size() == 0) // no jobs
-            {
-                cond->wait_for(guard, std::chrono::seconds(2));
-                continue;
-            }
-        }
+            auto &item = *job;
+            item.header = ((dns_header_tt*) item.request.content);
+            parse_qname(item.request, sizeof(dns_header_tt), item.qname);
 
-        // process jobs from the internal list
-        for (auto it = jobs.begin(); it != jobs.end();)
-        {
-            auto &item = **it;
-            const dns_header_tt &header = *((dns_header_tt*) item.request.content);
-            std::string qname;
-            parse_qname(item.request, sizeof(dns_header_tt), qname);
-
-            if (item.status == Status::BLOCK)
-            {
-                object->send_blocked(item.endpoint, item.request);
-                it = jobs.erase(it);
-            }
-            else
-            if (item.status == Status::ERROR)
-            {
-                object->send_error(item.endpoint, item.request, DNS_RCODE_SERVFAIL);
-                it = jobs.erase(it);
-            }
-            else
-            if (item.status == Status::NXDOMAIN)
+            // assume NXDOMAIN for domains without periods (e.g. local host names)
+            // TODO: add configuration option for local domain
+            if (item.qname.find('.') == std::string::npos || item.header->rd == 0)
             {
                 object->send_error(item.endpoint, item.request, DNS_RCODE_NXDOMAIN);
-                it = jobs.erase(it);
+                continue; // TODO: get new job or process jobs in the wait list?
             }
-            else
-            if (item.status == Status::PENDING)
+
+            bool is_blocked = false;
+            bool heuristic = false;
+
+            // check whether the domain is blocked
+            if (object->useFiltering_)
             {
-                bool is_blocked = false;
-                bool heuristic = false;
-
-                // check whether the domain is blocked
-                if (object->useFiltering_)
+                std::shared_lock<std::shared_mutex> guard(object->lock_);
+                if (object->whitelist_.match(item.qname) == nullptr)
                 {
-                    std::shared_lock<std::shared_mutex> guard(object->lock_);
-                    if (object->whitelist_.match(qname) == nullptr)
-                    {
-                        is_blocked = object->blacklist_.match(qname) != nullptr;
-                        // try the heuristics
-                        if (!is_blocked && object->useHeuristics_)
-                            is_blocked = (heuristic = detect_heuristic(qname)) != 0;
-                    }
+                    is_blocked = object->blacklist_.match(item.qname) != nullptr;
+                    // try the heuristics
+                    if (!is_blocked && object->useHeuristics_)
+                        is_blocked = (heuristic = detect_heuristic(item.qname)) != 0;
                 }
-
-                if (is_blocked)
-                    item.status = Status::BLOCK;
-                else
-                {
-                    // assume NXDOMAIN for domains without periods (e.g. local host names)
-                    // otherwise we try the external DNS
-                    if (qname.find('.') != std::string::npos && header.rd)
-                    {
-                        item.id = resolver.send(object->default_ns_, item.request);
-                        //--if (item.id > 0)
-                        //--    std::cerr << "Sending request #" <<item.id << " (" << item.request.size << " bytes) to external DNS\n";
-                        if (item.id == 0)
-                            item.status = Status::ERROR;
-                        else
-                            item.status = Status::WAITING;
-                    }
-                    else
-                        item.status = Status::NXDOMAIN;
-                }
-                ++it;
             }
+
+            // is the query blocked?
+            if (is_blocked)
+                object->send_blocked(item.endpoint, item.request);
             else
-                // current status is WAITING
-                ++it;
+            {
+                // assume NXDOMAIN for domains without periods (e.g. local host names)
+                // otherwise we try the external DNS
+                item.id = resolver.send(object->default_ns_, item.request);
+                //--if (item.id > 0)
+                //--    std::cerr << "Sending request #" <<item.id << " (" << item.request.size << " bytes) to external DNS\n";
+                if (item.id == 0)
+                    object->send_error(item.endpoint, item.request, DNS_RCODE_SERVFAIL);
+                else
+                    wait_list.insert( std::pair(job->id, job) );
+            }
+        }
+        else
+        if (wait_list.empty())
+        {
+            cond->wait_for(guard, std::chrono::seconds(2));
+            continue;
         }
 
         // process each UDP response
         dns_buffer_t response;
-        while (resolver.receive(response, new_job ? 0 : 10) > 0) // wait up until 250ms only if no job was got in this iteration
+        while (resolver.receive(response, 0) > 0)
         {
             dns_header_tt &header = *((dns_header_tt*) response.content);
             //--std::cerr << "Received response #" << header.id << " with " << response.size << " bytes\n";
 
             // look for a matching pending entry
-            auto it = jobs.begin();
-            while (it != jobs.end() && (*it)->id != header.id) it++;
-            if (it != jobs.end())
+            auto it = wait_list.find(header.id);
+            if (it != wait_list.end())
             {
-                Job &item = **it;
+                Job &item = *it->second;
                 //--std::cerr << "Received response from external DNS for #" << item.id << "\n";
                 header.id = item.oid; // recover the original ID
                 object->send_success(item.endpoint, item.request, response);
-                it = jobs.erase(it);
+                wait_list.erase(it);
             }
         }
     }
@@ -736,10 +700,10 @@ void Processor::run(int nthreads)
         buffer.size = sizeof(buffer.content);
         // receive the UDP message
         if (!conn_->receive(endpoint, buffer.content, &buffer.size, 2000)) continue;
-        std::cerr << "Received " << buffer.size << " bytes\n";
+        //--std::cerr << "Received " << buffer.size << " bytes\n";
         // ignore messages with the number of questions other than 1
         dns_header_tt &header = *((dns_header_tt*) buffer.content);
-        std::cerr << "Query with " << be16toh(header.q_count) << " questions\n";
+        //--std::cerr << "Query with " << be16toh(header.q_count) << " questions\n";
         if (be16toh(header.q_count) == 1)
         {
             auto job = new Job(endpoint, buffer);
