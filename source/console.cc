@@ -95,7 +95,7 @@ struct ConsoleListener : public webster::HttpListener
             response << "\"type\":\"" << entry.type << "\",";
             response << "\"proto\":" << (int) entry.proto << ',';
             response << "\"server\":\"" << entry.server << "\",";
-            response << "\"ip\":\"" << entry.ip << "\",";
+            //response << "\"ip\":\"" << entry.ip << "\",";
             response << "\"heuristic\":" << (int) entry.heuristic << ",";
             response << "\"domain\":\"" << entry.domain << "\"}";
             first = false;

@@ -40,6 +40,7 @@
 #define DNSB_STATUS_RECURSIVE    2
 #define DNSB_STATUS_NXDOMAIN     3
 #define DNSB_STATUS_FAILURE      4
+#define DNSB_STATUS_BLOCK        5
 
 #define DNS_RCODE_NOERROR        0
 #define DNS_RCODE_FORMERR        1
@@ -207,7 +208,7 @@ struct Cache
 class Resolver
 {
     public:
-        Resolver( int timeout = DNS_TIMEOUT );
+        Resolver();
         ~Resolver();
         uint16_t send( Endpoint &endpoint, dns_buffer_t &response );
         int receive( dns_buffer_t &response, int timeout = 0);

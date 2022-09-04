@@ -21,7 +21,7 @@ struct Event
     std::string type;
     uint8_t proto = 0;
     std::string server;
-    std::string ip;
+    //std::string ip;
     std::string domain;
     uint8_t heuristic = 0;
 
@@ -36,7 +36,7 @@ struct Event
             source == that.source &&
             proto == that.proto &&
             server == that.server &&
-            ip == that.ip &&
+            //ip == that.ip &&
             domain == that.domain &&
             heuristic == that.heuristic;
     }

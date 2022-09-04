@@ -18,7 +18,7 @@ namespace dnsblocker {
 
 static const uint8_t IPV4_BLOCK_VALUES[] = DNS_BLOCKED_IPV4_ADDRESS;
 //static const ipv4_t IPV4_BLOCK_ADDRESS(IPV4_BLOCK_VALUES);
-static const uint16_t IPV6_BLOCK_VALUES[] = DNS_BLOCKED_IPV6_ADDRESS;
+static const uint8_t IPV6_BLOCK_VALUES[] = DNS_BLOCKED_IPV6_ADDRESS;
 //static const ipv6_t IPV6_BLOCK_ADDRESS(IPV6_BLOCK_VALUES);
 
 static int copy_prologue( const dns_buffer_t &request, dns_buffer_t &response )
@@ -263,23 +263,6 @@ bool Processor::console( const std::string &command )
 }
 #endif
 
-bool Processor::send_error( const Endpoint &endpoint, const dns_buffer_t &request, int rcode )
-{
-    dns_buffer_t response;
-    int size = copy_prologue(request, response);
-    if (size > 0)
-    {
-        dns_header_tt &header = *((dns_header_tt*) response.content);
-        header.qr = 1;
-        header.rcode = rcode & 0xF;
-        header.ans_count = 0;
-        header.add_count = 0;
-        header.auth_count = 0;
-        return conn_->send(endpoint, response.content, size);
-    }
-    return false;
-}
-
 uint8_t Processor::detect_heuristic( std::string name )
 {
     constexpr uint8_t RULE_BGS = 1;
@@ -350,15 +333,11 @@ static uint64_t current_epoch()
 
 static void print_request(
     const std::string &host,
-    const std::string &remote,
+    const Endpoint &remote,
     const std::string &dns_name,
-    int type, const Configuration &config,
-    bool is_blocked,
+    int type,
+    const Configuration &config,
     int result,
-    ipv4_t &ipv4,
-#ifdef ENABLE_IPV6
-    ipv6_t &ipv6,
-#endif
     uint8_t heuristic )
 {
     Event event;
@@ -366,7 +345,7 @@ static void print_request(
     int32_t flags = config.monitoring_;
     static std::atomic<uint64_t> last_id(1);
 
-    if (is_blocked && flags & MONITOR_SHOW_DENIED)
+    if (result == DNSB_STATUS_BLOCK && flags & MONITOR_SHOW_DENIED)
         status = "DE";
     else
     if (result == DNSB_STATUS_CACHE && flags & MONITOR_SHOW_CACHE)
@@ -380,22 +359,11 @@ static void print_request(
     else
     if (result == DNSB_STATUS_NXDOMAIN && flags & MONITOR_SHOW_NXDOMAIN)
         status = "NX";
+    else
+        return; // ignore event
 
     if (status != nullptr)
     {
-        std::string addr;
-        if (result == DNSB_STATUS_CACHE || result == DNSB_STATUS_RECURSIVE)
-        {
-            #ifdef ENABLE_IPV6
-            if (type == ADDR_TYPE_AAAA)
-                addr = ipv6.to_string();
-            else
-            #else
-            (void) type;
-            #endif
-                addr = ipv4.to_string();
-        }
-
         #ifdef ENABLE_IPV6
         const int proto = (type == ADDR_TYPE_AAAA) ? 6 : 4;
         #else
@@ -404,24 +372,15 @@ static void print_request(
 
         event.id = last_id.fetch_add(1, std::memory_order::memory_order_relaxed);
         event.time = current_epoch();
-        event.source = remote;
-        event.ip = addr;
+        event.source = remote.address.to_string();
+        //event.ip = addr;
         event.server = dns_name;
         event.domain = host;
-        event.proto = proto;
+        event.proto = (uint8_t) proto;
         event.type = status;
         event.heuristic = heuristic;
         LOG_EVENT(event);
     }
-}
-
-static const int MAX_PENDINGS = 10;
-
-uint16_t next_id( int thread_num, int &counter )
-{
-    counter = (counter + 1) & 0x0FFF;
-    if (counter == 0) counter = 1; // to avoid id = 0
-    return (uint16_t) (((thread_num & 0x0F) << 12) | counter);
 }
 
 static uint8_t *write_u16( uint8_t *ptr, uint16_t value )
@@ -438,55 +397,6 @@ static uint8_t *write_u32( uint8_t *ptr, uint16_t value )
     ptr[2] = (uint8_t) (value >> 8);
     ptr[3] = (uint8_t) value;
     return ptr + sizeof(uint32_t);
-}
-
-void Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &request )
-{
-    dns_buffer_t response;
-    int offset = copy_prologue(request, response);
-    uint8_t *ptr = response.content + offset;
-    dns_question_tt *question = (dns_question_tt*) (ptr - sizeof(dns_question_tt));
-
-    // ignore questions not type A and AAAA
-    if (question->type != DNS_TYPE_A && question->type != DNS_TYPE_AAAA) return;
-
-    dns_header_tt &header = *((dns_header_tt*) response.content);
-    header.qr = 1;
-    header.rcode = DNS_RCODE_NOERROR;
-    header.ans_count = htobe16(1);
-    header.add_count = 0;
-    header.auth_count = 0;
-
-    // qname (pointer to question)
-    *ptr++ = 0xC0;
-    *ptr++ = (uint8_t) sizeof(dns_header_tt);
-    ptr = write_u16(ptr, be16toh(question->type)); // type
-    ptr = write_u16(ptr, 1); // clazz
-    ptr = write_u32(ptr, DNS_CACHE_TTL); // ttl
-
-    if (be16toh(question->type) == DNS_TYPE_A)
-    {
-        ptr = write_u16(ptr, 4); // rdlen
-        for (int i = 0; i < 4; ++i) // rdata
-            *ptr++ = IPV4_BLOCK_VALUES[i];
-    }
-    else
-    {
-        ptr = write_u16(ptr, 16); // rdlen
-        for (int i = 0; i < 16; ++i) // rdata
-            *ptr++ = IPV6_BLOCK_VALUES[i];
-    }
-
-    conn_->send(endpoint, response.content, (size_t) (ptr - response.content));
-}
-
-/*
- * Forward to the client the answers received by external DNS server.
- */
-bool Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response )
-{
-    (void) request;
-    return conn_->send(endpoint, response.content, response.size);
 }
 
 static const uint8_t *parse_qname( const dns_buffer_t &message, size_t offset, std::string &qname )
@@ -519,6 +429,93 @@ static const uint8_t *parse_qname( const dns_buffer_t &message, size_t offset, s
     return ptr + 1;
 }
 
+bool Processor::send_error( const Endpoint &endpoint, const dns_buffer_t &request, int rcode )
+{
+    dns_buffer_t response;
+    std::string qname;
+
+    int size = copy_prologue(request, response);
+    if (size < 0) return false;
+    uint8_t *ptr = (uint8_t*) parse_qname(request, sizeof(dns_header_tt), qname);
+    if (ptr == nullptr) return false;
+    dns_question_tt *question = (dns_question_tt*) (ptr - sizeof(dns_question_tt));
+
+    dns_header_tt &header = *((dns_header_tt*) response.content);
+    header.qr = 1;
+    header.rcode = rcode & 0xF;
+    header.ans_count = 0;
+    header.add_count = 0;
+    header.auth_count = 0;
+    auto result = conn_->send(endpoint, response.content, size);
+    if (result)
+        print_request(qname, endpoint, "default", question->type, config_, DNSB_STATUS_BLOCK, false);
+    return result;
+}
+
+bool Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &request )
+{
+    dns_buffer_t response;
+    std::string qname;
+
+    int offset = copy_prologue(request, response);
+    if (offset < 0) return false;
+    uint8_t *ptr = (uint8_t*) parse_qname(request, sizeof(dns_header_tt), qname);
+    if (ptr == nullptr) return false;
+    dns_question_tt *question = (dns_question_tt*) (ptr - sizeof(dns_question_tt));
+
+    // ignore questions not type A and AAAA
+    if (question->type != DNS_TYPE_A && question->type != DNS_TYPE_AAAA) return false;
+
+    dns_header_tt &header = *((dns_header_tt*) response.content);
+    header.qr = 1;
+    header.rcode = DNS_RCODE_NOERROR;
+    header.ans_count = htobe16(1);
+    header.add_count = 0;
+    header.auth_count = 0;
+
+    // qname (pointer to question)
+    *ptr++ = 0xC0;
+    *ptr++ = (uint8_t) sizeof(dns_header_tt);
+    ptr = write_u16(ptr, be16toh(question->type)); // type
+    ptr = write_u16(ptr, 1); // clazz
+    ptr = write_u32(ptr, DNS_CACHE_TTL); // ttl
+
+    if (be16toh(question->type) == DNS_TYPE_A)
+    {
+        ptr = write_u16(ptr, 4); // rdlen
+        for (int i = 0; i < 4; ++i) // rdata
+            *ptr++ = IPV4_BLOCK_VALUES[i];
+    }
+    else
+    {
+        ptr = write_u16(ptr, 16); // rdlen
+        for (int i = 0; i < 16; ++i) // rdata
+            *ptr++ = IPV6_BLOCK_VALUES[i];
+    }
+
+    auto result = conn_->send(endpoint, response.content, (size_t) (ptr - response.content));
+    if (result)
+        print_request(qname, endpoint, "default", question->type, config_, DNSB_STATUS_BLOCK, false);
+    return result;
+}
+
+/*
+ * Forward to the client the answers received by external DNS server.
+ */
+bool Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response )
+{
+    std::string qname;
+    const uint8_t *ptr = parse_qname(request, sizeof(dns_header_tt), qname);
+    if (ptr == nullptr) return false;
+
+    dns_question_tt *question = (dns_question_tt*) ptr;
+
+    auto result = conn_->send(endpoint, response.content, response.size);
+    if (result)
+        print_request(qname, endpoint, "default", question->type, config_, DNSB_STATUS_RECURSIVE, false);
+    return result;
+}
+
 void Processor::process(
     Processor *object,
     int thread_num,
@@ -527,6 +524,7 @@ void Processor::process(
 {
     (void) thread_num;
 
+    static const int MAX_PENDINGS = 20;
     std::unique_lock<std::mutex> guard(*mutex);
     Resolver resolver;
     std::list<Job*> jobs;
@@ -558,7 +556,7 @@ void Processor::process(
             auto &item = **it;
             const dns_header_tt &header = *((dns_header_tt*) item.request.content);
             std::string qname;
-            parse_qname(item.request, 12, qname);
+            parse_qname(item.request, sizeof(dns_header_tt), qname);
 
             if (item.status == Status::BLOCK)
             {
@@ -624,7 +622,7 @@ void Processor::process(
 
         // process each UDP response
         dns_buffer_t response;
-        while (resolver.receive(response, new_job ? 0 : 250) > 0) // wait up until 250ms only if no job was got in this iteration
+        while (resolver.receive(response, new_job ? 0 : 10) > 0) // wait up until 250ms only if no job was got in this iteration
         {
             dns_header_tt &header = *((dns_header_tt*) response.content);
             //--std::cerr << "Received response #" << header.id << " with " << response.size << " bytes\n";

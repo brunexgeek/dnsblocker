@@ -109,8 +109,8 @@ void dns_message_t::read( buffer &bio )
     header.rcode = DNS_GET_RCODE(header.flags);
     uint16_t qdc = bio.readU16(); // query count
     uint16_t anc = bio.readU16(); // answer count
-    uint16_t nsc = bio.readU16(); // name server count
-    uint16_t arc = bio.readU16(); // additional record count
+    //--uint16_t nsc = bio.readU16(); // name server count
+    //--uint16_t arc = bio.readU16(); // additional record count
     // read the questions
     questions.resize(qdc);
     for (auto &item : questions) item.read(bio);
@@ -221,7 +221,7 @@ static uint64_t dns_time()
     return (uint64_t) std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count();
 }
 
-Resolver::Resolver( int timeout ) : id_(0)
+Resolver::Resolver() : id_(0)
 {
 }
 
@@ -252,7 +252,7 @@ int Resolver::receive( dns_buffer_t &response, int timeout )
     Endpoint endpoint;
     size_t size = response.size = sizeof(response.content);
     if (conn_.receive(endpoint, response.content, &size, timeout))
-        return response.size = size;
+        return (int) (response.size = size);
     return -1;
 }
 
@@ -307,7 +307,7 @@ size_t Cache::reset()
 
 size_t Cache::cleanup( uint32_t ttl )
 {
-    if (ttl = 0) ttl = ttl_;
+    if (ttl == 0) ttl = ttl_;
 
     std::unique_lock<std::shared_mutex> guard(lock_);
 
@@ -330,6 +330,7 @@ size_t Cache::cleanup( uint32_t ttl )
 
 void Cache::dump( std::ostream &out )
 {
+    (void) out;
 #if 0
     std::shared_lock<std::shared_mutex> raii(lock_);
     bool first = true;

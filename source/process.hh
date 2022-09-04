@@ -87,7 +87,7 @@ class Processor
         #else
         void send_success( const Endpoint &endpoint, const dns_buffer_t &request, const ipv4_t *ipv4 );
         #endif
-        void send_blocked( const Endpoint &endpoint, const dns_buffer_t &request );
+        bool send_blocked( const Endpoint &endpoint, const dns_buffer_t &request );
         bool send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response );
         bool in_whitelist( const std::string &host );
 
