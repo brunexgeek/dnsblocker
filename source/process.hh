@@ -89,6 +89,7 @@ class Processor
         #endif
         void send_blocked( const Endpoint &endpoint, const dns_buffer_t &request );
         bool send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response );
+        bool in_whitelist( const std::string &host );
 
         friend struct ConsoleListener;
 };

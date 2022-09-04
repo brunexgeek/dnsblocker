@@ -133,6 +133,13 @@ struct named_value
     named_value( const std::string &name, T &&value ) : name(name), value(value) {}
 };
 
+struct dns_question_tt
+{
+    // skip qname (variable length field)
+    uint16_t type;
+    uint16_t clazz;
+};
+
 struct dns_header_tt
 {
 	uint16_t id; // identification number

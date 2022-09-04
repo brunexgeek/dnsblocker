@@ -17,11 +17,9 @@
 namespace dnsblocker {
 
 static const uint8_t IPV4_BLOCK_VALUES[] = DNS_BLOCKED_IPV4_ADDRESS;
-static const ipv4_t IPV4_BLOCK_ADDRESS(IPV4_BLOCK_VALUES);
-#ifdef ENABLE_IPV6
+//static const ipv4_t IPV4_BLOCK_ADDRESS(IPV4_BLOCK_VALUES);
 static const uint16_t IPV6_BLOCK_VALUES[] = DNS_BLOCKED_IPV6_ADDRESS;
-static const ipv6_t IPV6_BLOCK_ADDRESS(IPV6_BLOCK_VALUES);
-#endif
+//static const ipv6_t IPV6_BLOCK_ADDRESS(IPV6_BLOCK_VALUES);
 
 static int copy_prologue( const dns_buffer_t &request, dns_buffer_t &response )
 {
@@ -273,7 +271,7 @@ bool Processor::send_error( const Endpoint &endpoint, const dns_buffer_t &reques
     {
         dns_header_tt &header = *((dns_header_tt*) response.content);
         header.qr = 1;
-        header.rcode = (uint8_t) rcode;
+        header.rcode = rcode & 0xF;
         header.ans_count = 0;
         header.add_count = 0;
         header.auth_count = 0;
@@ -442,18 +440,15 @@ static uint8_t *write_u32( uint8_t *ptr, uint16_t value )
     return ptr + sizeof(uint32_t);
 }
 
-#ifdef ENABLE_IPV6
-#error function not ready for IPv6
-void Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &request,
-    const ipv4_t *ipv4, const ipv6_t *ipv6 )
-#else
-void Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &request,
-    const ipv4_t *ipv4 )
-#endif
+void Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &request )
 {
     dns_buffer_t response;
     int offset = copy_prologue(request, response);
     uint8_t *ptr = response.content + offset;
+    dns_question_tt *question = (dns_question_tt*) (ptr - sizeof(dns_question_tt));
+
+    // ignore questions not type A and AAAA
+    if (question->type != DNS_TYPE_A && question->type != DNS_TYPE_AAAA) return;
 
     dns_header_tt &header = *((dns_header_tt*) response.content);
     header.qr = 1;
@@ -465,23 +460,24 @@ void Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &requ
     // qname (pointer to question)
     *ptr++ = 0xC0;
     *ptr++ = (uint8_t) sizeof(dns_header_tt);
-    ptr = write_u16(ptr, DNS_TYPE_A); // type
+    ptr = write_u16(ptr, be16toh(question->type)); // type
     ptr = write_u16(ptr, 1); // clazz
     ptr = write_u32(ptr, DNS_CACHE_TTL); // ttl
-    ptr = write_u16(ptr, 4); // rdlen
-    for (int i = 0; i < 4; ++i) // rdata
-        *ptr++ = ipv4->values[i];
+
+    if (be16toh(question->type) == DNS_TYPE_A)
+    {
+        ptr = write_u16(ptr, 4); // rdlen
+        for (int i = 0; i < 4; ++i) // rdata
+            *ptr++ = IPV4_BLOCK_VALUES[i];
+    }
+    else
+    {
+        ptr = write_u16(ptr, 16); // rdlen
+        for (int i = 0; i < 16; ++i) // rdata
+            *ptr++ = IPV6_BLOCK_VALUES[i];
+    }
 
     conn_->send(endpoint, response.content, (size_t) (ptr - response.content));
-}
-
-void Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &request )
-{
-    send_success(endpoint, request, &IPV4_BLOCK_ADDRESS
-    #ifdef ENABLE_IPV6
-    , IPV6_BLOCK_ADDRESS
-    #endif
-    );
 }
 
 /*
@@ -489,6 +485,7 @@ void Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &requ
  */
 bool Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response )
 {
+    (void) request;
     return conn_->send(endpoint, response.content, response.size);
 }
 
@@ -528,10 +525,11 @@ void Processor::process(
     std::mutex *mutex,
     std::condition_variable *cond )
 {
+    (void) thread_num;
+
     std::unique_lock<std::mutex> guard(*mutex);
     Resolver resolver;
     std::list<Job*> jobs;
-    int counter = 0; // per-thread counter
 
     while (object->running_)
     {
@@ -588,13 +586,10 @@ void Processor::process(
                 // check whether the domain is blocked
                 if (object->useFiltering_)
                 {
+                    std::shared_lock<std::shared_mutex> guard(object->lock_);
                     if (object->whitelist_.match(qname) == nullptr)
                     {
-                        // try the blacklist
-                        {
-                            std::shared_lock<std::shared_mutex> guard(object->lock_);
-                            is_blocked = object->blacklist_.match(qname) != nullptr;
-                        }
+                        is_blocked = object->blacklist_.match(qname) != nullptr;
                         // try the heuristics
                         if (!is_blocked && object->useHeuristics_)
                             is_blocked = (heuristic = detect_heuristic(qname)) != 0;
@@ -610,8 +605,8 @@ void Processor::process(
                     if (qname.find('.') != std::string::npos && header.rd)
                     {
                         item.id = resolver.send(object->default_ns_, item.request);
-                        if (item.id > 0)
-                            std::cerr << "Sending request #" <<item.id << " (" << item.request.size << " bytes) to external DNS\n";
+                        //--if (item.id > 0)
+                        //--    std::cerr << "Sending request #" <<item.id << " (" << item.request.size << " bytes) to external DNS\n";
                         if (item.id == 0)
                             item.status = Status::ERROR;
                         else
@@ -632,16 +627,15 @@ void Processor::process(
         while (resolver.receive(response, new_job ? 0 : 250) > 0) // wait up until 250ms only if no job was got in this iteration
         {
             dns_header_tt &header = *((dns_header_tt*) response.content);
-            std::cerr << "Received response #" << header.id << " with " << response.size << " bytes\n";
+            //--std::cerr << "Received response #" << header.id << " with " << response.size << " bytes\n";
 
             // look for a matching pending entry
             auto it = jobs.begin();
-            while (it != jobs.end() && (*it)->id != header.id)
-                it++;
+            while (it != jobs.end() && (*it)->id != header.id) it++;
             if (it != jobs.end())
             {
                 Job &item = **it;
-                std::cerr << "Received response from external DNS for #" << item.id << "\n";
+                //--std::cerr << "Received response from external DNS for #" << item.id << "\n";
                 header.id = item.oid; // recover the original ID
                 object->send_success(item.endpoint, item.request, response);
                 it = jobs.erase(it);

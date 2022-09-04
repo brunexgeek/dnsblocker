@@ -199,5 +199,4 @@ void Tree<T>::clear()
     root = &nodes.front();
 }
 
-
 #endif // DNSB_NODES_HH
