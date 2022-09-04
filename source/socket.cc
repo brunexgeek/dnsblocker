@@ -342,6 +342,7 @@ bool UDP::receive( Endpoint &endpoint, uint8_t *data, size_t *size, int timeout 
 
 	if (!poll(timeout)) return false;
 
+	// TODO: make this fail if the message is bigger than the output buffer
     int result = (int) recvfrom(CTX.socketfd, (char*) data, (int) *size, 0,
         (struct sockaddr *) &address, &length);
     if (result >= 0)

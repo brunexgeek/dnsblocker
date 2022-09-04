@@ -70,13 +70,13 @@ class Processor
         Configuration config_;
         Tree<uint8_t> blacklist_;
         Tree<uint8_t> whitelist_;
-        Tree<uint32_t> nameserver_;
         std::unordered_set<ipv4_t> ipv4list_;
         bool running_;
         bool useHeuristics_;
         bool useFiltering_;
         Console *console_;
         std::shared_mutex lock_;
+        Endpoint default_ns_;
 
         static void process( Processor *object, int num, std::mutex *mutex, std::condition_variable *cond );
         bool send_error(const Endpoint &endpoint,  const dns_buffer_t &request, int rcode);
