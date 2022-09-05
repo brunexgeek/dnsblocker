@@ -320,6 +320,17 @@ uint8_t Processor::detect_heuristic( std::string name )
     return 0;
 }
 
+static uint64_t current_ms()
+{
+    #ifdef __WINDOWS__
+    return _time64(NULL);
+    #else
+    struct timespec current;
+    clock_gettime(CLOCK_REALTIME, &current);
+    return (uint64_t) current.tv_sec * 1000 + (uint64_t) current.tv_nsec / 1000 / 1000;
+    #endif
+}
+
 static uint64_t current_epoch()
 {
     #ifdef __WINDOWS__
@@ -338,7 +349,8 @@ static void print_request(
     int type,
     const Configuration &config,
     int result,
-    uint8_t heuristic )
+    uint8_t heuristic,
+    uint64_t duration )
 {
     Event event;
     const char *status = nullptr;
@@ -374,6 +386,7 @@ static void print_request(
         event.time = current_epoch();
         event.source = remote.address.to_string();
         //event.ip = addr;
+        event.duration = duration;
         event.server = dns_name;
         event.domain = host;
         event.proto = (uint8_t) proto;
@@ -448,7 +461,7 @@ bool Processor::send_error( const Endpoint &endpoint, const dns_buffer_t &reques
     header.auth_count = 0;
     auto result = conn_->send(endpoint, response.content, size);
     if (result)
-        print_request(qname, endpoint, "default", question->type, config_, DNSB_STATUS_BLOCK, false);
+        print_request(qname, endpoint, "default", question->type, config_, DNSB_STATUS_BLOCK, false, 0);
     return result;
 }
 
@@ -461,10 +474,12 @@ bool Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &requ
     if (offset < 0) return false;
     uint8_t *ptr = (uint8_t*) parse_qname(request, sizeof(dns_header_tt), qname);
     if (ptr == nullptr) return false;
-    dns_question_tt *question = (dns_question_tt*) (ptr - sizeof(dns_question_tt));
+    dns_question_tt *question = (dns_question_tt*) ptr;
+    uint16_t type = be16toh(question->type);
 
     // ignore questions not type A and AAAA
-    if (question->type != DNS_TYPE_A && question->type != DNS_TYPE_AAAA) return false;
+    if (type != DNS_TYPE_A && type != DNS_TYPE_AAAA)
+        return false;
 
     dns_header_tt &header = *((dns_header_tt*) response.content);
     header.qr = 1;
@@ -474,13 +489,14 @@ bool Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &requ
     header.auth_count = 0;
 
     // qname (pointer to question)
+    ptr = response.content + offset;
     *ptr++ = 0xC0;
     *ptr++ = (uint8_t) sizeof(dns_header_tt);
-    ptr = write_u16(ptr, be16toh(question->type)); // type
+    ptr = write_u16(ptr, type); // type
     ptr = write_u16(ptr, 1); // clazz
     ptr = write_u32(ptr, DNS_CACHE_TTL); // ttl
 
-    if (be16toh(question->type) == DNS_TYPE_A)
+    if (type == DNS_TYPE_A)
     {
         ptr = write_u16(ptr, 4); // rdlen
         for (int i = 0; i < 4; ++i) // rdata
@@ -495,14 +511,14 @@ bool Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &requ
 
     auto result = conn_->send(endpoint, response.content, (size_t) (ptr - response.content));
     if (result)
-        print_request(qname, endpoint, "default", question->type, config_, DNSB_STATUS_BLOCK, false);
+        print_request(qname, endpoint, "default", question->type, config_, DNSB_STATUS_BLOCK, false, 0);
     return result;
 }
 
 /*
  * Forward to the client the answers received by external DNS server.
  */
-bool Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response )
+bool Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response, uint64_t duration, bool cache )
 {
     std::string qname;
     const uint8_t *ptr = parse_qname(request, sizeof(dns_header_tt), qname);
@@ -512,9 +528,11 @@ bool Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &requ
 
     auto result = conn_->send(endpoint, response.content, response.size);
     if (result)
-        print_request(qname, endpoint, "default", question->type, config_, DNSB_STATUS_RECURSIVE, false);
+        print_request(qname, endpoint, "default", question->type, config_, cache ? DNSB_STATUS_CACHE : DNSB_STATUS_RECURSIVE, false, duration);
     return result;
 }
+
+#define IS_PASS_THROUGH(x) ((x) == DNS_TYPE_A || (x) == DNS_TYPE_AAAA)
 
 void Processor::process(
     Processor *object,
@@ -528,68 +546,105 @@ void Processor::process(
     std::unique_lock<std::mutex> guard(*mutex);
     Resolver resolver;
     std::map<uint16_t, Job*> wait_list;
+    dns_buffer_t response;
 
     while (object->running_)
     {
         Job *job = object->pop();
         if (job != nullptr)
         {
+//std::cerr << "[" << job->oid << "] Found job\n";
             auto &item = *job;
             item.header = ((dns_header_tt*) item.request.content);
-            parse_qname(item.request, sizeof(dns_header_tt), item.qname);
+            const uint8_t *ptr = parse_qname(item.request, sizeof(dns_header_tt), item.qname);
+            const dns_question_tt *question = (const dns_question_tt*) ptr;
+            item.type = be16toh(question->type);
 
-            // assume NXDOMAIN for domains without periods (e.g. local host names)
-            // TODO: add configuration option for local domain
-            if (item.qname.find('.') == std::string::npos || item.header->rd == 0)
-            {
-                object->send_error(item.endpoint, item.request, DNS_RCODE_NXDOMAIN);
-                continue; // TODO: get new job or process jobs in the wait list?
-            }
-
+            bool is_pass_through = (item.type != DNS_TYPE_A && item.type != DNS_TYPE_AAAA);
             bool is_blocked = false;
             bool heuristic = false;
 
-            // check whether the domain is blocked
-            if (object->useFiltering_)
+            if (!is_pass_through)
             {
-                std::shared_lock<std::shared_mutex> guard(object->lock_);
-                if (object->whitelist_.match(item.qname) == nullptr)
+                // assume NXDOMAIN for domains without periods (e.g. local host names)
+                // TODO: add configuration option for local domain
+                if (item.qname.find('.') == std::string::npos || item.header->rd == 0)
                 {
-                    is_blocked = object->blacklist_.match(item.qname) != nullptr;
-                    // try the heuristics
-                    if (!is_blocked && object->useHeuristics_)
-                        is_blocked = (heuristic = detect_heuristic(item.qname)) != 0;
+                    object->send_error(item.endpoint, item.request, DNS_RCODE_NXDOMAIN);
+                    continue; // TODO: get new job or process jobs in the wait list?
+                }
+
+                // check whether the domain is blocked
+                if (object->useFiltering_)
+                {
+                    std::shared_lock<std::shared_mutex> guard(object->lock_);
+                    if (object->whitelist_.match(item.qname) == nullptr)
+                    {
+                        is_blocked = object->blacklist_.match(item.qname) != nullptr;
+                        // try the heuristics
+                        if (!is_blocked && object->useHeuristics_)
+                            is_blocked = (heuristic = detect_heuristic(item.qname)) != 0;
+                    }
                 }
             }
+
+//std::cerr << "[" << job->oid << "] wants " << item.qname << " " << (is_blocked ? "BLOCKED":"OK") << "\n";
 
             // is the query blocked?
             if (is_blocked)
                 object->send_blocked(item.endpoint, item.request);
             else
             {
-                // assume NXDOMAIN for domains without periods (e.g. local host names)
-                // otherwise we try the external DNS
-                item.id = resolver.send(object->default_ns_, item.request);
-                //--if (item.id > 0)
-                //--    std::cerr << "Sending request #" <<item.id << " (" << item.request.size << " bytes) to external DNS\n";
-                if (item.id == 0)
-                    object->send_error(item.endpoint, item.request, DNS_RCODE_SERVFAIL);
-                else
-                    wait_list.insert( std::pair(job->id, job) );
+                bool cache_used = false;
+                if (!is_pass_through)
+                {
+                    // cache look up
+                    int result = DNSB_STATUS_FAILURE;
+                    if (item.type == DNS_TYPE_A)
+                        result = object->cache_->find_ipv4(item.qname, response);
+                    else
+                    if (item.type == DNS_TYPE_AAAA)
+                        result = object->cache_->find_ipv6(item.qname, response);
+                    if (result != DNSB_STATUS_FAILURE)
+                    {
+//std::cerr << "[" << job->oid << "] used cache\n";
+                        dns_header_tt *rh = ((dns_header_tt*) response.content);
+                        rh->id = item.oid;
+                        object->send_success(item.endpoint, item.request, response, 0, true);
+                        cache_used = true;
+                    }
+                }
+
+                // send the request to external DNS
+                if (!cache_used)
+                {
+                    item.id = resolver.send(object->default_ns_, item.request);
+
+//if (item.id > 0)
+//    std::cerr << "[X-REQUEST ] #" <<item.oid << " (" << item.request.size << " bytes) to external DNS\n";
+//else
+//    std::cerr << "[X-REQUEST ] #" <<item.oid << " FAILED!\n";
+
+                    if (item.id == 0)
+                        object->send_error(item.endpoint, item.request, DNS_RCODE_SERVFAIL);
+                    else
+                        wait_list.insert( std::pair(job->id, job) );
+                }
             }
         }
         else
         if (wait_list.empty())
         {
+//std::cerr << "Going to sleep\n";
             cond->wait_for(guard, std::chrono::seconds(2));
             continue;
         }
-
+//std::cerr << "Let's check external DNS responses\n";
         // process each UDP response
-        dns_buffer_t response;
         while (resolver.receive(response, 0) > 0)
         {
             dns_header_tt &header = *((dns_header_tt*) response.content);
+//std::cerr << "[X-RESPONSE] #" << header.id << "\n";
             //--std::cerr << "Received response #" << header.id << " with " << response.size << " bytes\n";
 
             // look for a matching pending entry
@@ -599,10 +654,20 @@ void Processor::process(
                 Job &item = *it->second;
                 //--std::cerr << "Received response from external DNS for #" << item.id << "\n";
                 header.id = item.oid; // recover the original ID
-                object->send_success(item.endpoint, item.request, response);
+                item.duration = current_ms() - item.duration;
+                object->send_success(item.endpoint, item.request, response, item.duration);
                 wait_list.erase(it);
+
+                if (item.type == DNS_TYPE_A)
+                    object->cache_->append_ipv4(item.qname, response);
+                else
+                if (item.type == DNS_TYPE_AAAA)
+                    object->cache_->append_ipv6(item.qname, response);
+
+                delete job;
             }
         }
+//std::cerr << "Done with external DNS responses\n";
     }
 
 #if 0
@@ -616,62 +681,6 @@ void Processor::process(
                                     is_blocked = true;
                                 }
 
-
-        // print information about the request
-        print_request(request.questions[0].qname,
-            endpoint.address.to_string(),
-            dns_name,
-            request.questions[0].type,
-            object->config_,
-            is_blocked,
-            result,
-            ipv4,
-            #ifdef ENABLE_IPV6
-            ipv6,
-            #endif
-            heuristic);
-
-        // send the response
-        if (!is_blocked && result != DNSB_STATUS_CACHE && result != DNSB_STATUS_RECURSIVE)
-        {
-            if (result == DNSB_STATUS_NXDOMAIN)
-                object->send_error(request, DNS_RCODE_NXDOMAIN, endpoint);
-            else
-                object->send_error(request, DNS_RCODE_SERVFAIL, endpoint);
-        }
-        else
-        {
-            // response message
-            buffer bio;
-            dns_message_t response;
-            response.header.id = request.header.id;
-            response.header.flags |= DNS_FLAG_QR;
-            if (request.header.flags & DNS_FLAG_RD)
-            {
-                response.header.flags |= DNS_FLAG_RA;
-                response.header.flags |= DNS_FLAG_RD;
-            }
-            // copy the request question
-            response.questions.push_back(request.questions[0]);
-            dns_record_t answer;
-            answer.qname = request.questions[0].qname;
-            answer.type = request.questions[0].type;
-            answer.clazz = request.questions[0].clazz;
-            answer.ttl = DNS_ANSWER_TTL;
-            #ifdef ENABLE_IPV6
-            if (request.questions[0].type == ADDR_TYPE_AAAA)
-                memcpy(answer.rdata, ipv6.values, 16);
-            else
-            #endif
-                memcpy(answer.rdata, ipv4.values, 4);
-            response.answers.push_back(answer);
-
-            response.write(bio);
-            object->conn_->send(endpoint, bio.data(), bio.cursor());
-        }
-
-        delete job;
-    }
 #endif
 }
 
@@ -708,6 +717,7 @@ void Processor::run(int nthreads)
         {
             auto job = new Job(endpoint, buffer);
             job->oid = header.id;
+            job->duration = current_ms();
             push(job);
             cond.notify_all();
         }

@@ -16,7 +16,7 @@
 #define DNS_NXDOMAIN_IPV4_ADDRESS    { 0, 0, 0, 255} // 0.0.0.255
 #define DNS_NXDOMAIN_IPV6_ADDRESS    { 0, 0, 0, 0, 0, 0, 0, 255 }  // ::00FF
 
-#define CONSOLE_IPV4_ADDRESS          "127.0.0.2"
+#define CONSOLE_IPV4_ADDRESS          "127.0.0.3"
 #define CONSOLE_IPV4_PORT             53022
 
 #cmakedefine ENABLE_IPV6

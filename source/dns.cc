@@ -269,12 +269,10 @@ int Cache::find_ipv4( const std::string &host, dns_buffer_t &response )
     return find(host + "_4", response);
 }
 
-#ifdef ENABLE_IPV6
 int Cache::find_ipv6( const std::string &host, dns_buffer_t &response )
 {
     return find(host + "_6", response);
 }
-#endif
 
 int Cache::find( const std::string &host, dns_buffer_t &response )
 {

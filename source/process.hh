@@ -33,6 +33,8 @@ struct Job
     uint16_t id; // DNS message id (zero means empty)
     std::string qname;
     dns_header_tt *header = nullptr;
+    uint16_t type;
+    uint64_t duration = 0;
 
     Job( const Endpoint &ep, const dns_buffer_t &req )
     {
@@ -88,7 +90,7 @@ class Processor
         void send_success( const Endpoint &endpoint, const dns_buffer_t &request, const ipv4_t *ipv4 );
         #endif
         bool send_blocked( const Endpoint &endpoint, const dns_buffer_t &request );
-        bool send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response );
+        bool send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response, uint64_t duration, bool cache = false );
         bool in_whitelist( const std::string &host );
 
         friend struct ConsoleListener;

@@ -187,10 +187,8 @@ struct Cache
         ~Cache();
         int find_ipv4( const std::string &host, dns_buffer_t &response );
         void append_ipv4( const std::string &host, const dns_buffer_t &response );
-        #ifdef ENABLE_IPV6
         int find_ipv6( const std::string &host, dns_buffer_t &response );
         void append_ipv6( const std::string &host, const dns_buffer_t &response );
-        #endif
         void dump( std::ostream &out );
         size_t cleanup( uint32_t ttl );
         size_t reset();

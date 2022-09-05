@@ -22,6 +22,7 @@ struct Event
     uint8_t proto = 0;
     std::string server;
     //std::string ip;
+    uint64_t duration = 0;
     std::string domain;
     uint8_t heuristic = 0;
 

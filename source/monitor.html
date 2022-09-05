@@ -104,7 +104,7 @@
                     tr.insertCell(-1).innerHTML = content[i].source;
                     tr.insertCell(-1).innerHTML = content[i].type + '<sup>' + (content[i].heuristic > 0?content[i].heuristic.toString():'') + '</sup>';
                     tr.insertCell(-1).innerHTML = content[i].server;
-                    tr.insertCell(-1).innerHTML = content[i].ip;
+                    tr.insertCell(-1).innerHTML = content[i].duration;
                     tr.insertCell(-1).appendChild(link);
                     let cell = tr.insertCell(-1);
                     if (content[i].heuristic)
