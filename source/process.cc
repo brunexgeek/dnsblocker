@@ -21,6 +21,9 @@ static const uint8_t IPV4_BLOCK_VALUES[] = DNS_BLOCKED_IPV4_ADDRESS;
 static const uint8_t IPV6_BLOCK_VALUES[] = DNS_BLOCKED_IPV6_ADDRESS;
 //static const ipv6_t IPV6_BLOCK_ADDRESS(IPV6_BLOCK_VALUES);
 
+/**
+ * Copy header and question from DNS request.
+ */
 static int copy_prologue( const dns_buffer_t &request, dns_buffer_t &response )
 {
     dns_header_tt &header = *((dns_header_tt*) request.content);
@@ -652,7 +655,10 @@ void Processor::process(
             if (it != wait_list.end())
             {
                 Job &item = *it->second;
-                //--std::cerr << "Received response from external DNS for #" << item.id << "\n";
+
+                // TODO: detect error responses and log appropriately
+
+//--std::cerr << "Received response from external DNS for #" << item.id << "\n";
                 header.id = item.oid; // recover the original ID
                 item.duration = current_ms() - item.duration;
                 object->send_success(item.endpoint, item.request, response, item.duration);
@@ -664,7 +670,7 @@ void Processor::process(
                 if (item.type == DNS_TYPE_AAAA)
                     object->cache_->append_ipv6(item.qname, response);
 
-                delete job;
+                delete &item;
             }
         }
 //std::cerr << "Done with external DNS responses\n";
