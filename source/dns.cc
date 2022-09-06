@@ -326,43 +326,10 @@ size_t Cache::cleanup( uint32_t ttl )
     return count;
 }
 
-void Cache::dump( std::ostream &out )
-{
-    (void) out;
-#if 0
-    std::shared_lock<std::shared_mutex> raii(lock_);
-    bool first = true;
-
-    out << '[';
-    for (auto &it : cache_)
-    {
-        if (!first) out << ',';
-
-        if (!it.second.ipv4.empty())
-        {
-            out << "{\"ver\":\"4\",\"addr\":\"" << it.second.ipv4.to_string() << "\",\"name\":\"" << it.first << "\"}";
-        }
-
-        #ifdef ENABLE_IPV6
-        if (!it.second.ipv6.empty())
-        {
-            if (!it.second.ipv4.empty()) out << ',';
-            out << "{\"ver\":\"6\",\"addr\":\"" << it.second.ipv6.to_string() << "\",\"name\":\"" << it.first << "\"}";
-        }
-        #endif
-
-        first = false;
-    }
-    out << ']';
-#endif
-}
-
-#ifdef ENABLE_IPV6
 void Cache::append_ipv6( const std::string &host, const dns_buffer_t &response )
 {
     return append(host + "_6", response);
 }
-#endif
 
 void Cache::append_ipv4( const std::string &host, const dns_buffer_t &response )
 {

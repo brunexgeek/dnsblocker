@@ -100,9 +100,6 @@ struct Context
 // ipv4_t
 //
 
-static const uint8_t IPV4_NXDOMAIN[] = DNS_NXDOMAIN_IPV4_ADDRESS;
-const ipv4_t ipv4_t::NXDOMAIN(IPV4_NXDOMAIN);
-
 ipv4_t::ipv4_t()
 {
 	clear();
@@ -214,11 +211,6 @@ std::string ipv4_t::to_string() const
 // ipv6_t
 //
 
-#ifdef ENABLE_IPV6
-
-static const uint16_t IPV6_NXDOMAIN[] = DNS_NXDOMAIN_IPV6_ADDRESS;
-const ipv6_t ipv6_t::NXDOMAIN(IPV6_NXDOMAIN);
-
 ipv6_t::ipv6_t()
 {
 	clear();
@@ -269,8 +261,6 @@ std::string ipv6_t::to_string() const
 		values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7]);
 	return output;
 }
-
-#endif
 
 //
 // Endpoint

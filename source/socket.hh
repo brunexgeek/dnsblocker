@@ -38,7 +38,6 @@ struct std::hash<ipv4_t>
     }
 };
 
-#ifdef ENABLE_IPV6
 struct ipv6_t
 {
 	static const ipv6_t EMPTY;
@@ -55,7 +54,6 @@ struct ipv6_t
 	bool empty() const;
 	std::string to_string() const;
 };
-#endif
 
 struct Endpoint
 {

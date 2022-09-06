@@ -13,21 +13,13 @@
 
 #define DNS_BLOCKED_IPV4_ADDRESS     { 127, 0, 0, 2 } // 127.0.0.2
 #define DNS_BLOCKED_IPV6_ADDRESS     { 0, 0, 0, 0, 0, 0, 0, 1 }  // ::1
-#define DNS_NXDOMAIN_IPV4_ADDRESS    { 0, 0, 0, 255} // 0.0.0.255
-#define DNS_NXDOMAIN_IPV6_ADDRESS    { 0, 0, 0, 0, 0, 0, 0, 255 }  // ::00FF
 
 #define CONSOLE_IPV4_ADDRESS          "127.0.0.3"
 #define CONSOLE_IPV4_PORT             53022
 
-#cmakedefine ENABLE_IPV6
-
-#define DNS_CACHE_TTL                 (10 * 60) // 10 minutes
-#ifdef ENABLE_IPV6
-  #define DNS_CACHE_LIMIT               2000
-#else
-  #define DNS_CACHE_LIMIT               5000
-#endif
-#define DNS_ANSWER_TTL                (3 * 60) // 3 minutes
+#define DNS_CACHE_TTL                 (15 * 60) // 15 minutes
+#define DNS_CACHE_LIMIT               5000
+#define DNS_ANSWER_TTL                (10 * 60) // 10 minutes
 #define DNS_TIMEOUT                   2000 // ms
 #define DNS_BUFFER_SIZE               1024 // bytes
 

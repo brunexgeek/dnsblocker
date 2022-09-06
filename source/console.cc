@@ -14,7 +14,6 @@
 #include "monitor.hh"
 #include <fstream>
 
-
 namespace dnsblocker {
 
 using webster::Parameters;
@@ -49,18 +48,6 @@ struct ConsoleListener : public webster::HttpListener
         }
         else
             response.write("}");
-        return WBERR_OK;
-    }
-
-    int return_cache( webster::Message &response )
-    {
-        response.header.status = 200;
-        response.header.fields.set(WBFI_CONTENT_TYPE, "application/json");
-
-        std::stringstream ss;
-        proc_.cache_->dump(ss);
-        response.write(ss.str());
-
         return WBERR_OK;
     }
 
@@ -151,9 +138,6 @@ struct ConsoleListener : public webster::HttpListener
             if (command.find("allow/") == 0)
                 return whitelist(request, response);
             else
-            if (command == "cache")
-                return return_cache(response);
-            else
             if (command == "cache/reset")
             {
                 auto count = proc_.cache_->reset();
@@ -208,7 +192,7 @@ void Console::thread_proc( Console *instance )
         server.stop();
 	}
     else
-        LOG_MESSAGE("Unable to star console at %s\n", url.c_str());
+        LOG_MESSAGE("Unable to start console at %s\n", url.c_str());
 }
 
 void Console::start()

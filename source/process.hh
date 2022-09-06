@@ -84,11 +84,7 @@ class Processor
         bool send_error(const Endpoint &endpoint,  const dns_buffer_t &request, int rcode);
         bool load_rules( const std::vector<std::string> &fileNames, Tree<uint8_t> &tree );
         static std::string realPath( const std::string &path );
-        #ifdef ENABLE_IPV6
         void send_success( const Endpoint &endpoint, const dns_buffer_t &request, const ipv4_t *ipv4, const ipv6_t *ipv6 );
-        #else
-        void send_success( const Endpoint &endpoint, const dns_buffer_t &request, const ipv4_t *ipv4 );
-        #endif
         bool send_blocked( const Endpoint &endpoint, const dns_buffer_t &request );
         bool send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response, uint64_t duration, bool cache = false );
         bool in_whitelist( const std::string &host );

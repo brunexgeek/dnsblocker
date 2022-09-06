@@ -17,9 +17,7 @@
 namespace dnsblocker {
 
 static const uint8_t IPV4_BLOCK_VALUES[] = DNS_BLOCKED_IPV4_ADDRESS;
-//static const ipv4_t IPV4_BLOCK_ADDRESS(IPV4_BLOCK_VALUES);
 static const uint8_t IPV6_BLOCK_VALUES[] = DNS_BLOCKED_IPV6_ADDRESS;
-//static const ipv6_t IPV6_BLOCK_ADDRESS(IPV6_BLOCK_VALUES);
 
 /**
  * Copy header and question from DNS request.
@@ -379,11 +377,7 @@ static void print_request(
 
     if (status != nullptr)
     {
-        #ifdef ENABLE_IPV6
         const int proto = (type == ADDR_TYPE_AAAA) ? 6 : 4;
-        #else
-        constexpr int proto = 4;
-        #endif
 
         event.id = last_id.fetch_add(1, std::memory_order::memory_order_relaxed);
         event.time = current_epoch();

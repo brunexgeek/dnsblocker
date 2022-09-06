@@ -3,8 +3,8 @@ project(dnsblocker)
 cmake_minimum_required(VERSION 2.8)
 
 set(DNSB_MAJOR_VERSION 0)
-set(DNSB_MINOR_VERSION 20)
-set(DNSB_PATCH_VERSION 3)
+set(DNSB_MINOR_VERSION 30)
+set(DNSB_PATCH_VERSION 0)
 set(DNSB_VERSION "${DNSB_MAJOR_VERSION}.${DNSB_MINOR_VERSION}.${DNSB_PATCH_VERSION}")
 
 add_definitions(-DDNSB_VERSION="${DNSB_VERSION}")
@@ -12,7 +12,6 @@ add_definitions(-DDNSB_VERSION="${DNSB_VERSION}")
 set(CMAKE_BUILD_TYPE "Release"  CACHE STRING  "Specify the build type")
 set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release")
 set(ENABLE_DNS_CONSOLE TRUE CACHE BOOL "Enable to manage the server using HTTP REST")
-set(ENABLE_IPV6 FALSE CACHE BOOL "Enable support for IPv6")
 
 if (CMAKE_BUILD_TYPE STREQUAL "")
     message(STATUS "No build type selected, default to 'Release'")
