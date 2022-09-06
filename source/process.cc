@@ -24,9 +24,9 @@ static const uint8_t IPV6_BLOCK_VALUES[] = DNS_BLOCKED_IPV6_ADDRESS;
  */
 static int copy_prologue( const dns_buffer_t &request, dns_buffer_t &response )
 {
-    dns_header_tt &header = *((dns_header_tt*) request.content);
+    dns_header_t &header = *((dns_header_t*) request.content);
     if (be16toh(header.q_count) != 1) return -1;
-    const uint8_t *p = request.content + sizeof(dns_header_tt);
+    const uint8_t *p = request.content + sizeof(dns_header_t);
     while (*p != 0) ++p;
     p += 1 + sizeof(uint16_t) * 2;
     int offset = (int) (p - request.content);
@@ -446,11 +446,11 @@ bool Processor::send_error( const Endpoint &endpoint, const dns_buffer_t &reques
 
     int size = copy_prologue(request, response);
     if (size < 0) return false;
-    uint8_t *ptr = (uint8_t*) parse_qname(request, sizeof(dns_header_tt), qname);
+    uint8_t *ptr = (uint8_t*) parse_qname(request, sizeof(dns_header_t), qname);
     if (ptr == nullptr) return false;
-    dns_question_tt *question = (dns_question_tt*) (ptr - sizeof(dns_question_tt));
+    dns_question_t *question = (dns_question_t*) (ptr - sizeof(dns_question_t));
 
-    dns_header_tt &header = *((dns_header_tt*) response.content);
+    dns_header_t &header = *((dns_header_t*) response.content);
     header.qr = 1;
     header.rcode = rcode & 0xF;
     header.ans_count = 0;
@@ -469,16 +469,16 @@ bool Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &requ
 
     int offset = copy_prologue(request, response);
     if (offset < 0) return false;
-    uint8_t *ptr = (uint8_t*) parse_qname(request, sizeof(dns_header_tt), qname);
+    uint8_t *ptr = (uint8_t*) parse_qname(request, sizeof(dns_header_t), qname);
     if (ptr == nullptr) return false;
-    dns_question_tt *question = (dns_question_tt*) ptr;
+    dns_question_t *question = (dns_question_t*) ptr;
     uint16_t type = be16toh(question->type);
 
     // ignore questions not type A and AAAA
     if (type != DNS_TYPE_A && type != DNS_TYPE_AAAA)
         return false;
 
-    dns_header_tt &header = *((dns_header_tt*) response.content);
+    dns_header_t &header = *((dns_header_t*) response.content);
     header.qr = 1;
     header.rcode = DNS_RCODE_NOERROR;
     header.ans_count = htobe16(1);
@@ -488,7 +488,7 @@ bool Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &requ
     // qname (pointer to question)
     ptr = response.content + offset;
     *ptr++ = 0xC0;
-    *ptr++ = (uint8_t) sizeof(dns_header_tt);
+    *ptr++ = (uint8_t) sizeof(dns_header_t);
     ptr = write_u16(ptr, type); // type
     ptr = write_u16(ptr, 1); // clazz
     ptr = write_u32(ptr, DNS_CACHE_TTL); // ttl
@@ -518,10 +518,10 @@ bool Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &requ
 bool Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response, uint64_t duration, bool cache )
 {
     std::string qname;
-    const uint8_t *ptr = parse_qname(request, sizeof(dns_header_tt), qname);
+    const uint8_t *ptr = parse_qname(request, sizeof(dns_header_t), qname);
     if (ptr == nullptr) return false;
 
-    dns_question_tt *question = (dns_question_tt*) ptr;
+    dns_question_t *question = (dns_question_t*) ptr;
 
     auto result = conn_->send(endpoint, response.content, response.size);
     if (result)
@@ -552,9 +552,9 @@ void Processor::process(
         {
 //std::cerr << "[" << job->oid << "] Found job\n";
             auto &item = *job;
-            item.header = ((dns_header_tt*) item.request.content);
-            const uint8_t *ptr = parse_qname(item.request, sizeof(dns_header_tt), item.qname);
-            const dns_question_tt *question = (const dns_question_tt*) ptr;
+            item.header = ((dns_header_t*) item.request.content);
+            const uint8_t *ptr = parse_qname(item.request, sizeof(dns_header_t), item.qname);
+            const dns_question_t *question = (const dns_question_t*) ptr;
             item.type = be16toh(question->type);
 
             bool is_pass_through = (item.type != DNS_TYPE_A && item.type != DNS_TYPE_AAAA);
@@ -605,7 +605,7 @@ void Processor::process(
                     if (result != DNSB_STATUS_FAILURE)
                     {
 //std::cerr << "[" << job->oid << "] used cache\n";
-                        dns_header_tt *rh = ((dns_header_tt*) response.content);
+                        dns_header_t *rh = ((dns_header_t*) response.content);
                         rh->id = item.oid;
                         object->send_success(item.endpoint, item.request, response, 0, true);
                         cache_used = true;
@@ -640,7 +640,7 @@ void Processor::process(
         // process each UDP response
         while (resolver.receive(response, 0) > 0)
         {
-            dns_header_tt &header = *((dns_header_tt*) response.content);
+            dns_header_t &header = *((dns_header_t*) response.content);
 //std::cerr << "[X-RESPONSE] #" << header.id << "\n";
             //--std::cerr << "Received response #" << header.id << " with " << response.size << " bytes\n";
 
@@ -711,7 +711,7 @@ void Processor::run(int nthreads)
         if (!conn_->receive(endpoint, buffer.content, &buffer.size, 2000)) continue;
         //--std::cerr << "Received " << buffer.size << " bytes\n";
         // ignore messages with the number of questions other than 1
-        dns_header_tt &header = *((dns_header_tt*) buffer.content);
+        dns_header_t &header = *((dns_header_t*) buffer.content);
         //--std::cerr << "Query with " << be16toh(header.q_count) << " questions\n";
         if (be16toh(header.q_count) == 1)
         {

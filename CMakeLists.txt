@@ -52,7 +52,6 @@ add_executable(dnsblocker
 	"source/main.cc"
     "source/nodes.cc"
     "source/log.cc"
-    "source/buffer.cc"
     "source/process.cc"
     "source/console.cc"
     "source/webster.cc"

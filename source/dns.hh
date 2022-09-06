@@ -1,7 +1,6 @@
 #ifndef DNSB_DNS_HH
 #define DNSB_DNS_HH
 
-
 #include <stdint.h>
 #include <string>
 #include <vector>
@@ -9,10 +8,8 @@
 #include "defs.hh"
 #include "log.hh"
 #include "nodes.hh"
-#include "buffer.hh"
 #include "socket.hh"
 #include <shared_mutex>
-
 
 #define DNS_FLAG_QR           (1 << 15) // Query/Response
 #define DNS_FLAG_AA           (1 << 10) // Authoritative Answer
@@ -51,97 +48,14 @@
 
 namespace dnsblocker {
 
-struct dns_header_t
-{
-    uint16_t id;
-    uint16_t flags;
-    uint8_t opcode;
-    uint8_t rcode;
-
-    dns_header_t();
-    dns_header_t( const dns_header_t & ) = default;
-    dns_header_t( dns_header_t && ) = default;
-    void swap( dns_header_t & );
-};
-
 struct dns_question_t
-{
-    std::string qname;
-    uint16_t type;
-    uint16_t clazz;
-
-    dns_question_t();
-    dns_question_t( const dns_question_t & ) = default;
-    dns_question_t( dns_question_t && ) = default;
-    void read( buffer &bio );
-    void write( buffer &bio ) const;
-};
-
-struct dns_record_t
-{
-    std::string qname;
-    uint16_t type;
-    uint16_t clazz;
-    uint32_t ttl;
-    uint16_t rdlen;
-    uint8_t rdata[64];
-
-    dns_record_t();
-    dns_record_t( const dns_record_t & ) ;
-    dns_record_t( dns_record_t && ) ;
-    bool read( buffer &bio );
-    void write( buffer &bio ) const;
-};
-
-struct dns_message_t
-{
-    dns_header_t header;
-    std::vector<dns_question_t> questions;
-    std::vector<dns_record_t> answers;
-    std::vector<dns_record_t> authority;
-    std::vector<dns_record_t> additional;
-
-    dns_message_t() = default;
-    dns_message_t( const dns_message_t & ) = delete;
-    dns_message_t( dns_message_t && ) = delete;
-    void swap( dns_message_t &that );
-    void read( buffer &bio );
-    void write( buffer &bio ) const;
-    void print() const;
-};
-
-struct dns_visitor_t
-{
-    dns_visitor_t() = default;
-    dns_visitor_t( const dns_visitor_t& ) = delete;
-    dns_visitor_t( dns_visitor_t&& ) = delete;
-    virtual bool visit_message_header( uint16_t &id, const uint16_t flags, const uint8_t opcode, const uint8_t rcode );
-    virtual bool visit_question( const uint16_t type, uint16_t clazz, const std::string &qname );
-    virtual bool visit_answer( const std::string &qname, const uint16_t type, const uint16_t clazz, uint32_t &ttl,
-        const uint16_t rdlen, const uint8_t *rdata );
-    bool visit( const uint8_t *buffer, size_t size );
-};
-
-template<class T>
-struct named_value
-{
-    typedef T type;
-    std::string name;
-    T value;
-
-    named_value() {}
-    named_value( const std::string &name, const T &value ) : name(name), value(value) {}
-    named_value( const std::string &name, T &&value ) : name(name), value(value) {}
-};
-
-struct dns_question_tt
 {
     // skip qname (variable length field)
     uint16_t type;
     uint16_t clazz;
 };
 
-struct dns_header_tt
+struct dns_header_t
 {
 	uint16_t id; // identification number
 

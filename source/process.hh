@@ -32,7 +32,7 @@ struct Job
     uint16_t oid; // original DNS message id (from the client)
     uint16_t id; // DNS message id (zero means empty)
     std::string qname;
-    dns_header_tt *header = nullptr;
+    dns_header_t *header = nullptr;
     uint16_t type;
     uint64_t duration = 0;
 

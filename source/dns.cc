@@ -19,191 +19,11 @@
 typedef int ssize_t;
 #endif
 
-
 #define DNS_GET_OPCODE(x)     (uint8_t) (((x) >> 11) & 15)
 #define DNS_GET_RCODE(x)      (uint8_t) ((x) & 15)
 
 #define DNS_SET_OPCODE(x,v)   ( x = (uint16_t) ( x | ( (v) & 15 ) << 11) )
 #define DNS_SET_RCODE(x,v)    ( x = (uint16_t) ( x | ( (v) & 15 )) )
-
-namespace dnsblocker {
-
-dns_header_t::dns_header_t() : id(0), flags(0), opcode(0), rcode(0)
-{
-}
-
-void dns_header_t::swap( dns_header_t &that )
-{
-    std::swap(id, that.id);
-    std::swap(flags, that.flags);
-    std::swap(opcode, that.opcode);
-    std::swap(rcode, that.rcode);
-}
-
-dns_question_t::dns_question_t() : type(0), clazz(0)
-{
-}
-
-dns_record_t::dns_record_t()
-{
-    type = clazz = rdlen = 0;
-    ttl = 0;
-    memset(rdata, 0, sizeof(rdata));
-}
-
-dns_record_t::dns_record_t( const dns_record_t &that )
-{
-    qname = that.qname;
-    type  = that.type ;
-    clazz = that.clazz;
-    ttl = that.ttl;
-    rdlen = that.rdlen;
-    memcpy(rdata, that.rdata, sizeof(rdata));
-}
-
-dns_record_t::dns_record_t( dns_record_t &&that )
-{
-    qname.swap(that.qname);
-    type  = that.type ;
-    clazz = that.clazz;
-    ttl = that.ttl;
-    rdlen = that.rdlen;
-    memcpy(rdata, that.rdata, sizeof(rdata));
-}
-
-
-void dns_question_t::read( buffer &bio )
-{
-    qname = bio.readQName();
-    type = bio.readU16();
-    clazz = bio.readU16();
-}
-
-void dns_question_t::write( buffer &bio ) const
-{
-    bio.writeQName(qname);
-    bio.writeU16(type);
-    bio.writeU16(clazz);
-}
-
-void dns_message_t::swap( dns_message_t &that )
-{
-    header.swap(that.header);
-    questions.swap(that.questions);
-    answers.swap(that.answers);
-    authority.swap(that.authority);
-    additional.swap(that.additional);
-}
-
-void dns_message_t::read( buffer &bio )
-{
-    questions.clear();
-    answers.clear();
-    authority.clear();
-    additional.clear();
-
-    // read the message header
-    header.id = bio.readU16();
-    header.flags = bio.readU16();
-    header.opcode = DNS_GET_OPCODE(header.flags);
-    header.rcode = DNS_GET_RCODE(header.flags);
-    uint16_t qdc = bio.readU16(); // query count
-    uint16_t anc = bio.readU16(); // answer count
-    //--uint16_t nsc = bio.readU16(); // name server count
-    //--uint16_t arc = bio.readU16(); // additional record count
-    // read the questions
-    questions.resize(qdc);
-    for (auto &item : questions) item.read(bio);
-    // read the answers
-    for (int i = 0; i < anc; ++i)
-    {
-        dns_record_t entry;
-        if (entry.read(bio))
-        answers.push_back(std::move(entry));
-    }
-    #if 0
-    // read the name servers
-    authority.resize(nsc);
-    for (auto &item : authority) item.read(bio);
-    // read the additional records
-    additional.resize(arc);
-    for (auto &item : additional) item.read(bio);
-    #endif
-}
-
-void dns_message_t::write( buffer &bio ) const
-{
-    // write the header
-    uint16_t flags = header.flags;
-    DNS_SET_OPCODE(flags, header.opcode);
-    DNS_SET_RCODE(flags, header.rcode);
-    bio.writeU16(header.id);
-    bio.writeU16(flags);
-    bio.writeU16( (uint16_t) questions.size() );
-    bio.writeU16( (uint16_t) answers.size() );
-    bio.writeU16( (uint16_t) authority.size() );
-    bio.writeU16( (uint16_t) additional.size() );
-    for (const auto &item : questions) item.write(bio);
-    for (const auto &item : answers) item.write(bio);
-    #if 0
-    for (const auto &item : authority) item.write(bio);
-    for (const auto &item : additional) item.write(bio);
-    #endif
-}
-
-void dns_message_t::print() const
-{
-    LOG_MESSAGE("[qdcount: %d, ancount: %d, nscount: %d, arcount: %d]\n",
-        (int) questions.size(), (int) answers.size(), (int) authority.size(), (int) additional.size());
-
-    //LOG_MESSAGE("   [qname: '%s', type: %d, class: %d]\n", qname.c_str(), type, clazz);
-    //for (auto it = questions.begin(); it != questions.end(); ++it) it->print();
-    //for (auto it = answers.begin(); it != answers.end(); ++it) it->print();
-}
-
-void dns_record_t::write( buffer &bio ) const
-{
-    if (rdlen > sizeof(rdata)) return;
-    bio.writeQName(qname);
-    bio.writeU16(type);
-    bio.writeU16(clazz);
-    bio.writeU32(ttl);
-    bio.writeU16(rdlen);
-    for (int i = 0; i < rdlen; ++i)
-        bio.writeU8(rdata[i]);
-}
-
-bool dns_record_t::read( buffer &bio )
-{
-    qname = bio.readQName();
-    type = bio.readU16();
-    clazz = bio.readU16();
-    ttl = bio.readU32();
-    rdlen = bio.readU16();
-    if (rdlen > sizeof(rdata))
-    {
-        bio.skip(rdlen);
-        return false;
-    }
-    for (int i = 0; i < rdlen; ++i)
-        rdata[i] = bio.readU8();
-    return true;
-}
-
-/*void dns_record_t::print() const
-{
-    if (!rdata.empty())
-    {
-        LOG_MESSAGE("   [qname: '%s', type: %d, class: %d, ttl: %d, len: %d, addr: %d.%d.%d.%d]\n",
-            qname.c_str(), type, clazz, ttl, rdlen, rdata.to_string().c_str());
-    }
-    else
-    {
-        LOG_MESSAGE("   [qname: '%s', type: %d, class: %d, ttl: %d, len: %d]\n",
-            qname.c_str(), type, clazz, ttl, rdlen);
-    }
-}*/
-
 
 #ifdef __WINDOWS__
 #include <WinSock2.h>
@@ -214,6 +34,8 @@ bool dns_record_t::read( buffer &bio )
 #include <string.h>
 #include <unistd.h>
 #endif
+
+namespace dnsblocker {
 
 static uint64_t dns_time()
 {
@@ -238,7 +60,7 @@ uint16_t Resolver::next_id()
 
 uint16_t Resolver::send( Endpoint &endpoint, dns_buffer_t &request )
 {
-    dns_header_tt &header = *((dns_header_tt*) request.content);
+    dns_header_t &header = *((dns_header_t*) request.content);
     header.id = next_id();
 
     if (!conn_.send(endpoint, request.content, request.size))
