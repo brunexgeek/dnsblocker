@@ -343,6 +343,17 @@ static uint64_t current_epoch()
     #endif
 }
 
+static int rcode_to_status( int rcode, bool cache, bool blocked )
+{
+    if (blocked) return DNSB_STATUS_BLOCK;
+    switch (rcode)
+    {
+        case DNS_RCODE_NOERROR: return cache ? DNSB_STATUS_CACHE : DNSB_STATUS_RECURSIVE;
+        case DNS_RCODE_NXDOMAIN: return DNSB_STATUS_NXDOMAIN;
+        default: return DNSB_STATUS_FAILURE;
+    }
+}
+
 static void print_request(
     const std::string &host,
     const Endpoint &remote,
@@ -515,22 +526,23 @@ bool Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &requ
 /*
  * Forward to the client the answers received by external DNS server.
  */
-bool Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response, uint64_t duration, bool cache )
+bool Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response,
+    uint64_t duration, bool cache )
 {
     std::string qname;
     const uint8_t *ptr = parse_qname(request, sizeof(dns_header_t), qname);
     if (ptr == nullptr) return false;
 
+    dns_header_t &header = *((dns_header_t*) response.content);
     dns_question_t *question = (dns_question_t*) ptr;
+    int status = rcode_to_status(header.rcode, cache, false);
 
     auto result = conn_->send(endpoint, response.content, response.size);
     if (result)
         // TODO: detect error responses and log appropriately
-        print_request(qname, endpoint, "default", question->type, config_, cache ? DNSB_STATUS_CACHE : DNSB_STATUS_RECURSIVE, false, duration);
+        print_request(qname, endpoint, "default", question->type, config_, status, false, duration);
     return result;
 }
-
-#define IS_PASS_THROUGH(x) ((x) == DNS_TYPE_A || (x) == DNS_TYPE_AAAA)
 
 void Processor::process(
     Processor *object,
@@ -540,18 +552,16 @@ void Processor::process(
 {
     (void) thread_num;
 
-    //static const int MAX_PENDINGS = 20;
     std::unique_lock<std::mutex> guard(*mutex);
     Resolver resolver;
     std::map<uint16_t, Job*> wait_list;
-    dns_buffer_t response;
 
     while (object->running_)
     {
+        dns_buffer_t response;
         Job *job = object->pop();
         if (job != nullptr)
         {
-//std::cerr << "[" << job->oid << "] Found job\n";
             auto &item = *job;
             item.header = ((dns_header_t*) item.request.content);
             const uint8_t *ptr = parse_qname(item.request, sizeof(dns_header_t), item.qname);
@@ -569,6 +579,8 @@ void Processor::process(
                 if (item.qname.find('.') == std::string::npos || item.header->rd == 0)
                 {
                     object->send_error(item.endpoint, item.request, DNS_RCODE_NXDOMAIN);
+                    delete job;
+                    job = nullptr;
                     continue; // TODO: get new job or process jobs in the wait list?
                 }
 
@@ -586,11 +598,13 @@ void Processor::process(
                 }
             }
 
-//std::cerr << "[" << job->oid << "] wants " << item.qname << " " << (is_blocked ? "BLOCKED":"OK") << "\n";
-
             // is the query blocked?
             if (is_blocked)
+            {
                 object->send_blocked(item.endpoint, item.request);
+                delete job;
+                job = nullptr;
+            }
             else
             {
                 bool cache_used = false;
@@ -605,11 +619,12 @@ void Processor::process(
                         result = object->cache_->find_ipv6(item.qname, response);
                     if (result != DNSB_STATUS_FAILURE)
                     {
-//std::cerr << "[" << job->oid << "] used cache\n";
                         dns_header_t *rh = ((dns_header_t*) response.content);
                         rh->id = item.oid;
                         object->send_success(item.endpoint, item.request, response, 0, true);
                         cache_used = true;
+                        delete job;
+                        job = nullptr;
                     }
                 }
 
@@ -640,18 +655,14 @@ void Processor::process(
         else
         if (wait_list.empty())
         {
-//std::cerr << "Going to sleep\n";
             cond->wait_for(guard, std::chrono::seconds(2));
             continue;
         }
-//std::cerr << "Let's check external DNS responses\n";
+
         // process each UDP response
         while (resolver.receive(response, 0) > 0)
         {
             dns_header_t &header = *((dns_header_t*) response.content);
-//std::cerr << "[X-RESPONSE] #" << header.id << "\n";
-            //--std::cerr << "Received response #" << header.id << " with " << response.size << " bytes\n";
-
             // look for a matching pending entry
             auto it = wait_list.find(header.id & 0x7FFF);
             if (it != wait_list.end())
@@ -677,7 +688,7 @@ void Processor::process(
                 dns_header_t &header = *((dns_header_t*) item.response.content);
                 header.id = item.oid; // recover the original ID
                 item.duration = current_ms() - item.duration;
-                object->send_success(item.endpoint, item.request, item.response, item.duration);
+                object->send_success(item.endpoint, item.request, item.response, item.duration, false);
                 // update cache
                 if (item.type == DNS_TYPE_A)
                     object->cache_->append_ipv4(item.qname, response);
@@ -698,7 +709,6 @@ void Processor::process(
             else
                 ++it;
         }
-//std::cerr << "Done with external DNS responses\n";
     }
 
 #if 0
@@ -740,10 +750,8 @@ void Processor::run(int nthreads)
         buffer.size = sizeof(buffer.content);
         // receive the UDP message
         if (!conn_->receive(endpoint, buffer.content, &buffer.size, 2000)) continue;
-        //--std::cerr << "Received " << buffer.size << " bytes\n";
         // ignore messages with the number of questions other than 1
         dns_header_t &header = *((dns_header_t*) buffer.content);
-        //--std::cerr << "Query with " << be16toh(header.q_count) << " questions\n";
         if (be16toh(header.q_count) == 1)
         {
             auto job = new Job(endpoint, buffer);

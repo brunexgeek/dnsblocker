@@ -88,7 +88,7 @@ class Processor
         static std::string realPath( const std::string &path );
         void send_success( const Endpoint &endpoint, const dns_buffer_t &request, const ipv4_t *ipv4, const ipv6_t *ipv6 );
         bool send_blocked( const Endpoint &endpoint, const dns_buffer_t &request );
-        bool send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response, uint64_t duration, bool cache = false );
+        bool send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response, uint64_t duration, bool cache );
         bool in_whitelist( const std::string &host );
         bool finish_job( Job &item, std::map<uint16_t, dnsblocker::Job *> &wait_list );
 
