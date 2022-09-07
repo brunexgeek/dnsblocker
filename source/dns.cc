@@ -54,14 +54,15 @@ Resolver::~Resolver()
 uint16_t Resolver::next_id()
 {
     std::unique_lock<std::shared_mutex> guard(id_mutex_);
-    if (++id_ == 0) ++id_;
+    id_ = (id_ + 1) & 0x7FFF;
+    if (id_ == 0) ++id_;
     return id_;
 }
 
-uint16_t Resolver::send( Endpoint &endpoint, dns_buffer_t &request )
+uint16_t Resolver::send( const Endpoint &endpoint, dns_buffer_t &request, uint16_t id )
 {
     dns_header_t &header = *((dns_header_t*) request.content);
-    header.id = next_id();
+    header.id = id & 0x7FFF;
 
     if (!conn_.send(endpoint, request.content, request.size))
         return 0;

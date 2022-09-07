@@ -122,15 +122,15 @@ class Resolver
     public:
         Resolver();
         ~Resolver();
-        uint16_t send( Endpoint &endpoint, dns_buffer_t &response );
+        uint16_t send( const Endpoint &endpoint, dns_buffer_t &response, uint16_t id );
         int receive( dns_buffer_t &response, int timeout = 0);
+        uint16_t next_id();
 
     private:
         UDP conn_;
         std::shared_mutex id_mutex_;
         uint16_t id_;
 
-        uint16_t next_id();
 };
 
 }

@@ -73,7 +73,7 @@ Processor::Processor( const Configuration &config, Console *console ) :
         {
             for (size_t i = 0; i < it->targets.size(); ++i)
             {
-                //resolver_->set_dns(it->address, it->name, it->targets[i]);
+                other_ns_.add(it->targets[i], std::pair(it->name, Endpoint(it->address, 53)));
             }
         }
     }
@@ -525,6 +525,7 @@ bool Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &requ
 
     auto result = conn_->send(endpoint, response.content, response.size);
     if (result)
+        // TODO: detect error responses and log appropriately
         print_request(qname, endpoint, "default", question->type, config_, cache ? DNSB_STATUS_CACHE : DNSB_STATUS_RECURSIVE, false, duration);
     return result;
 }
@@ -615,17 +616,24 @@ void Processor::process(
                 // send the request to external DNS
                 if (!cache_used)
                 {
-                    item.id = resolver.send(object->default_ns_, item.request);
+                    item.id = resolver.next_id();
+                    item.max = 1;
+                    int sent = 0;
 
-//if (item.id > 0)
-//    std::cerr << "[X-REQUEST ] #" <<item.oid << " (" << item.request.size << " bytes) to external DNS\n";
-//else
-//    std::cerr << "[X-REQUEST ] #" <<item.oid << " FAILED!\n";
+                    // try the secondary DNS
+                    auto node = object->other_ns_.match(item.qname);
+                    if (node != nullptr)
+                    {
+                        item.max = 2;
+                        sent |= resolver.send(node->value.second, item.request, item.id | 0x8000);
+                    }
+                    // try the primary DNS
+                    sent |= resolver.send(object->default_ns_, item.request, item.id);
 
-                    if (item.id == 0)
-                        object->send_error(item.endpoint, item.request, DNS_RCODE_SERVFAIL);
-                    else
+                    if (sent)
                         wait_list.insert( std::pair(job->id, job) );
+                    else
+                        object->send_error(item.endpoint, item.request, DNS_RCODE_SERVFAIL);
                 }
             }
         }
@@ -645,27 +653,50 @@ void Processor::process(
             //--std::cerr << "Received response #" << header.id << " with " << response.size << " bytes\n";
 
             // look for a matching pending entry
-            auto it = wait_list.find(header.id);
+            auto it = wait_list.find(header.id & 0x7FFF);
             if (it != wait_list.end())
             {
                 Job &item = *it->second;
+                item.response = response;
+                ++item.count;
 
-                // TODO: detect error responses and log appropriately
+                // is a successfully secondary response?
+                if (header.id & 0x8000 && header.rcode == DNS_RCODE_NOERROR)
+                    item.count = 255; // force the transmission
+            }
+        }
 
-//--std::cerr << "Received response from external DNS for #" << item.id << "\n";
+        for (auto it = wait_list.begin(); it != wait_list.end();)
+        {
+            auto &item = *it->second;
+
+            // check whether is time to send the current response
+            if (item.count == item.max || (item.count == 1 && (current_ms() - item.duration) > 2500))
+            {
+                // use the current response as correct
+                dns_header_t &header = *((dns_header_t*) item.response.content);
                 header.id = item.oid; // recover the original ID
                 item.duration = current_ms() - item.duration;
-                object->send_success(item.endpoint, item.request, response, item.duration);
-                wait_list.erase(it);
-
+                object->send_success(item.endpoint, item.request, item.response, item.duration);
+                // update cache
                 if (item.type == DNS_TYPE_A)
                     object->cache_->append_ipv4(item.qname, response);
                 else
                 if (item.type == DNS_TYPE_AAAA)
                     object->cache_->append_ipv6(item.qname, response);
 
+                it = wait_list.erase(it);
                 delete &item;
             }
+            else
+            // discard timed out job
+            if (current_ms() - item.duration > 2500)
+            {
+                it = wait_list.erase(it);
+                delete &item;
+            }
+            else
+                ++it;
         }
 //std::cerr << "Done with external DNS responses\n";
     }

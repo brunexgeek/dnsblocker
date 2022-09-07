@@ -15,26 +15,27 @@
 
 namespace dnsblocker {
 
-enum class Status
+enum class JobStatus
 {
     PENDING,
-    BLOCK,
-    WAITING,
-    NXDOMAIN,
-    ERROR,
+    WAITING_SEC,
+    WAITING_PRI,
 };
 
 struct Job
 {
     Endpoint endpoint;
     dns_buffer_t request;
-    //dns_buffer_t *response;
+    dns_buffer_t response;
     uint16_t oid; // original DNS message id (from the client)
     uint16_t id; // DNS message id (zero means empty)
     std::string qname;
     dns_header_t *header = nullptr;
     uint16_t type;
     uint64_t duration = 0;
+    JobStatus status = JobStatus::PENDING;
+    int max = 0;
+    int count = 0;
 
     Job( const Endpoint &ep, const dns_buffer_t &req )
     {
@@ -72,6 +73,7 @@ class Processor
         Configuration config_;
         Tree<uint8_t> blacklist_;
         Tree<uint8_t> whitelist_;
+        Tree<std::pair<std::string,Endpoint>> other_ns_;
         std::unordered_set<ipv4_t> ipv4list_;
         bool running_;
         bool useHeuristics_;
@@ -88,6 +90,7 @@ class Processor
         bool send_blocked( const Endpoint &endpoint, const dns_buffer_t &request );
         bool send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response, uint64_t duration, bool cache = false );
         bool in_whitelist( const std::string &host );
+        bool finish_job( Job &item, std::map<uint16_t, dnsblocker::Job *> &wait_list );
 
         friend struct ConsoleListener;
 };
