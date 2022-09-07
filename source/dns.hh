@@ -51,19 +51,19 @@ namespace dnsblocker {
 
 struct dns_question_t
 {
-    std::string qname;
+    char *qname;
     uint16_t type;
     uint16_t clazz;
 };
 
 struct dns_record_t
 {
-    // skip qname (variable length field)
+    char *qname;
     uint16_t type;
     uint16_t clazz;
     uint32_t ttl;
     uint16_t rdlen;
-    // skip rdata (variable length field)
+    uint8_t *rdata;
 };
 
 struct dns_header_t
@@ -82,7 +82,7 @@ struct dns_header_t
 	uint8_t z :1; // its z! reserved
 	uint8_t ra :1; // recursion available
 
-	uint16_t q_count; // number of question entries
+	uint16_t qst_count; // number of question entries
 	uint16_t ans_count; // number of answer entries
 	uint16_t auth_count; // number of authority entries
 	uint16_t add_count; // number of resource entries
@@ -96,6 +96,25 @@ struct dns_buffer_t
 {
     uint8_t content[DNS_MESSAGE_SIZE];
     size_t size = DNS_MESSAGE_SIZE;
+};
+
+struct Message
+{
+    const dns_buffer_t *buffer = nullptr;
+    dns_header_t header;
+    std::vector<dns_question_t*> question;
+    std::vector<dns_record_t*> answer;
+    std::vector<dns_record_t*> authority;
+    std::vector<dns_record_t*> additional;
+
+    Message() = default; // TODO: add area allocation
+    Message( const Message & ) = delete;
+    Message( Message && );
+    ~Message();
+    void swap( Message & );
+    bool parse( const dns_buffer_t &buffer );
+    dns_question_t *parse_question( const dns_buffer_t &buffer, size_t *offset );
+    dns_record_t *parse_record( const dns_buffer_t &buffer, size_t *offset );
 };
 
 struct CacheEntry
@@ -146,7 +165,7 @@ class Resolver
 
 void print_dns_message( std::ostream &out, const dns_buffer_t &message );
 size_t dns_read_qname( const dns_buffer_t &message, size_t offset, std::string &qname );
-size_t dns_read_question( const dns_buffer_t &message, size_t offset, dns_question_t &question );
+//size_t dns_read_question( const dns_buffer_t &message, size_t offset, dns_question_t &question );
 
 }
 

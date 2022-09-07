@@ -269,7 +269,66 @@ static const uint8_t *read_u32( const uint8_t *ptr, uint32_t &value )
     return ptr + sizeof(uint32_t);
 }
 
-size_t dns_read_question( const dns_buffer_t &message, size_t offset, dns_question_t &question )
+Message::~Message()
+{
+    for (auto value : question) free(value);
+    for (auto value : answer) free(value);
+    for (auto value : authority) free(value);
+    for (auto value : additional) free(value);
+}
+
+bool Message::parse( const dns_buffer_t &buffer )
+{
+    if (buffer.size >= sizeof(dns_header_t))
+    {
+        memcpy(&header, buffer.content, sizeof(dns_header_t));
+        header.id = be16toh(header.id);
+        header.qst_count = be16toh(header.qst_count);
+        header.ans_count = be16toh(header.ans_count);
+        header.auth_count = be16toh(header.auth_count);
+        header.add_count = be16toh(header.add_count);
+
+        // questions
+        size_t offset = sizeof(dns_header_t);
+        for (int i = 0; i < header.qst_count; ++i)
+        {
+            auto value = parse_question(buffer, &offset);
+            if (value == nullptr) return false;
+            question.push_back(value);
+        }
+        // answers
+        for (int i = 0; i < header.qst_count; ++i)
+        {
+            auto value = parse_record(buffer, &offset);
+            if (value == nullptr) return false;
+            answer.push_back(value);
+        }
+        return true;
+    }
+    return false;
+}
+
+#define MEM_ALIGN(x) (((x) + 3) & ~3)
+
+dns_question_t *Message::parse_question( const dns_buffer_t &buffer, size_t *offset )
+{
+    std::string qname;
+    *offset = dns_parse_qname(buffer, *offset, qname);
+    if (*offset == 0) return nullptr;
+
+    dns_question_t *result = (dns_question_t*) malloc( MEM_ALIGN(qname.length() + 1) + sizeof(dns_question_t));
+    if (result == nullptr) return nullptr;
+    result->qname = (char*) result + sizeof(dns_question_t);
+
+    strcpy(result->qname, qname.c_str());
+    const uint8_t *ptr = buffer.content + *offset;
+    ptr = read_u16(ptr, result->type);
+    ptr = read_u16(ptr, result->clazz);
+    *offset += sizeof(uint16_t) * 2;
+    return result;
+}
+
+/*size_t dns_read_question( const dns_buffer_t &message, size_t offset, dns_question_t &question )
 {
     offset = dns_parse_qname(message, offset, question.qname);
     if (offset == 0) return 0;
@@ -277,10 +336,44 @@ size_t dns_read_question( const dns_buffer_t &message, size_t offset, dns_questi
     read_u16(ptr, question.type);
     read_u16(ptr, question.clazz);
     return offset + sizeof(uint16_t) * 2;
+}*/
+
+dns_record_t *Message::parse_record( const dns_buffer_t &buffer, size_t *offset )
+{
+    std::string qname;
+    *offset = dns_parse_qname(buffer, *offset, qname);
+    if (*offset == 0) return nullptr;
+
+    uint16_t type, clazz, rdlen;
+    uint32_t ttl;
+    const uint8_t *ptr = buffer.content + *offset;
+    ptr = read_u16(ptr, type);
+    ptr = read_u16(ptr, clazz);
+    ptr = read_u32(ptr, ttl);
+    ptr = read_u16(ptr, rdlen);
+
+    if (buffer.size < ptr - buffer.content + rdlen) return nullptr; // TODO: improve this check
+
+    dns_record_t *result = (dns_record_t*) malloc( MEM_ALIGN(qname.length() + 1) + sizeof(dns_record_t) + MEM_ALIGN(rdlen));
+    if (result == nullptr) return nullptr;
+    result->qname = (char*) result + sizeof(dns_record_t);
+    result->rdata = (uint8_t*) result->qname + MEM_ALIGN(qname.length() + 1);
+
+    strcpy(result->qname, qname.c_str());
+    memcpy(result->rdata, ptr, rdlen);
+    ptr += rdlen;
+    result->type = type;
+    result->clazz = clazz;
+    result->ttl = ttl;
+    result->rdlen = rdlen;
+    *offset = ptr - buffer.content;
+    return result;
 }
+
 
 void print_dns_message( std::ostream &out, const dns_buffer_t &message )
 {
+#if 0
     const auto &header = *((dns_header_t*) message.content);
 
     std::string sid = "[";
@@ -313,6 +406,7 @@ void print_dns_message( std::ostream &out, const dns_buffer_t &message )
         dns_read_question(message, sizeof(dns_header_t), question);
         out << sid << " question " << 0 << " = " << question.qname << " IN " << dns_type(question.type) << "\n";
     //--}
+#endif
 }
 
 }
