@@ -173,4 +173,146 @@ void Cache::append( const std::string &host, const dns_buffer_t &response )
     }
 }
 
+static const char *dns_opcode( int value )
+{
+    switch (value)
+    {
+        case 0: return "QUERY";
+        case 1: return "IQUERY";
+        case 2: return "STATUS";
+        default: return "?????";
+    }
+}
+
+static const char *dns_rcode( int value )
+{
+    switch (value)
+    {
+        case 0: return "NOERROR";
+        case 1: return "FORMERR";
+        case 2: return "SERVFAIL";
+        case 3: return "NXDOMAIN";
+        case 4: return "NOTIMP";
+        case 5: return "REFUSED";
+        case 6: return "YXDOMAIN";
+        case 7: return "XRRSET";
+        case 8: return "NOTAUTH";
+        case 9: return "NOTZONE";
+        default: return "?????";
+    }
+}
+
+static const char *dns_type( int value )
+{
+    switch (value)
+    {
+        case 1: return "A";
+        case 2: return "NS";
+        case 3: return "MD";
+        case 4: return "MF";
+        case 5: return "CNAME";
+        case 6: return "SOA";
+        case 7: return "MB";
+        case 8: return "MG";
+        case 9: return "MR";
+        case 10: return "NULL";
+        case 11: return "WKS";
+        case 12: return "PTR";
+        case 13: return "HINFO";
+        case 14: return "MINFO";
+        case 15: return "MX";
+        case 16: return "TXT";
+        case 28: return "AAAA";
+        default: return "?????";
+    }
+}
+
+size_t dns_parse_qname( const dns_buffer_t &message, size_t offset, std::string &qname )
+{
+    const uint8_t *buffer = message.content;
+    const uint8_t *ptr = buffer + offset;
+    if (ptr < buffer || ptr >= buffer + message.size) return 0;
+
+    while (*ptr != 0)
+    {
+        // check whether the label is a pointer (RFC-1035 4.1.4. Message compression)
+        if ((*ptr & 0xC0) == 0xC0)
+        {
+            size_t offset = ((ptr[0] & 0x3F) << 8) | ptr[1];
+            dns_parse_qname(message, offset, qname);
+            return (size_t) ((ptr + 2) - buffer);
+        }
+
+        int length = (int) (*ptr++) & 0x3F;
+        for (int i = 0; i < length; ++i)
+        {
+            char c = (char) *ptr++;
+            if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+            qname.push_back(c);
+        }
+
+        if (*ptr != 0) qname.push_back('.');
+    }
+
+    return (size_t) ((ptr + 1) - buffer);
+}
+
+static const uint8_t *read_u16( const uint8_t *ptr, uint16_t &value )
+{
+    value = static_cast<uint16_t>((ptr[0] << 8) | ptr[1]);
+    return ptr + sizeof(uint16_t);
+}
+
+static const uint8_t *read_u32( const uint8_t *ptr, uint32_t &value )
+{
+    value = (uint32_t) ( (ptr[0] << 24) | (ptr[1] << 16) | (ptr[2] << 8) | ptr[3] );
+    return ptr + sizeof(uint32_t);
+}
+
+size_t dns_read_question( const dns_buffer_t &message, size_t offset, dns_question_t &question )
+{
+    offset = dns_parse_qname(message, offset, question.qname);
+    if (offset == 0) return 0;
+    const uint8_t *ptr = message.content + offset;
+    read_u16(ptr, question.type);
+    read_u16(ptr, question.clazz);
+    return offset + sizeof(uint16_t) * 2;
+}
+
+void print_dns_message( std::ostream &out, const dns_buffer_t &message )
+{
+    const auto &header = *((dns_header_t*) message.content);
+
+    std::string sid = "[";
+    sid += std::to_string(be16toh(header.id));
+    sid += "]";
+
+    out << sid <<
+        " opcode: " << dns_opcode(header.opcode) <<
+        ", status: " << dns_rcode(header.rcode) <<
+        ", flags:";
+
+    if (header.rd) out << " rd";
+	if (header.tc) out << " tc";
+	if (header.aa) out << " aa";
+	if (header.qr) out << " qr";
+	if (header.cd) out << " cd";
+	if (header.ad) out << " ad";
+	if (header.z) out << " z";
+	if (header.ra) out << " ra";
+
+    out << "; QUERY: " << be16toh(header.q_count) <<
+        ", ANSWER: " << be16toh(header.ans_count) <<
+        ", AUTHORITY: " << be16toh(header.auth_count) <<
+        ", ADDITIONAL: " << be16toh(header.add_count) << "\n";
+
+    // questions
+    //--for (int i = 0; i < be16toh(header.q_count); ++i)
+    //--{
+        dns_question_t question;
+        dns_read_question(message, sizeof(dns_header_t), question);
+        out << sid << " question " << 0 << " = " << question.qname << " IN " << dns_type(question.type) << "\n";
+    //--}
+}
+
 }

@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
+#include <iostream>
 #include <unordered_map>
 #include "defs.hh"
 #include "log.hh"
@@ -50,9 +51,19 @@ namespace dnsblocker {
 
 struct dns_question_t
 {
+    std::string qname;
+    uint16_t type;
+    uint16_t clazz;
+};
+
+struct dns_record_t
+{
     // skip qname (variable length field)
     uint16_t type;
     uint16_t clazz;
+    uint32_t ttl;
+    uint16_t rdlen;
+    // skip rdata (variable length field)
 };
 
 struct dns_header_t
@@ -132,6 +143,10 @@ class Resolver
         uint16_t id_;
 
 };
+
+void print_dns_message( std::ostream &out, const dns_buffer_t &message );
+size_t dns_read_qname( const dns_buffer_t &message, size_t offset, std::string &qname );
+size_t dns_read_question( const dns_buffer_t &message, size_t offset, dns_question_t &question );
 
 }
 

@@ -264,63 +264,6 @@ bool Processor::console( const std::string &command )
 }
 #endif
 
-uint8_t Processor::detect_heuristic( std::string name )
-{
-    constexpr uint8_t RULE_BGS = 1;
-    constexpr uint8_t RULE_GON = 2;
-    constexpr uint8_t RULE_VOW = 3;
-    static const int MINLEN = 8;
-
-    if (name.length() < 8) return 0;
-
-    const char *p = name.c_str();
-    while (*p != 0)
-    {
-        while (*p == '.') ++p;
-
-        int gon = 0; // group of numbers (a0bc32de1 = 3 groups)
-        char gs = 0; // group size
-        char bgs = 0; // biggest group size
-        int vc = 0; // vowel count
-        int cc = 0; // consonant count
-        int len = 0;
-
-        while (*p != 0 && *p != '.')
-        {
-            if (isdigit(*p))
-                ++gs;
-            else
-            {
-                if (strchr("aeiouyAEIOUY", *p) != nullptr)
-                    ++vc;
-                else
-                if (*p != '-')
-                    ++cc;
-                if (gs > 0)
-                {
-                    ++gon;
-                    if (bgs < gs) bgs = gs;
-                    gs = 0;
-                }
-            }
-            ++p;
-            ++len;
-        }
-
-        if (gs > 0)
-        {
-            ++gon;
-            if (bgs < gs) bgs = gs;
-        }
-
-        if (len < MINLEN) continue;
-        if (bgs > 4) return RULE_BGS; // at least 5 digits in the biggest group
-        if (gon > 1) return RULE_GON; // at least 2 groups of digits
-        if ((float) vc / (float) len < 0.3F) return RULE_VOW; // less than 30% of vowels
-    }
-    return 0;
-}
-
 static uint64_t current_ms()
 {
     #ifdef __WINDOWS__
@@ -411,7 +354,7 @@ static uint8_t *write_u16( uint8_t *ptr, uint16_t value )
     return ptr + sizeof(uint16_t);
 }
 
-static uint8_t *write_u32( uint8_t *ptr, uint16_t value )
+static uint8_t *write_u32( uint8_t *ptr, uint32_t value )
 {
     ptr[0] = (uint8_t) (value >> 24);
     ptr[1] = (uint8_t) (value >> 16);
@@ -420,46 +363,15 @@ static uint8_t *write_u32( uint8_t *ptr, uint16_t value )
     return ptr + sizeof(uint32_t);
 }
 
-static const uint8_t *parse_qname( const dns_buffer_t &message, size_t offset, std::string &qname )
-{
-    const uint8_t *buffer = message.content;
-    const uint8_t *ptr = buffer + offset;
-    if (ptr < buffer || ptr >= buffer + message.size) return nullptr;
-
-    while (*ptr != 0)
-    {
-        // check whether the label is a pointer (RFC-1035 4.1.4. Message compression)
-        if ((*ptr & 0xC0) == 0xC0)
-        {
-            size_t offset = ((ptr[0] & 0x3F) << 8) | ptr[1];
-            parse_qname(message, offset, qname);
-            return ptr += 2;
-        }
-
-        int length = (int) (*ptr++) & 0x3F;
-        for (int i = 0; i < length; ++i)
-        {
-            char c = (char) *ptr++;
-            if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
-            qname.push_back(c);
-        }
-
-        if (*ptr != 0) qname.push_back('.');
-    }
-
-    return ptr + 1;
-}
-
 bool Processor::send_error( const Endpoint &endpoint, const dns_buffer_t &request, int rcode )
 {
     dns_buffer_t response;
-    std::string qname;
 
     int size = copy_prologue(request, response);
     if (size < 0) return false;
-    uint8_t *ptr = (uint8_t*) parse_qname(request, sizeof(dns_header_t), qname);
-    if (ptr == nullptr) return false;
-    dns_question_t *question = (dns_question_t*) (ptr - sizeof(dns_question_t));
+
+    dns_question_t question;
+    if (dns_read_question(request, sizeof(dns_header_t), question) == 0) return false;
 
     dns_header_t &header = *((dns_header_t*) response.content);
     header.qr = 1;
@@ -469,7 +381,7 @@ bool Processor::send_error( const Endpoint &endpoint, const dns_buffer_t &reques
     header.auth_count = 0;
     auto result = conn_->send(endpoint, response.content, size);
     if (result)
-        print_request(qname, endpoint, "default", question->type, config_, DNSB_STATUS_BLOCK, false, 0);
+        print_request(question.qname, endpoint, "default", question.type, config_, DNSB_STATUS_BLOCK, false, 0);
     return result;
 }
 
@@ -480,13 +392,11 @@ bool Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &requ
 
     int offset = copy_prologue(request, response);
     if (offset < 0) return false;
-    uint8_t *ptr = (uint8_t*) parse_qname(request, sizeof(dns_header_t), qname);
-    if (ptr == nullptr) return false;
-    dns_question_t *question = (dns_question_t*) ptr;
-    uint16_t type = be16toh(question->type);
+    dns_question_t question;
+    if (dns_read_question(request, sizeof(dns_header_t), question) == 0) return false;
 
     // ignore questions not type A and AAAA
-    if (type != DNS_TYPE_A && type != DNS_TYPE_AAAA)
+    if (question.type != DNS_TYPE_A && question.type != DNS_TYPE_AAAA)
         return false;
 
     dns_header_t &header = *((dns_header_t*) response.content);
@@ -497,14 +407,14 @@ bool Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &requ
     header.auth_count = 0;
 
     // qname (pointer to question)
-    ptr = response.content + offset;
+    uint8_t *ptr = response.content + offset;
     *ptr++ = 0xC0;
     *ptr++ = (uint8_t) sizeof(dns_header_t);
-    ptr = write_u16(ptr, type); // type
+    ptr = write_u16(ptr, question.type); // type
     ptr = write_u16(ptr, 1); // clazz
     ptr = write_u32(ptr, DNS_CACHE_TTL); // ttl
 
-    if (type == DNS_TYPE_A)
+    if (question.type == DNS_TYPE_A)
     {
         ptr = write_u16(ptr, 4); // rdlen
         for (int i = 0; i < 4; ++i) // rdata
@@ -519,7 +429,7 @@ bool Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &requ
 
     auto result = conn_->send(endpoint, response.content, (size_t) (ptr - response.content));
     if (result)
-        print_request(qname, endpoint, "default", question->type, config_, DNSB_STATUS_BLOCK, false, 0);
+        print_request(question.qname, endpoint, "default", question.type, config_, DNSB_STATUS_BLOCK, false, 0);
     return result;
 }
 
@@ -529,18 +439,16 @@ bool Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &requ
 bool Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response,
     uint64_t duration, bool cache )
 {
-    std::string qname;
-    const uint8_t *ptr = parse_qname(request, sizeof(dns_header_t), qname);
-    if (ptr == nullptr) return false;
-
     dns_header_t &header = *((dns_header_t*) response.content);
-    dns_question_t *question = (dns_question_t*) ptr;
+    dns_question_t question;
+    if (dns_read_question(request, sizeof(dns_header_t), question) == 0) return false;
+
     int status = rcode_to_status(header.rcode, cache, false);
 
     auto result = conn_->send(endpoint, response.content, response.size);
     if (result)
         // TODO: detect error responses and log appropriately
-        print_request(qname, endpoint, "default", question->type, config_, status, false, duration);
+        print_request(question.qname, endpoint, "default", question.type, config_, status, false, duration);
     return result;
 }
 
@@ -564,9 +472,12 @@ void Processor::process(
         {
             auto &item = *job;
             item.header = ((dns_header_t*) item.request.content);
-            const uint8_t *ptr = parse_qname(item.request, sizeof(dns_header_t), item.qname);
-            const dns_question_t *question = (const dns_question_t*) ptr;
-            item.type = be16toh(question->type);
+            dns_question_t question;
+            dns_read_question(item.request, sizeof(dns_header_t), question);
+            item.type = question.type;
+            item.qname = question.qname;
+
+print_dns_message(std::cerr, job->request);
 
             bool is_pass_through = (item.type != DNS_TYPE_A && item.type != DNS_TYPE_AAAA);
             bool is_blocked = false;
@@ -592,8 +503,8 @@ void Processor::process(
                     {
                         is_blocked = object->blacklist_.match(item.qname) != nullptr;
                         // try the heuristics
-                        if (!is_blocked && object->useHeuristics_)
-                            is_blocked = (heuristic = detect_heuristic(item.qname)) != 0;
+                        //--if (!is_blocked && object->useHeuristics_)
+                        //--    is_blocked = (heuristic = detect_heuristic(item.qname)) != 0;
                     }
                 }
             }
