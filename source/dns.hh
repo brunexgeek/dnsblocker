@@ -98,23 +98,32 @@ struct dns_buffer_t
     size_t size = DNS_MESSAGE_SIZE;
 };
 
-struct Message
+class Message
 {
-    const dns_buffer_t *buffer = nullptr;
-    dns_header_t header;
-    std::vector<dns_question_t*> question;
-    std::vector<dns_record_t*> answer;
-    std::vector<dns_record_t*> authority;
-    std::vector<dns_record_t*> additional;
+    public:
+        Message( const dns_buffer_t &buffer ); // TODO: add area allocation
+        Message( const Message & ) = delete;
+        Message( Message && );
+        ~Message();
+        void swap( Message & );
+        const dns_header_t *header();
+        const dns_question_t *question( int index );
+        const dns_record_t *answer( int index );
+        const dns_record_t *authority( int index );
+        const dns_record_t *additional( int index );
+        bool is_valid() const;
 
-    Message() = default; // TODO: add area allocation
-    Message( const Message & ) = delete;
-    Message( Message && );
-    ~Message();
-    void swap( Message & );
-    bool parse( const dns_buffer_t &buffer );
-    dns_question_t *parse_question( const dns_buffer_t &buffer, size_t *offset );
-    dns_record_t *parse_record( const dns_buffer_t &buffer, size_t *offset );
+    private:
+        const dns_buffer_t *buffer_ = nullptr;
+        dns_header_t header_;
+        std::vector<dns_question_t*> question_;
+        std::vector<dns_record_t*> answer_;
+        std::vector<dns_record_t*> authority_;
+        std::vector<dns_record_t*> additional_;
+
+        dns_question_t *parse_question( const dns_buffer_t &buffer, size_t *offset );
+        dns_record_t *parse_record( const dns_buffer_t &buffer, size_t *offset );
+        bool parse( const dns_buffer_t &buffer );
 };
 
 struct CacheEntry
@@ -163,6 +172,7 @@ class Resolver
 
 };
 
+uint64_t dns_time_ms();
 void print_dns_message( std::ostream &out, const dns_buffer_t &message );
 size_t dns_read_qname( const dns_buffer_t &message, size_t offset, std::string &qname );
 //size_t dns_read_question( const dns_buffer_t &message, size_t offset, dns_question_t &question );

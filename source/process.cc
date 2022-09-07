@@ -264,26 +264,12 @@ bool Processor::console( const std::string &command )
 }
 #endif
 
-static uint64_t current_ms()
-{
-    #ifdef __WINDOWS__
-    return _time64(NULL);
-    #else
-    struct timespec current;
-    clock_gettime(CLOCK_REALTIME, &current);
-    return (uint64_t) current.tv_sec * 1000 + (uint64_t) current.tv_nsec / 1000 / 1000;
-    #endif
-}
-
 static uint64_t current_epoch()
 {
-    #ifdef __WINDOWS__
-    return _time64(NULL);
-    #else
-    struct timespec current;
-    clock_gettime(CLOCK_REALTIME, &current);
-    return (uint64_t) current.tv_sec;
-    #endif
+    using std::chrono::duration_cast;
+    using std::chrono::system_clock;
+    static const system_clock::time_point startTime = system_clock::now();
+    return (uint64_t) duration_cast<std::chrono::seconds>(system_clock::now() - startTime).count();
 }
 
 static int rcode_to_status( int rcode, bool cache, bool blocked )
@@ -370,8 +356,8 @@ bool Processor::send_error( const Endpoint &endpoint, const dns_buffer_t &reques
     int size = copy_prologue(request, response);
     if (size < 0) return false;
 
-    Message temp;
-    if (!temp.parse(request)) return false;
+    Message temp(request);
+    if (!temp.is_valid()) return false;
 
     dns_header_t &header = *((dns_header_t*) response.content);
     header.qr = 1;
@@ -381,7 +367,7 @@ bool Processor::send_error( const Endpoint &endpoint, const dns_buffer_t &reques
     header.auth_count = 0;
     auto result = conn_->send(endpoint, response.content, size);
     if (result)
-        print_request(temp.question[0]->qname, endpoint, "default", temp.question[0]->type, config_, DNSB_STATUS_BLOCK, false, 0);
+        print_request(temp.question(0)->qname, endpoint, "default", temp.question(0)->type, config_, DNSB_STATUS_BLOCK, false, 0);
     return result;
 }
 
@@ -393,11 +379,11 @@ bool Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &requ
     int offset = copy_prologue(request, response);
     if (offset < 0) return false;
 
-    Message temp;
-    if (!temp.parse(request)) return false;
+    Message temp(request);
+    if (!temp.is_valid()) return false;
 
     // ignore questions not type A and AAAA
-    if (temp.question[0]->type != DNS_TYPE_A && temp.question[0]->type != DNS_TYPE_AAAA)
+    if (temp.question(0)->type != DNS_TYPE_A && temp.question(0)->type != DNS_TYPE_AAAA)
         return false;
 
     dns_header_t &header = *((dns_header_t*) response.content);
@@ -411,11 +397,11 @@ bool Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &requ
     uint8_t *ptr = response.content + offset;
     *ptr++ = 0xC0;
     *ptr++ = (uint8_t) sizeof(dns_header_t);
-    ptr = write_u16(ptr, temp.question[0]->type); // type
+    ptr = write_u16(ptr, temp.question(0)->type); // type
     ptr = write_u16(ptr, 1); // clazz
     ptr = write_u32(ptr, DNS_CACHE_TTL); // ttl
 
-    if (temp.question[0]->type == DNS_TYPE_A)
+    if (temp.question(0)->type == DNS_TYPE_A)
     {
         ptr = write_u16(ptr, 4); // rdlen
         for (int i = 0; i < 4; ++i) // rdata
@@ -430,7 +416,7 @@ bool Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &requ
 
     auto result = conn_->send(endpoint, response.content, (size_t) (ptr - response.content));
     if (result)
-        print_request(temp.question[0]->qname, endpoint, "default", temp.question[0]->type, config_, DNSB_STATUS_BLOCK, false, 0);
+        print_request(temp.question(0)->qname, endpoint, "default", temp.question(0)->type, config_, DNSB_STATUS_BLOCK, false, 0);
     return result;
 }
 
@@ -441,15 +427,15 @@ bool Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &requ
     uint64_t duration, bool cache )
 {
     dns_header_t &header = *((dns_header_t*) response.content);
-    Message temp;
-    if (!temp.parse(request)) return false;
+    Message temp(request);
+    if (!temp.is_valid()) return false;
 
     int status = rcode_to_status(header.rcode, cache, false);
 
     auto result = conn_->send(endpoint, response.content, response.size);
     if (result)
         // TODO: detect error responses and log appropriately
-        print_request(temp.question[0]->qname, endpoint, "default", temp.question[0]->type, config_, status, false, duration);
+        print_request(temp.question(0)->qname, endpoint, "default", temp.question(0)->type, config_, status, false, duration);
     return result;
 }
 
@@ -472,18 +458,18 @@ void Processor::process(
         if (job != nullptr)
         {
             {
-                Message request;
-                if (!request.parse(job->request))
+                Message temp(job->request);
+                if (!temp.is_valid())
                 {
                     delete job;
                     continue;
                 }
-                job->type = request.question[0]->type;
-                job->qname = request.question[0]->qname;
+                job->type = temp.question(0)->type;
+                job->qname = temp.question(0)->qname;
             }
             job->header = ((dns_header_t*) job->request.content);
 
-print_dns_message(std::cerr, job->request);
+//print_dns_message(std::cerr, job->request);
 
             bool is_pass_through = (job->type != DNS_TYPE_A && job->type != DNS_TYPE_AAAA);
             bool is_blocked = false;
@@ -599,12 +585,12 @@ print_dns_message(std::cerr, job->request);
             auto &item = *it->second;
 
             // check whether is time to send the current response
-            if (item.count == item.max || (item.count == 1 && (current_ms() - item.duration) > 2500))
+            if (item.count == item.max || (item.count == 1 && (dns_time_ms() - item.duration) > 2500))
             {
                 // use the current response as correct
                 dns_header_t &header = *((dns_header_t*) item.response.content);
                 header.id = item.oid; // recover the original ID
-                item.duration = current_ms() - item.duration;
+                item.duration = dns_time_ms() - item.duration;
                 object->send_success(item.endpoint, item.request, item.response, item.duration, false);
                 // update cache
                 if (item.type == DNS_TYPE_A)
@@ -618,7 +604,7 @@ print_dns_message(std::cerr, job->request);
             }
             else
             // discard timed out job
-            if (current_ms() - item.duration > 2500)
+            if (dns_time_ms() - item.duration > 2500)
             {
                 it = wait_list.erase(it);
                 delete &item;
@@ -673,7 +659,7 @@ void Processor::run(int nthreads)
         {
             auto job = new Job(endpoint, buffer);
             job->oid = header.id;
-            job->duration = current_ms();
+            job->duration = dns_time_ms();
             push(job);
             cond.notify_all();
         }

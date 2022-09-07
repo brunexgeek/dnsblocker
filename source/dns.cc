@@ -37,10 +37,12 @@ typedef int ssize_t;
 
 namespace dnsblocker {
 
-static uint64_t dns_time()
+uint64_t dns_time_ms()
 {
-    static std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
-    return (uint64_t) std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count();
+    using std::chrono::duration_cast;
+    using std::chrono::steady_clock;
+    static const steady_clock::time_point startTime = steady_clock::now();
+    return (uint64_t) duration_cast<std::chrono::milliseconds>(steady_clock::now() - startTime).count();
 }
 
 Resolver::Resolver() : id_(0)
@@ -100,7 +102,7 @@ int Cache::find_ipv6( const std::string &host, dns_buffer_t &response )
 int Cache::find( const std::string &host, dns_buffer_t &response )
 {
     std::shared_lock<std::shared_mutex> guard(lock_);
-    uint64_t now = dns_time();
+    uint64_t now = dns_time_ms();
 
     // try to use cache information
     auto it = cache_.find(host);
@@ -132,7 +134,7 @@ size_t Cache::cleanup( uint32_t ttl )
 
     std::unique_lock<std::shared_mutex> guard(lock_);
 
-    auto now = dns_time();
+    auto now = dns_time_ms();
     size_t count = cache_.size();
 
     for (auto it = cache_.begin(); it != cache_.end();)
@@ -168,7 +170,7 @@ void Cache::append( const std::string &host, const dns_buffer_t &response )
     {
         CacheEntry &entry = cache_[host];
         entry.nxdomain = false;
-        entry.timestamp = dns_time();
+        entry.timestamp = dns_time_ms();
         entry.message = response;
     }
 }
@@ -269,40 +271,60 @@ static const uint8_t *read_u32( const uint8_t *ptr, uint32_t &value )
     return ptr + sizeof(uint32_t);
 }
 
+Message::Message( const dns_buffer_t &buffer )
+{
+    parse(buffer);
+}
+
 Message::~Message()
 {
-    for (auto value : question) free(value);
-    for (auto value : answer) free(value);
-    for (auto value : authority) free(value);
-    for (auto value : additional) free(value);
+    for (auto value : question_) free(value);
+    for (auto value : answer_) free(value);
+    for (auto value : authority_) free(value);
+    for (auto value : additional_) free(value);
 }
 
 bool Message::parse( const dns_buffer_t &buffer )
 {
     if (buffer.size >= sizeof(dns_header_t))
     {
-        memcpy(&header, buffer.content, sizeof(dns_header_t));
-        header.id = be16toh(header.id);
-        header.qst_count = be16toh(header.qst_count);
-        header.ans_count = be16toh(header.ans_count);
-        header.auth_count = be16toh(header.auth_count);
-        header.add_count = be16toh(header.add_count);
+        memcpy(&header_, buffer.content, sizeof(dns_header_t));
+        header_.id = be16toh(header_.id);
+        header_.qst_count = be16toh(header_.qst_count);
+        header_.ans_count = be16toh(header_.ans_count);
+        header_.auth_count = be16toh(header_.auth_count);
+        header_.add_count = be16toh(header_.add_count);
 
-        // questions
+        // question
         size_t offset = sizeof(dns_header_t);
-        for (int i = 0; i < header.qst_count; ++i)
+        for (int i = 0; i < header_.qst_count; ++i)
         {
             auto value = parse_question(buffer, &offset);
             if (value == nullptr) return false;
-            question.push_back(value);
+            question_.push_back(value);
         }
-        // answers
-        for (int i = 0; i < header.qst_count; ++i)
+        // answer
+        for (int i = 0; i < header_.ans_count; ++i)
         {
             auto value = parse_record(buffer, &offset);
             if (value == nullptr) return false;
-            answer.push_back(value);
+            answer_.push_back(value);
         }
+        // authority
+        for (int i = 0; i < header_.auth_count; ++i)
+        {
+            auto value = parse_record(buffer, &offset);
+            if (value == nullptr) return false;
+            authority_.push_back(value);
+        }
+        // additional
+        for (int i = 0; i < header_.add_count; ++i)
+        {
+            auto value = parse_record(buffer, &offset);
+            if (value == nullptr) return false;
+            additional_.push_back(value);
+        }
+        buffer_ = &buffer;
         return true;
     }
     return false;
@@ -352,7 +374,7 @@ dns_record_t *Message::parse_record( const dns_buffer_t &buffer, size_t *offset 
     ptr = read_u32(ptr, ttl);
     ptr = read_u16(ptr, rdlen);
 
-    if (buffer.size < ptr - buffer.content + rdlen) return nullptr; // TODO: improve this check
+    if (buffer.size < (size_t) (ptr - buffer.content) + rdlen) return nullptr; // TODO: improve this check
 
     dns_record_t *result = (dns_record_t*) malloc( MEM_ALIGN(qname.length() + 1) + sizeof(dns_record_t) + MEM_ALIGN(rdlen));
     if (result == nullptr) return nullptr;
@@ -370,6 +392,39 @@ dns_record_t *Message::parse_record( const dns_buffer_t &buffer, size_t *offset 
     return result;
 }
 
+const dns_header_t *Message::header()
+{
+    return &header_;
+}
+
+const dns_question_t *Message::question( int index )
+{
+    if (index < 0 || index >= (int) question_.size()) return nullptr;
+    return question_[index];
+}
+
+const dns_record_t *Message::answer( int index )
+{
+    if (index < 0 || index >= (int) answer_.size()) return nullptr;
+    return answer_[index];
+}
+
+const dns_record_t *Message::authority( int index )
+{
+    if (index < 0 || index >= (int) authority_.size()) return nullptr;
+    return authority_[index];
+}
+
+const dns_record_t *Message::additional( int index )
+{
+    if (index < 0 || index >= (int) additional_.size()) return nullptr;
+    return additional_[index];
+}
+
+bool Message::is_valid() const
+{
+    return buffer_ != nullptr;
+}
 
 void print_dns_message( std::ostream &out, const dns_buffer_t &message )
 {
