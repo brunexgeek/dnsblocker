@@ -128,7 +128,7 @@ class Message
 
 struct CacheEntry
 {
-    uint64_t timestamp;
+    uint64_t timestamp; // milliseconds
     dns_buffer_t message;
     bool nxdomain;
 };
@@ -148,7 +148,7 @@ struct Cache
 
     private:
         int size_;
-        int ttl_;
+        int ttl_; // milliseconds
         std::unordered_map<std::string, CacheEntry> cache_;
         std::shared_mutex lock_;
 

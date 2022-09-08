@@ -81,7 +81,7 @@ int Resolver::receive( dns_buffer_t &response, int timeout )
     return -1;
 }
 
-Cache::Cache( int size , int ttl ) : size_(size), ttl_(ttl)
+Cache::Cache( int size , int ttl ) : size_(size), ttl_(ttl * 1000)
 {
 }
 
