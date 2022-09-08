@@ -173,6 +173,8 @@ class Resolver
 };
 
 uint64_t dns_time_ms();
+const char *dns_type( int value );
+const char *dns_rcode( int value );
 void print_dns_message( std::ostream &out, const dns_buffer_t &message );
 size_t dns_read_qname( const dns_buffer_t &message, size_t offset, std::string &qname );
 //size_t dns_read_question( const dns_buffer_t &message, size_t offset, dns_question_t &question );

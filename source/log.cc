@@ -123,17 +123,20 @@ EventRing::EventRing( EventRing &&that ) : max_(that.max_)
 void EventRing::append( const Event &value )
 {
     bool append = !(entries_.size() > 0 && entries_.back() == value);
-    if (append)
-    {
-        if (entries_.size() >= max_)
-            entries_.pop_front();
-        entries_.push_back(value);
-        ++etag_;
-    }
+    if (!append) return;
+
+    if (entries_.size() >= max_)
+        entries_.pop_front();
+    entries_.push_back(value);
+    ++etag_;
+
 }
 
 void EventRing::append( Event &&value )
 {
+    bool append = !(entries_.size() > 0 && entries_.back() == value);
+    if (!append) return;
+
     if (entries_.size() >= max_)
         entries_.pop_front();
     entries_.push_back(std::move(value));

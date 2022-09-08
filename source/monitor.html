@@ -103,8 +103,9 @@
                     tr.insertCell(-1).appendChild(stime);
                     tr.insertCell(-1).innerHTML = content[i].source;
                     tr.insertCell(-1).innerHTML = content[i].type + '<sup>' + (content[i].heuristic > 0?content[i].heuristic.toString():'') + '</sup>';
+                    tr.insertCell(-1).innerHTML = content[i].qtype;
                     tr.insertCell(-1).innerHTML = content[i].server;
-                    tr.insertCell(-1).innerHTML = content[i].duration;
+                    tr.insertCell(-1).innerHTML = content[i].duration + "&nbsp;ms";
                     tr.insertCell(-1).appendChild(link);
                     let cell = tr.insertCell(-1);
                     if (content[i].heuristic)
@@ -148,10 +149,11 @@
             <table id='monitor'>
                 <colgroup>
                     <col width="1%">
-                    <col width="10%">
                     <col width="1%">
                     <col width="1%">
-                    <col width="10%">
+                    <col width="2%">
+                    <col width="1%">
+                    <col width="3%">
                     <col width="60%">
                     <col width="4%">
                 </colgroup>

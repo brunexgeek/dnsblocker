@@ -19,9 +19,8 @@ struct Event
     uint64_t time = 0;
     std::string source;
     std::string type;
-    uint8_t proto = 0;
     std::string server;
-    //std::string ip;
+    std::string qtype;
     uint64_t duration = 0;
     std::string domain;
     uint8_t heuristic = 0;
@@ -35,14 +34,22 @@ struct Event
     {
         return
             source == that.source &&
-            proto == that.proto &&
+            qtype == that.qtype &&
+            type == that.type &&
             server == that.server &&
-            //ip == that.ip &&
             domain == that.domain &&
             heuristic == that.heuristic;
     }
 
-
+    std::string to_string() const
+    {
+        std::string out = source + " ";
+        out += qtype + " ";
+        out += server + " ";
+        out += domain + " ";
+        out += heuristic ? "Y":"N";
+        return out;
+    }
 };
 
 class EventRing

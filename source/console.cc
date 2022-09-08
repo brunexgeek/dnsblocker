@@ -80,9 +80,8 @@ struct ConsoleListener : public webster::HttpListener
             response << "\"time\":" << entry.time << ',';
             response << "\"source\":\"" << entry.source << "\",";
             response << "\"type\":\"" << entry.type << "\",";
-            response << "\"proto\":" << (int) entry.proto << ',';
             response << "\"server\":\"" << entry.server << "\",";
-            //response << "\"ip\":\"" << entry.ip << "\",";
+            response << "\"qtype\":\"" << entry.qtype << "\",";
             response << "\"duration\":\"" << entry.duration << "\",";
             response << "\"heuristic\":" << (int) entry.heuristic << ",";
             response << "\"domain\":\"" << entry.domain << "\"}";

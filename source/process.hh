@@ -22,6 +22,8 @@ enum class JobStatus
     WAITING_PRI,
 };
 
+// TODO: group jobs by qname intead of id and all jobs with the same qname could be grouped using a linked list ('next' pointer)
+
 struct Job
 {
     Endpoint endpoint;
@@ -36,6 +38,7 @@ struct Job
     JobStatus status = JobStatus::PENDING;
     int max = 0;
     int count = 0;
+    Job *next = nullptr;
 
     Job( const Endpoint &ep, const dns_buffer_t &req )
     {
@@ -93,6 +96,7 @@ class Processor
         bool finish_job( Job &item, std::map<uint16_t, dnsblocker::Job *> &wait_list );
         bool check_blocked_domain( const std::string &host );
         bool check_blocked_address( const ipv4_t &address );
+        bool answer_with_cache( Job *job );
 
         friend struct ConsoleListener;
 };
