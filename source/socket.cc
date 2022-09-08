@@ -333,9 +333,9 @@ bool UDP::receive( Endpoint &endpoint, uint8_t *data, size_t *size, int timeout 
 	if (!poll(timeout)) return false;
 
 	// TODO: make this fail if the message is bigger than the output buffer
-    int result = (int) recvfrom(CTX.socketfd, (char*) data, (int) *size, 0,
+    int result = (int) recvfrom(CTX.socketfd, (char*) data, (int) *size, MSG_TRUNC,
         (struct sockaddr *) &address, &length);
-    if (result >= 0)
+    if (result >= 0 && (size_t) result <= *size)
 	{
 		*size = result;
 		#ifdef __WINDOWS__
@@ -344,8 +344,9 @@ bool UDP::receive( Endpoint &endpoint, uint8_t *data, size_t *size, int timeout 
 		endpoint.address = (uint32_t) address.sin_addr.s_addr;
 		#endif
 		endpoint.port = ntohs(address.sin_port);
+		return true;
 	}
-    return result >= 0;
+    return false;
 }
 
 bool UDP::poll( int timeout )
