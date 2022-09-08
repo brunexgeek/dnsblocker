@@ -91,6 +91,8 @@ class Processor
         bool send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response, uint64_t duration, bool cache );
         bool in_whitelist( const std::string &host );
         bool finish_job( Job &item, std::map<uint16_t, dnsblocker::Job *> &wait_list );
+        bool check_blocked_domain( const std::string &host );
+        bool check_blocked_address( const ipv4_t &address );
 
         friend struct ConsoleListener;
 };

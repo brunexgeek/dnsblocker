@@ -439,6 +439,28 @@ bool Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &requ
     return result;
 }
 
+bool Processor::check_blocked_domain( const std::string &host )
+{
+    bool is_blocked = false;
+
+    std::shared_lock<std::shared_mutex> guard(lock_);
+    if (whitelist_.match(host) == nullptr)
+    {
+        is_blocked = blacklist_.match(host) != nullptr;
+        // try the heuristics
+        //--if (!is_blocked && object->useHeuristics_)
+        //--    is_blocked = (heuristic = detect_heuristic(host)) != 0;
+    }
+
+    return is_blocked;
+}
+
+bool Processor::check_blocked_address( const ipv4_t &address )
+{
+    std::shared_lock<std::shared_mutex> guard(lock_);
+    return ipv4list_.find(address) != ipv4list_.end();
+}
+
 void Processor::process(
     Processor *object,
     int thread_num,
@@ -473,7 +495,6 @@ void Processor::process(
 
             bool is_pass_through = (job->type != DNS_TYPE_A && job->type != DNS_TYPE_AAAA);
             bool is_blocked = false;
-            bool heuristic = false;
 
             if (!is_pass_through)
             {
@@ -489,16 +510,7 @@ void Processor::process(
 
                 // check whether the domain is blocked
                 if (object->useFiltering_)
-                {
-                    std::shared_lock<std::shared_mutex> guard(object->lock_);
-                    if (object->whitelist_.match(job->qname) == nullptr)
-                    {
-                        is_blocked = object->blacklist_.match(job->qname) != nullptr;
-                        // try the heuristics
-                        //--if (!is_blocked && object->useHeuristics_)
-                        //--    is_blocked = (heuristic = detect_heuristic(job->qname)) != 0;
-                    }
-                }
+                    is_blocked = object->check_blocked_domain(job->qname);
             }
 
             // is the query blocked?
@@ -526,9 +538,11 @@ void Processor::process(
                         rh->id = job->oid;
                         object->send_success(job->endpoint, job->request, response, 0, true);
                         cache_used = true;
+                        std::cerr << job->qname << " CACHED\n";
                         delete job;
                         job = nullptr;
                     }
+                    if (job) std::cerr << job->qname << "\n";
                 }
 
                 // send the request to external DNS
@@ -587,6 +601,11 @@ void Processor::process(
             // check whether is time to send the current response
             if (item.count == item.max || (item.count == 1 && (dns_time_ms() - item.duration) > 2500))
             {
+                // check whether the response has blocked addresses/hosts
+                if (object->useFiltering_)
+                {
+                }
+
                 // use the current response as correct
                 dns_header_t &header = *((dns_header_t*) item.response.content);
                 header.id = item.oid; // recover the original ID
@@ -598,6 +617,7 @@ void Processor::process(
                 else
                 if (item.type == DNS_TYPE_AAAA)
                     object->cache_->append_ipv6(item.qname, response);
+
 
                 it = wait_list.erase(it);
                 delete &item;
@@ -615,15 +635,7 @@ void Processor::process(
     }
 
 #if 0
-                                std::shared_lock<std::shared_mutex> guard(object->lock_);
-                                if (object->ipv4list_.find(ipv4) != object->ipv4list_.end())
-                                {
-                                    std::cerr << "Blocked by IP " << ipv4.to_string() << '\n';
-                                    ipv4 = IPV4_BLOCK_ADDRESS;
-                                    dns_name.clear();
-                                    result = DNSB_STATUS_FAILURE;
-                                    is_blocked = true;
-                                }
+
 
 #endif
 }
