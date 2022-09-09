@@ -15,38 +15,22 @@
 
 namespace dnsblocker {
 
-enum class JobStatus
-{
-    PENDING,
-    WAITING_SEC,
-    WAITING_PRI,
-};
-
 // TODO: group jobs by qname intead of id and all jobs with the same qname could be grouped using a linked list ('next' pointer)
 
 struct Job
 {
-    Endpoint endpoint;
+    Endpoint endpoint; // client endpoint
     dns_buffer_t request;
     dns_buffer_t response;
-    uint16_t oid; // original DNS message id (from the client)
-    uint16_t id; // DNS message id (zero means empty)
+    uint16_t oid = 0; // original DNS message id (from the client)
+    uint16_t id = 0; // external DNS message id (zero means empty)
     std::string qname;
-    dns_header_t *header = nullptr;
-    uint16_t type;
-    uint64_t duration = 0;
-    JobStatus status = JobStatus::PENDING;
-    int max = 0;
-    int count = 0;
-    Job *next = nullptr;
+    uint16_t qtype = 0; // question type
+    uint64_t start_time = 0;
+    int max = 0; // number of external DNS queries made
+    int count = 0; // number of external DNS responses received
 
-    Job( const Endpoint &ep, const dns_buffer_t &req )
-    {
-        endpoint = ep;
-        request = req;
-        //response = nullptr;
-        oid = id = 0;
-    }
+    Job( const Endpoint &ep, const dns_buffer_t &req ) : endpoint(ep), request(req) {}
     Job( const Job & ) = delete;
     Job( Job && ) = delete;
 };

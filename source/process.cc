@@ -465,10 +465,10 @@ bool Processor::answer_with_cache( Job *job )
     dns_buffer_t response;
 
     int result = DNSB_STATUS_FAILURE;
-    if (job->type == DNS_TYPE_A)
+    if (job->qtype == DNS_TYPE_A)
         result = cache_->find_ipv4(job->qname, response);
     else
-    if (job->type == DNS_TYPE_AAAA)
+    if (job->qtype == DNS_TYPE_AAAA)
         result = cache_->find_ipv6(job->qname, response);
     if (result != DNSB_STATUS_FAILURE)
     {
@@ -480,11 +480,7 @@ bool Processor::answer_with_cache( Job *job )
     return false;
 }
 
-void Processor::process(
-    Processor *object,
-    int thread_num,
-    std::mutex *mutex,
-    std::condition_variable *cond )
+void Processor::process( Processor *object, int thread_num, std::mutex *mutex, std::condition_variable *cond )
 {
     (void) thread_num;
 
@@ -507,21 +503,21 @@ void Processor::process(
                     delete job;
                     continue;
                 }
-                job->type = temp.question(0)->type;
+                job->qtype = temp.question(0)->type;
                 job->qname = temp.question(0)->qname;
             }
-            job->header = ((dns_header_t*) job->request.content);
 
 //print_dns_message(std::cerr, job->request);
 
-            bool is_pass_through = (job->type != DNS_TYPE_A && job->type != DNS_TYPE_AAAA);
+            bool is_pass_through = (job->qtype != DNS_TYPE_A && job->qtype != DNS_TYPE_AAAA);
             bool is_blocked = false;
 
             if (!is_pass_through)
             {
+                const dns_header_t *header = ((const dns_header_t*) job->request.content);
                 // assume NXDOMAIN for domains without periods (e.g. local host names)
                 // TODO: add configuration option for local domain
-                if (job->qname.find('.') == std::string::npos || job->header->rd == 0)
+                if (job->qname.find('.') == std::string::npos || header->rd == 0)
                 {
                     object->send_error(job->endpoint, job->request, DNS_RCODE_NXDOMAIN);
                     delete job;
@@ -593,19 +589,20 @@ void Processor::process(
             dns_buffer_t response;
             while (resolver.receive(response, 0) > 0)
             {
-                dns_header_t &header = *((dns_header_t*) response.content);
+                // TODO: make sure query and response questions match
+                const dns_header_t &header = *((const dns_header_t*) response.content);
                 uint16_t id = be16toh(header.id);
                 // look for a matching pending entry
                 auto it = wait_list.find(id & 0x7FFF);
                 if (it != wait_list.end())
                 {
-                    Job &item = *it->second;
-                    if (item.count < item.max)
+                    Job *job = it->second;
+                    if (job->count < job->max)
                     {
-                        item.response = response;
-                        ++item.count;
+                        job->response = response;
+                        ++job->count;
                         // ignore everything else if we have a secondary response
-                        if (id & 0x8000) item.count = item.max;
+                        if (id & 0x8000) job->count = job->max;
                     }
     //if (item.max > 1) std::cerr << item.qname << " received " << item.count << " of " << item.max << " [rcode = " << dns_rcode(header.rcode) << "]\n";
                 }
@@ -617,49 +614,37 @@ void Processor::process(
         //
         for (auto it = wait_list.begin(); it != wait_list.end();)
         {
-            auto &item = *it->second;
+            Job *job = it->second;
 
             // check whether is time to send the current response
-            if (item.count == item.max || (item.count > 0 && (dns_time_ms() - item.duration) > 2500))
+            if (job->count == job->max || (job->count > 0 && (dns_time_ms() - job->start_time) > DNS_TIMEOUT))
             {
-                // check whether the response has blocked addresses/hosts
-                if (object->useFiltering_)
-                {
-                }
-//std::cerr << item.qname << " is done\n";
-
-#if 0
-                {
-                    Message temp(item.response);
-                    if (item.type != temp.question(0)->type)
-                        std::cerr << item.type << " != " << temp.question(0)->type << " \n";
-                }
-#endif
+                // TODO: check whether the response has blocked addresses/hosts
 
                 // use the current response as correct
-                dns_header_t &header = *((dns_header_t*) item.response.content);
-                header.id = item.oid; // recover the original ID
-                item.duration = dns_time_ms() - item.duration;
-                object->send_success(item.endpoint, item.request, item.response, item.duration, false);
+                dns_header_t &header = *((dns_header_t*) job->response.content);
+                header.id = job->oid; // recover the original ID
+                job->start_time = dns_time_ms() - job->start_time;
+                object->send_success(job->endpoint, job->request, job->response, job->start_time, false);
                 // update cache
                 if (header.rcode == DNS_RCODE_NOERROR)
                 {
-                    if (item.type == DNS_TYPE_A)
-                        object->cache_->append_ipv4(item.qname, item.response);
+                    if (job->qtype == DNS_TYPE_A)
+                        object->cache_->append_ipv4(job->qname, job->response);
                     else
-                    if (item.type == DNS_TYPE_AAAA)
-                        object->cache_->append_ipv6(item.qname, item.response);
+                    if (job->qtype == DNS_TYPE_AAAA)
+                        object->cache_->append_ipv6(job->qname, job->response);
                 }
 
                 it = wait_list.erase(it);
-                delete &item;
+                delete job;
             }
             else
             // discard timed out job
-            if (dns_time_ms() - item.duration > 2500)
+            if (dns_time_ms() - job->start_time > DNS_TIMEOUT)
             {
                 it = wait_list.erase(it);
-                delete &item;
+                delete &job;
             }
             else
                 ++it;
@@ -703,7 +688,7 @@ void Processor::run(int nthreads)
         {
             auto job = new Job(endpoint, buffer);
             job->oid = header.id;
-            job->duration = dns_time_ms();
+            job->start_time = dns_time_ms();
             push(job);
             cond.notify_all();
 
