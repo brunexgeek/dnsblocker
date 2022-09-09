@@ -87,7 +87,6 @@ Processor::Processor( const Configuration &config, Console *console ) :
     load_rules(config_.whitelist, whitelist_);
 }
 
-
 Processor::~Processor()
 {
 	conn_->close();
@@ -96,7 +95,6 @@ Processor::~Processor()
     delete cache_;
 	cache_ = nullptr;
 }
-
 
 void Processor::push( Job *job )
 {
@@ -155,7 +153,6 @@ bool Processor::load_rules( const std::vector<std::string> &fileNames, Tree<uint
     if (fileNames.empty()) return false;
 
     tree.clear();
-    //ipv4list_.clear();
 
     for (auto it = fileNames.begin(); it != fileNames.end(); ++it)
     {
@@ -331,6 +328,7 @@ static void print_request(
 
 static uint8_t *write_u16( uint8_t *ptr, uint16_t value )
 {
+    // TODO: make it endian-independent
     ptr[0] = (uint8_t) (value >> 8);
     ptr[1] = (uint8_t) value;
     return ptr + sizeof(uint16_t);
@@ -338,6 +336,7 @@ static uint8_t *write_u16( uint8_t *ptr, uint16_t value )
 
 static uint8_t *write_u32( uint8_t *ptr, uint32_t value )
 {
+    // TODO: make it endian-independent
     ptr[0] = (uint8_t) (value >> 24);
     ptr[1] = (uint8_t) (value >> 16);
     ptr[2] = (uint8_t) (value >> 8);
@@ -353,7 +352,7 @@ bool Processor::send_error( const Endpoint &endpoint, const dns_buffer_t &reques
     if (size < 0) return false;
 
     Message temp(request);
-    if (!temp.is_valid()) return false;
+    if (temp.empty()) return false;
 
     dns_header_t &header = *((dns_header_t*) response.content);
     header.qr = 1;
@@ -362,9 +361,12 @@ bool Processor::send_error( const Endpoint &endpoint, const dns_buffer_t &reques
     header.add_count = 0;
     header.auth_count = 0;
     auto result = conn_->send(endpoint, response.content, size);
-    if (result)
+    if (result && rcode != DNS_RCODE_REFUSED)
+    {
+        int status = rcode_to_status(header.rcode, false, false);
         print_request(temp.question(0)->qname, endpoint, "default", temp.question(0)->type, config_,
-            DNSB_STATUS_BLOCK, false, 0);
+            status, false, 0);
+    }
     return result;
 }
 
@@ -377,7 +379,7 @@ bool Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &requ
     if (offset < 0) return false;
 
     Message temp(request);
-    if (!temp.is_valid()) return false;
+    if (temp.empty()) return false;
 
     // ignore questions not type A and AAAA
     if (temp.question(0)->type != DNS_TYPE_A && temp.question(0)->type != DNS_TYPE_AAAA)
@@ -424,17 +426,17 @@ bool Processor::send_blocked( const Endpoint &endpoint, const dns_buffer_t &requ
 bool Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response,
     uint64_t duration, bool cache )
 {
-    dns_header_t &header = *((dns_header_t*) response.content);
     Message temp(request);
-    if (!temp.is_valid()) return false;
-
-    int status = rcode_to_status(header.rcode, cache, false);
+    if (temp.empty()) return false;
 
     auto result = conn_->send(endpoint, response.content, response.size);
     if (result)
-        // TODO: detect error responses and log appropriately
+    {
+        const dns_header_t &header = *((const dns_header_t*) response.content);
+        int status = rcode_to_status(header.rcode, cache, false);
         print_request(temp.question(0)->qname, endpoint, "default", temp.question(0)->type, config_,
             status, false, duration);
+    }
     return result;
 }
 
@@ -446,9 +448,7 @@ bool Processor::check_blocked_domain( const std::string &host )
     if (whitelist_.match(host) == nullptr)
     {
         is_blocked = blacklist_.match(host) != nullptr;
-        // try the heuristics
-        //--if (!is_blocked && object->useHeuristics_)
-        //--    is_blocked = (heuristic = detect_heuristic(host)) != 0;
+        // TODO: implement new heuristics (racpture random domains)
     }
 
     return is_blocked;
@@ -498,7 +498,7 @@ void Processor::process( Processor *object, int thread_num, std::mutex *mutex, s
         {
             {
                 Message temp(job->request);
-                if (!temp.is_valid())
+                if (temp.empty())
                 {
                     delete job;
                     continue;
@@ -506,8 +506,6 @@ void Processor::process( Processor *object, int thread_num, std::mutex *mutex, s
                 job->qtype = temp.question(0)->type;
                 job->qname = temp.question(0)->qname;
             }
-
-//print_dns_message(std::cerr, job->request);
 
             bool is_pass_through = (job->qtype != DNS_TYPE_A && job->qtype != DNS_TYPE_AAAA);
             bool is_blocked = false;
@@ -542,14 +540,12 @@ void Processor::process( Processor *object, int thread_num, std::mutex *mutex, s
                 // cache look up
                 if (!is_pass_through && object->answer_with_cache(job))
                 {
-//std::cerr << (void*)job << " = " << job->qname << " CACHED\n";
                     delete job;
                     job = nullptr;
                 }
                 else
                 // send the request to external DNS
                 {
-//std::cerr << (void*)job << " = " << job->qname << "\n";
                     job->id = resolver.next_id();
                     job->max = 1;
                     int sent = 0;
@@ -565,7 +561,6 @@ void Processor::process( Processor *object, int thread_num, std::mutex *mutex, s
                     // try the primary DNS
                     if (resolver.send(object->default_ns_, job->request, job->id) != 0)
                         ++sent;
-//if (job->max  > 1) std::cerr << job->qname << " sent " << sent << " requests\n";
                     if (sent)
                         wait_list.insert( std::pair(job->id, job) );
                     else
@@ -604,7 +599,6 @@ void Processor::process( Processor *object, int thread_num, std::mutex *mutex, s
                         // ignore everything else if we have a secondary response
                         if (id & 0x8000) job->count = job->max;
                     }
-    //if (item.max > 1) std::cerr << item.qname << " received " << item.count << " of " << item.max << " [rcode = " << dns_rcode(header.rcode) << "]\n";
                 }
             }
         }
@@ -650,11 +644,6 @@ void Processor::process( Processor *object, int thread_num, std::mutex *mutex, s
                 ++it;
         }
     }
-
-#if 0
-
-
-#endif
 }
 
 struct process_unit_t
@@ -676,6 +665,7 @@ void Processor::run(int nthreads)
 
     LOG_MESSAGE("Spawning %d threads to handle requests\n", nthreads);
 
+    bool use_ipv6 = config_.use_ipv6;
     dns_buffer_t buffer;
     while (running_)
     {
@@ -684,7 +674,13 @@ void Processor::run(int nthreads)
         if (!conn_->receive(endpoint, buffer.content, &buffer.size, 2000)) continue;
         // ignore messages with the number of questions other than 1
         dns_header_t &header = *((dns_header_t*) buffer.content);
-        if (be16toh(header.qst_count) == 1)
+
+        // validate DNS message
+        Message temp(buffer);
+        bool valid = !temp.empty() && be16toh(header.qst_count) == 1 &&
+            (temp.question(0)->type != DNS_TYPE_AAAA || use_ipv6);
+
+        if (valid)
         {
             auto job = new Job(endpoint, buffer);
             job->oid = header.id;

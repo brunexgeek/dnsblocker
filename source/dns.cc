@@ -456,9 +456,9 @@ const dns_record_t *Message::additional( int index )
     return additional_[index];
 }
 
-bool Message::is_valid() const
+bool Message::empty() const
 {
-    return buffer_ != nullptr;
+    return buffer_ == nullptr;
 }
 
 void print_dns_message( std::ostream &out, const dns_buffer_t &message )

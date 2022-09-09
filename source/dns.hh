@@ -111,7 +111,7 @@ class Message
         const dns_record_t *answer( int index );
         const dns_record_t *authority( int index );
         const dns_record_t *additional( int index );
-        bool is_valid() const;
+        bool empty() const;
 
     private:
         const dns_buffer_t *buffer_ = nullptr;

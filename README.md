@@ -1,14 +1,14 @@
 # dnsblocker  [![Build Status](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fbrunexgeek%2Fdnsblocker%2Fbadge%3Fref%3Dmaster&label=build&logo=none)](https://actions-badge.atrox.dev/brunexgeek/dnsblocker/goto?ref=master) ![Version](https://img.shields.io/badge/version-0.20-blue)
 
-Simple DNS server to filter domains using pattern matching. The ideia is to block TCP/UDP communication to specific domains/subdomains by manipulating DNS answers. This program enables you to use patterns and you don't have to know all subdomains a priori, as you would be if using ``iptables`` or *hosts* file. This program is compatible with GNU/Linux and Windows.
+Simple DNS server that act as a proxy for DNS protocol and filter queries using pattern matching. The ideia is to block TCP/UDP communication to specific domains/subdomains by manipulating DNS answers. This program enables you to use patterns and you don't have to know all subdomains a priori, as you would be if using ``iptables`` or *hosts* file. This program is compatible with GNU/Linux and Windows.
 
-For every query of type ``A`` (or ``AAAA`` if IPv6 is enabled), the server will do the following:
+For each query of type ``A`` and ``AAAA`` the server will do the following:
 
 * Return the IP address ``127.0.0.2`` or ``::2`` if the domain **is not** in the whitelist and `use_heuristics` is enabled and the domain looks like random;
 * Return the IP address ``127.0.0.2`` or ``::2`` if the domain **is not** in the whitelist and **is** in the blacklist;
-* Otherwise, recursively resolve the domain using one of the configured external name servers; the correct IP address will be returned.
+* Otherwise, recursively resolve the domain using one of the configured external name servers.
 
-Any query with type different than ``A`` (and ``AAAA`` if IPv6 is enabled) receives ``Server Failure`` error. Every DNS answer contains only one entry with the resolved IP (usually the first `A` or `AAAA` answer).
+Any query other than ``A`` and ``AAAA`` are recursively resolved without filtering.
 
 ## Building
 
@@ -42,7 +42,7 @@ To configure `dnsblocker` you use pairs of key-value stored in a JSON file.
   * `nxdomain` - show requests for unknown domains
 * **cache** &ndash; Cache configuration.
   * **ttl** &ndash; TTL (time to live) in seconds for DNS entries in the cache. The default value is 10 minutes (600 seconds).
-  * **limit** &ndash; Maximum number of entries in the cache. The default value is 2000 if IPv6 is enable at compile time and 5000 otherwise.
+  * **limit** &ndash; Maximum number of entries in the cache. The default value is 5000.
 * **use_ipv6** &ndash; Enable IPv6 queries. Make sure the binary is compiled with IPv6 support.
 * **threads** &ndash; Especify the amount of threads the program should spawn to handle requests concurrently. The default value is 2.
 
