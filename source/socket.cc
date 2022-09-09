@@ -100,9 +100,6 @@ struct Context
 // ipv4_t
 //
 
-static const uint8_t IPV4_NXDOMAIN[] = DNS_NXDOMAIN_IPV4_ADDRESS;
-const ipv4_t ipv4_t::NXDOMAIN(IPV4_NXDOMAIN);
-
 ipv4_t::ipv4_t()
 {
 	clear();
@@ -214,11 +211,6 @@ std::string ipv4_t::to_string() const
 // ipv6_t
 //
 
-#ifdef ENABLE_IPV6
-
-static const uint16_t IPV6_NXDOMAIN[] = DNS_NXDOMAIN_IPV6_ADDRESS;
-const ipv6_t ipv6_t::NXDOMAIN(IPV6_NXDOMAIN);
-
 ipv6_t::ipv6_t()
 {
 	clear();
@@ -269,8 +261,6 @@ std::string ipv6_t::to_string() const
 		values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7]);
 	return output;
 }
-
-#endif
 
 //
 // Endpoint
@@ -340,11 +330,12 @@ bool UDP::receive( Endpoint &endpoint, uint8_t *data, size_t *size, int timeout 
     struct sockaddr_in address;
 	TYPE_SOCKETLEN length = sizeof(address);
 
-	if (timeout > 0 && !poll(timeout)) return false;
+	if (!poll(timeout)) return false;
 
-    int result = (int) recvfrom(CTX.socketfd, (char*) data, (int) *size, 0,
+	// TODO: make this fail if the message is bigger than the output buffer
+    int result = (int) recvfrom(CTX.socketfd, (char*) data, (int) *size, MSG_TRUNC,
         (struct sockaddr *) &address, &length);
-    if (result >= 0)
+    if (result >= 0 && (size_t) result <= *size)
 	{
 		*size = result;
 		#ifdef __WINDOWS__
@@ -353,8 +344,9 @@ bool UDP::receive( Endpoint &endpoint, uint8_t *data, size_t *size, int timeout 
 		endpoint.address = (uint32_t) address.sin_addr.s_addr;
 		#endif
 		endpoint.port = ntohs(address.sin_port);
+		return true;
 	}
-    return result >= 0;
+    return false;
 }
 
 bool UDP::poll( int timeout )

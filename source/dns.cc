@@ -9,6 +9,8 @@
 #include <atomic>
 #include <iostream>
 #include <iomanip>
+#include <cstring>
+#include <shared_mutex>
 
 #ifndef __WINDOWS__
 #include <poll.h>
@@ -17,225 +19,11 @@
 typedef int ssize_t;
 #endif
 
-
 #define DNS_GET_OPCODE(x)     (uint8_t) (((x) >> 11) & 15)
 #define DNS_GET_RCODE(x)      (uint8_t) ((x) & 15)
 
 #define DNS_SET_OPCODE(x,v)   ( x = (uint16_t) ( x | ( (v) & 15 ) << 11) )
 #define DNS_SET_RCODE(x,v)    ( x = (uint16_t) ( x | ( (v) & 15 )) )
-
-namespace dnsblocker {
-
-dns_header_t::dns_header_t()
-{
-    id = flags = qdcount = ancount = nscount = arcount = 0;
-    opcode = rcode = 0;
-}
-
-dns_question_t::dns_question_t()
-{
-    type = clazz = 0;
-}
-
-dns_question_t::dns_question_t( const dns_question_t &obj )
-{
-    qname = obj.qname;
-    type = obj.type;
-    clazz = obj.clazz;
-}
-
-dns_record_t::dns_record_t()
-{
-    type = clazz = rdlen = 0;
-    ttl = 0;
-    memset(rdata, 0, sizeof(rdata));
-}
-
-void dns_header_t::read(
-    buffer &bio )
-{
-    id = bio.readU16();
-    flags = bio.readU16();
-    opcode = DNS_GET_OPCODE(flags);
-    rcode = DNS_GET_RCODE(flags);
-    qdcount = bio.readU16();
-    ancount = bio.readU16();
-    nscount = bio.readU16();
-    arcount = bio.readU16();
-}
-
-
-void dns_header_t::write(
-    buffer &bio )
-{
-    DNS_SET_OPCODE(flags, opcode);
-    DNS_SET_RCODE(flags, rcode);
-
-    bio.writeU16(id);
-    bio.writeU16(flags);
-    bio.writeU16(qdcount);
-    bio.writeU16(ancount);
-    bio.writeU16(nscount);
-    bio.writeU16(arcount);
-}
-
-
-void dns_question_t::read(
-    buffer &bio )
-{
-    qname = bio.readQName();
-    type = bio.readU16();
-    clazz = bio.readU16();
-}
-
-void dns_question_t::write(
-    buffer &bio )
-{
-    bio.writeQName(qname);
-    bio.writeU16(type);
-    bio.writeU16(clazz);
-}
-
-
-void dns_question_t::print() const
-{
-    LOG_MESSAGE("   [qname: '%s', type: %d, class: %d]\n",
-        qname.c_str(), type, clazz);
-}
-
-
-dns_message_t::dns_message_t()
-{
-}
-
-
-void dns_message_t::swap( dns_message_t &that )
-{
-    header = that.header;
-    questions.swap(that.questions);
-    answers.swap(that.answers);
-    authority.swap(that.authority);
-    additional.swap(that.additional);
-}
-
-
-void dns_message_t::read(
-    buffer &bio )
-{
-    questions.clear();
-    answers.clear();
-    authority.clear();
-    additional.clear();
-
-    // read the message header
-    header.read(bio);
-    header.nscount = 0;
-    header.arcount = 0;
-    // read the questions
-    questions.resize(header.qdcount);
-    for (auto it = questions.begin(); it != questions.end(); ++it) it->read(bio);
-    // read the answer records
-    answers.resize(header.ancount);
-    for (auto it = answers.begin(); it != answers.end(); ++it) it->read(bio);
-}
-
-
-void dns_message_t::write(
-    buffer &bio )
-{
-    header.qdcount = (uint16_t) questions.size();
-    header.ancount = (uint16_t) answers.size();
-    header.nscount = 0;
-    header.arcount = 0;
-
-    // write the header
-    header.write(bio);
-    // write the questions
-    for (auto it = questions.begin(); it != questions.end(); ++it) it->write(bio);
-    // write the answer records
-    for (auto it = answers.begin(); it != answers.end(); ++it) it->write(bio);
-}
-
-
-void dns_message_t::print() const
-{
-    LOG_MESSAGE("[qdcount: %d, ancount: %d, nscount: %d, arcount: %d]\n",
-        header.qdcount, header.ancount, header.nscount, header.arcount);
-    for (auto it = questions.begin(); it != questions.end(); ++it) it->print();
-    for (auto it = answers.begin(); it != answers.end(); ++it) it->print();
-}
-
-
-void dns_record_t::write( buffer &bio )
-{
-    bio.writeQName(qname);
-    bio.writeU16(type);
-    bio.writeU16(clazz);
-    bio.writeU32(ttl);
-    if (type == ADDR_TYPE_A)
-    {
-        bio.writeU16(4);
-        for (int i = 0; i < 4; ++i)
-            bio.writeU8(rdata[i]);
-    }
-    else
-    #ifdef ENABLE_IPV6
-    if (type == ADDR_TYPE_AAAA)
-    {
-        const uint16_t *ptr = (const uint16_t*) rdata;
-        bio.writeU16(16);
-        for (int i = 0; i < 8; ++i)
-            bio.writeU16(ptr[i]);
-    }
-    else
-    #endif
-    {
-        // never should get here!
-        bio.writeU16(4);
-        bio.writeU32(0);
-    }
-}
-
-void dns_record_t::read( buffer &bio )
-{
-    qname = bio.readQName();
-    type = bio.readU16();
-    clazz = bio.readU16();
-    ttl = bio.readU32();
-    rdlen = bio.readU16();
-    if (rdlen == 4)
-    {
-        for (int i = 0; i < 4; ++i)
-            rdata[i] = bio.readU8();
-    }
-    else
-    #ifdef ENABLE_IPV6
-    if (rdlen == 16)
-    {
-        uint16_t *ptr = (uint16_t*) rdata;
-        for (int i = 0; i < 8; ++i)
-            ptr[i] = bio.readU16();
-    }
-    else
-    #endif
-        bio.skip(rdlen);
-}
-
-
-void dns_record_t::print() const
-{
-    /*if (!rdata.empty())
-    {
-        LOG_MESSAGE("   [qname: '%s', type: %d, class: %d, ttl: %d, len: %d, addr: %d.%d.%d.%d]\n",
-            qname.c_str(), type, clazz, ttl, rdlen, rdata.to_string().c_str());
-    }
-    else
-    {
-        LOG_MESSAGE("   [qname: '%s', type: %d, class: %d, ttl: %d, len: %d]\n",
-            qname.c_str(), type, clazz, ttl, rdlen);
-    }*/
-}
-
 
 #ifdef __WINDOWS__
 #include <WinSock2.h>
@@ -247,13 +35,58 @@ void dns_record_t::print() const
 #include <unistd.h>
 #endif
 
-static uint64_t dns_time()
+namespace dnsblocker {
+
+uint64_t dns_time_ms()
 {
-    static std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
-    return (uint64_t) std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count();
+    using std::chrono::duration_cast;
+    using std::chrono::steady_clock;
+    static const steady_clock::time_point startTime = steady_clock::now();
+    return (uint64_t) duration_cast<std::chrono::milliseconds>(steady_clock::now() - startTime).count();
 }
 
-Cache::Cache( int size , int ttl ) : size_(size), ttl_(ttl)
+Resolver::Resolver() : id_(0)
+{
+}
+
+Resolver::~Resolver()
+{
+}
+
+uint16_t Resolver::next_id()
+{
+    std::unique_lock<std::shared_mutex> guard(id_mutex_);
+    id_ = (id_ + 1) & 0x7FFF;
+    if (id_ == 0) ++id_;
+    return id_;
+}
+
+uint16_t Resolver::send( const Endpoint &endpoint, dns_buffer_t &request, uint16_t id )
+{
+    dns_header_t &header = *((dns_header_t*) request.content);
+    header.id = htobe16(id);
+
+    if (!conn_.send(endpoint, request.content, request.size))
+        return 0;
+    else
+        return id;
+}
+
+int Resolver::receive( dns_buffer_t &response, int timeout )
+{
+    Endpoint endpoint;
+    size_t size = response.size = sizeof(response.content);
+    if (conn_.receive(endpoint, response.content, &size, timeout))
+        return (int) (response.size = size);
+    return -1;
+}
+
+bool Resolver::ready( int timeout )
+{
+    return conn_.poll(timeout);
+}
+
+Cache::Cache( int size , int ttl ) : size_(size), ttl_(ttl * 1000)
 {
 }
 
@@ -261,72 +94,35 @@ Cache::~Cache()
 {
 }
 
-int Cache::find( const std::string &host, ipv4_t *value )
+int Cache::find_ipv4( const std::string &host, dns_buffer_t &response )
 {
-    #ifdef ENABLE_IPV6
-    if (get(host, value, nullptr))
-    #else
-    if (get(host, value))
-    #endif
-    {
-        if (value->operator==(ipv4_t::NXDOMAIN))
-            return DNSB_STATUS_NXDOMAIN;
-        else
-        if (value->empty())
-            return DNSB_STATUS_FAILURE;
-        return DNSB_STATUS_CACHE;
-    }
-    return DNSB_STATUS_FAILURE;
+    return find(host + "_4", response);
 }
 
-#ifdef ENABLE_IPV6
-int Cache::find( const std::string &host, ipv6_t *value )
+int Cache::find_ipv6( const std::string &host, dns_buffer_t &response )
 {
-    if (get(host, nullptr, value))
-    {
-        if (value->operator==(ipv6_t::NXDOMAIN))
-            return DNSB_STATUS_NXDOMAIN;
-        else
-        if (value->empty())
-            return DNSB_STATUS_FAILURE;
-        return DNSB_STATUS_CACHE;
-    }
-    return DNSB_STATUS_FAILURE;
+    return find(host + "_6", response);
 }
-#endif
 
-#ifdef ENABLE_IPV6
-bool Cache::get( const std::string &host, ipv4_t *ipv4, ipv6_t *ipv6 )
-#else
-bool Cache::get( const std::string &host, ipv4_t *ipv4 )
-#endif
+int Cache::find( const std::string &host, dns_buffer_t &response )
 {
-    #ifdef ENABLE_IPV6
-    if (!ipv4 && !ipv6) return false;
-    #else
-    if (!ipv4) return false;
-    #endif
-    if (host.empty()) return false;
-    uint64_t now = dns_time();
-
     std::shared_lock<std::shared_mutex> guard(lock_);
+    uint64_t now = dns_time_ms();
 
-    auto it = cache_.find(host);
     // try to use cache information
-    if (it != cache_.end())
+    auto it = cache_.find(host);
+    if (it == cache_.end()) return DNSB_STATUS_FAILURE;
+    // check whether the cache entry still valid
+    if (now <= it->second.timestamp + ttl_)
     {
-        // check whether the cache entry still valid
-        if (now <= it->second.timestamp + ttl_)
-        {
-            if (ipv4) *ipv4 = it->second.ipv4;
-            #ifdef ENABLE_IPV6
-            if (ipv6) *ipv6 = it->second.ipv6;
-            #endif
-            it->second.timestamp = now;
-            return true;
-        }
+        it->second.timestamp = now;
+        // is it NXDOMAIN?
+        if (it->second.nxdomain)
+            return DNSB_STATUS_NXDOMAIN;
+        response = it->second.message;
+        return DNSB_STATUS_CACHE;
     }
-    return false;
+    return DNSB_STATUS_FAILURE;
 }
 
 size_t Cache::reset()
@@ -339,11 +135,11 @@ size_t Cache::reset()
 
 size_t Cache::cleanup( uint32_t ttl )
 {
-    if (ttl <= 0) ttl = ttl_;
+    if (ttl == 0) ttl = ttl_;
 
     std::unique_lock<std::shared_mutex> guard(lock_);
 
-    auto now = dns_time();
+    auto now = dns_time_ms();
     size_t count = cache_.size();
 
     for (auto it = cache_.begin(); it != cache_.end();)
@@ -360,246 +156,347 @@ size_t Cache::cleanup( uint32_t ttl )
     return count;
 }
 
-Resolver::Resolver( Cache &cache, int timeout ) : cache_(cache), timeout_(timeout)
+void Cache::append_ipv6( const std::string &host, const dns_buffer_t &response )
 {
-    default_dns_ = named_value<ipv4_t>("default", UDP::hostToIPv4("8.8.4.4"));
-    hits_.cache = hits_.external = 0;
-    if (timeout_ < 0) timeout_ = 100;
+    return append(host + "_6", response);
 }
 
-Resolver::~Resolver()
+void Cache::append_ipv4( const std::string &host, const dns_buffer_t &response )
 {
+    return append(host + "_4", response);
 }
 
-#ifdef ENABLE_IPV6
-int Resolver::recursive( const std::string &host, int type, const ipv4_t &dnsAddress, ipv4_t *ipv4, ipv6_t *ipv6 )
-#else
-int Resolver::recursive( const std::string &host, int type, const ipv4_t &dnsAddress, ipv4_t *ipv4 )
-#endif
-{
-    static std::atomic<uint16_t> lastId(1);
-
-    // build the query message
-    dns_message_t message;
-    message.header.id = lastId.fetch_add(1);
-    message.header.flags |= DNS_FLAG_RD;
-    message.header.flags |= DNS_FLAG_AD;
-    dns_question_t question;
-    question.qname = host;
-    question.type = (uint16_t) type;
-    question.clazz = 1;
-    message.questions.push_back(question);
-    // encode the message
-    buffer bio;
-    message.write(bio);
-
-    // send the query to the recursive DNS
-    Endpoint endpoint(dnsAddress, 53);
-	UDP conn;
-	if (!conn.send(endpoint, bio.data(), bio.cursor())) return DNSB_STATUS_FAILURE;
-
-	if (!conn.poll(timeout_)) return DNSB_STATUS_FAILURE;
-
-    // wait for the response
-    bio.reset();
-
-    size_t size = bio.size();
-	if (!conn.receive(endpoint, bio.data(), &size, 0)) return DNSB_STATUS_FAILURE;
-    bio.resize(size);
-
-    // decode the response
-    message.read(bio);
-
-    // use the first compatible answer
-    if (message.header.rcode == 0 &&
-        message.answers.size() > 0 &&
-        message.questions.size() == 1 &&
-        message.questions[0].qname == host)
-    {
-        for (auto it = message.answers.begin(); it != message.answers.end(); ++it)
-        {
-            if (it->type == type)
-            {
-                #ifdef ENABLE_IPV6
-                if (type == ADDR_TYPE_AAAA)
-                    *ipv6 = ipv6_t((uint16_t*)it->rdata);
-                else
-                #endif
-                    *ipv4 = ipv4_t(it->rdata);
-                return DNSB_STATUS_RECURSIVE;
-            }
-        }
-    }
-
-    return (message.header.rcode == DNS_RCODE_NXDOMAIN) ? DNSB_STATUS_NXDOMAIN : DNSB_STATUS_FAILURE;
-}
-
-int Resolver::resolve_ipv4( const std::string &host, std::string &name, ipv4_t &output )
-{
-    output.clear();
-
-    // check wheter we have a match in the cache
-    int result = cache_.find(host, &output);
-    if (result != DNSB_STATUS_FAILURE)
-        return result;
-
-    // try to resolve the domain using the custom external DNS, if any
-    auto node = target_dns_.match(host);
-    if (node != nullptr && !node->value.value.empty())
-    {
-        result = recursive(host,
-            ADDR_TYPE_A,
-            node->value.value,
-            &output
-            #ifdef ENABLE_IPV6
-            , nullptr
-            #endif
-            );
-        if (result == DNSB_STATUS_RECURSIVE) name = node->value.name;
-    }
-    // try to resolve the domain using the defaylt external DNS
-    if (result != DNSB_STATUS_RECURSIVE)
-    {
-        result = recursive(host,
-            ADDR_TYPE_A,
-            default_dns_.value,
-            &output
-            #ifdef ENABLE_IPV6
-            ,nullptr
-            #endif
-            );
-        if (result == DNSB_STATUS_RECURSIVE) name = default_dns_.name;
-    }
-
-    if (result == DNSB_STATUS_FAILURE) return result;
-
-    if (result == DNSB_STATUS_RECURSIVE)
-        #ifdef ENABLE_IPV6
-        cache_.add(host, &output, nullptr);
-        #else
-        cache_.add(host, &output);
-        #endif
-    else
-        #ifdef ENABLE_IPV6
-        cache_.add(host, &ipv4_t::NXDOMAIN, nullptr);
-        #else
-        cache_.add(host, &ipv4_t::NXDOMAIN);
-        #endif
-
-    return result;
-}
-
-#ifdef ENABLE_IPV6
-int Resolver::resolve_ipv6( const std::string &host, std::string &name, ipv6_t &output )
-{
-    output.clear();
-
-    // check wheter we have a match in the cache
-    int result = cache_.find(host, &output);
-    if (result != DNSB_STATUS_FAILURE)
-        return result;
-
-    // try to resolve the domain using the custom external DNS, if any
-    auto node = target_dns_.match(host);
-    if (node != nullptr && !node->value.value.empty())
-    {
-        result = recursive(host, ADDR_TYPE_AAAA, node->value.value, nullptr, &output);
-        if (result == DNSB_STATUS_RECURSIVE) name = node->value.name;
-    }
-    // try to resolve the domain using the defaylt external DNS
-    if (result != DNSB_STATUS_RECURSIVE)
-    {
-        result = recursive(host, ADDR_TYPE_AAAA, default_dns_.value, nullptr, &output);
-        if (result == DNSB_STATUS_RECURSIVE) name = default_dns_.name;
-    }
-
-    if (result == DNSB_STATUS_FAILURE) return result;
-
-    if (result == DNSB_STATUS_RECURSIVE)
-        cache_.add(host, nullptr, &output);
-    else
-        cache_.add(host, nullptr, &ipv6_t::NXDOMAIN);
-
-    return result;
-}
-#endif
-
-void Cache::dump( std::ostream &out )
-{
-    std::shared_lock<std::shared_mutex> raii(lock_);
-    bool first = true;
-
-    out << '[';
-    for (auto &it : cache_)
-    {
-        if (!first) out << ',';
-
-        if (!it.second.ipv4.empty())
-        {
-            out << "{\"ver\":\"4\",\"addr\":\"" << it.second.ipv4.to_string() << "\",\"name\":\"" << it.first << "\"}";
-        }
-
-        #ifdef ENABLE_IPV6
-        if (!it.second.ipv6.empty())
-        {
-            if (!it.second.ipv4.empty()) out << ',';
-            out << "{\"ver\":\"6\",\"addr\":\"" << it.second.ipv6.to_string() << "\",\"name\":\"" << it.first << "\"}";
-        }
-        #endif
-
-        first = false;
-    }
-    out << ']';
-}
-
-/*
-uint32_t DNSCache::addressToIPv4( const std::string &host )
-{
-    if (host.empty()) return 0;
-
-    struct sockaddr_in address;
-    address.sin_family = AF_INET;
-    inet_pton(AF_INET, host.c_str(), &address.sin_addr);
-    return (uint32_t) address.sin_addr.s_addr;
-}*/
-
-void Resolver::set_dns( const std::string &dns, const std::string &name )
-{
-    default_dns_ = named_value<ipv4_t>(name, UDP::hostToIPv4(dns));
-}
-
-void Resolver::set_dns( const std::string &dns, const std::string &name, const std::string &rule )
-{
-    target_dns_.add(rule, named_value<ipv4_t>(name, UDP::hostToIPv4(dns)));
-}
-
-#ifdef ENABLE_IPV6
-void Cache::add( const std::string &host, const ipv4_t *ipv4, const ipv6_t *ipv6 )
-#else
-void Cache::add( const std::string &host, const ipv4_t *ipv4 )
-#endif
+void Cache::append( const std::string &host, const dns_buffer_t &response )
 {
     std::unique_lock<std::shared_mutex> guard(lock_);
 
     auto it = cache_.find(host);
-    if (it != cache_.end())
+    if (it == cache_.end())
     {
-        if (ipv4) it->second.ipv4 = *ipv4;
-        #ifdef ENABLE_IPV6
-        if (ipv6) it->second.ipv6 = *ipv6;
-        #endif
-        it->second.timestamp = dns_time();
+        CacheEntry &entry = cache_[host];
+        entry.nxdomain = false;
+        entry.timestamp = dns_time_ms();
+        entry.message = response;
     }
-    else
+}
+
+static const char *dns_opcode( int value )
+{
+    switch (value)
     {
-        CacheEntry entry;
-        if (ipv4) entry.ipv4 = *ipv4;
-        #ifdef ENABLE_IPV6
-        if (ipv6) entry.ipv6 = *ipv6;
-        #endif
-        entry.timestamp = dns_time();
-        cache_.insert(std::pair<std::string, CacheEntry>(host, entry));
+        case 0: return "QUERY";
+        case 1: return "IQUERY";
+        case 2: return "STATUS";
+        default: return "?????";
     }
+}
+
+const char *dns_rcode( int value )
+{
+    switch (value)
+    {
+        case 0: return "NOERROR";
+        case 1: return "FORMERR";
+        case 2: return "SERVFAIL";
+        case 3: return "NXDOMAIN";
+        case 4: return "NOTIMP";
+        case 5: return "REFUSED";
+        case 6: return "YXDOMAIN";
+        case 7: return "XRRSET";
+        case 8: return "NOTAUTH";
+        case 9: return "NOTZONE";
+        default: return "?????";
+    }
+}
+
+const char *dns_type( int value )
+{
+    switch (value)
+    {
+        case 1: return "A";          // RFC 1035[1]
+        case 2: return "NS";         // RFC 1035[1]
+        case 5: return "CNAME";      // RFC 1035[1]
+        case 6: return "SOA";        // RFC 1035[1] and RFC 2308[11]
+        case 12: return "PTR";       // RFC 1035[1]
+        case 13: return "HINFO";     // RFC 8482
+        case 15: return "MX";        // RFC 1035[1] and RFC 7505
+        case 16: return "TXT";       // RFC 1035[1]
+        case 17: return "RP";        // RFC 1183
+        case 18: return "AFSDB";     // RFC 1183
+        case 24: return "SIG";       // RFC 2535
+        case 25: return "KEY";       // RFC 2535[3] and RFC 2930[4]
+        case 28: return "AAAA";      // RFC 3596[2]
+        case 29: return "LOC";       // RFC 1876
+        case 33: return "SRV";       // RFC 2782
+        case 35: return "NAPTR";     // RFC 3403
+        case 36: return "KX";        // RFC 2230
+        case 37: return "CERT";      // RFC 4398
+        case 39: return "DNAME";     // RFC 6672
+        case 42: return "APL";       // RFC 3123
+        case 43: return "DS";        // RFC 4034
+        case 44: return "SSHFP";     // RFC 4255
+        case 45: return "IPSECKEY";  // RFC 4025
+        case 46: return "RRSIG";     // RFC 4034
+        case 47: return "NSEC";      // RFC 4034
+        case 48: return "DNSKEY";    // RFC 4034
+        case 49: return "DHCID";     // RFC 4701
+        case 50: return "NSEC3";     // RFC 5155
+        case 51: return "NSEC3PARAM";// RFC 5155
+        case 52: return "TLSA";      // RFC 6698
+        case 53: return "SMIMEA";    // RFC 8162[9]
+        case 55: return "HIP";       // RFC 8005
+        case 59: return "CDS";       // RFC 7344
+        case 60: return "CDNSKEY";   // RFC 7344
+        case 61: return "OPENPGPKEY";// RFC 7929
+        case 62: return "CSYNC";     // RFC 7477
+        case 63: return "ZONEMD";    // RFC 8976
+        case 64: return "SVCB";      // IETF Draft
+        case 65: return "HTTPS";     // IETF Draft
+        case 108: return "EUI48";    // RFC 7043
+        case 109: return "EUI64";    // RFC 7043
+        case 249: return "TKEY";     // RFC 2930
+        case 250: return "TSIG";     // RFC 2845
+        case 256: return "URI";      // RFC 7553
+        case 257: return "CAA";      // RFC 6844
+        case 32768: return "TA";     // — 	DNSSEC Trust Authorities
+        case 32769: return "DLV";    // RFC 4431
+        default: return "?????";
+    }
+}
+
+size_t dns_parse_qname( const dns_buffer_t &message, size_t offset, std::string &qname )
+{
+    const uint8_t *buffer = message.content;
+    const uint8_t *ptr = buffer + offset;
+    if (ptr < buffer || ptr >= buffer + message.size) return 0;
+
+    while (*ptr != 0)
+    {
+        // check whether the label is a pointer (RFC-1035 4.1.4. Message compression)
+        if ((*ptr & 0xC0) == 0xC0)
+        {
+            size_t offset = ((ptr[0] & 0x3F) << 8) | ptr[1];
+            dns_parse_qname(message, offset, qname);
+            return (size_t) ((ptr + 2) - buffer);
+        }
+
+        int length = (int) (*ptr++) & 0x3F;
+        for (int i = 0; i < length; ++i)
+        {
+            char c = (char) *ptr++;
+            if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+            qname.push_back(c);
+        }
+
+        if (*ptr != 0) qname.push_back('.');
+    }
+
+    return (size_t) ((ptr + 1) - buffer);
+}
+
+static const uint8_t *read_u16( const uint8_t *ptr, uint16_t &value )
+{
+    value = static_cast<uint16_t>((ptr[0] << 8) | ptr[1]);
+    return ptr + sizeof(uint16_t);
+}
+
+static const uint8_t *read_u32( const uint8_t *ptr, uint32_t &value )
+{
+    value = (uint32_t) ( (ptr[0] << 24) | (ptr[1] << 16) | (ptr[2] << 8) | ptr[3] );
+    return ptr + sizeof(uint32_t);
+}
+
+Message::Message( const dns_buffer_t &buffer )
+{
+    parse(buffer);
+}
+
+Message::~Message()
+{
+    for (auto value : question_) free(value);
+    for (auto value : answer_) free(value);
+    for (auto value : authority_) free(value);
+    for (auto value : additional_) free(value);
+}
+
+bool Message::parse( const dns_buffer_t &buffer )
+{
+    if (buffer.size >= sizeof(dns_header_t))
+    {
+        memcpy(&header_, buffer.content, sizeof(dns_header_t));
+        header_.id = be16toh(header_.id);
+        header_.qst_count = be16toh(header_.qst_count);
+        header_.ans_count = be16toh(header_.ans_count);
+        header_.auth_count = be16toh(header_.auth_count);
+        header_.add_count = be16toh(header_.add_count);
+
+        // question
+        size_t offset = sizeof(dns_header_t);
+        for (int i = 0; i < header_.qst_count; ++i)
+        {
+            auto value = parse_question(buffer, &offset);
+            if (value == nullptr) return false;
+            question_.push_back(value);
+        }
+        // answer
+        for (int i = 0; i < header_.ans_count; ++i)
+        {
+            auto value = parse_record(buffer, &offset);
+            if (value == nullptr) return false;
+            answer_.push_back(value);
+        }
+        // authority
+        for (int i = 0; i < header_.auth_count; ++i)
+        {
+            auto value = parse_record(buffer, &offset);
+            if (value == nullptr) return false;
+            authority_.push_back(value);
+        }
+        // additional
+        for (int i = 0; i < header_.add_count; ++i)
+        {
+            auto value = parse_record(buffer, &offset);
+            if (value == nullptr) return false;
+            additional_.push_back(value);
+        }
+        buffer_ = &buffer;
+        return true;
+    }
+    return false;
+}
+
+#define MEM_ALIGN(x) (((x) + 3) & ~3)
+
+dns_question_t *Message::parse_question( const dns_buffer_t &buffer, size_t *offset )
+{
+    std::string qname;
+    *offset = dns_parse_qname(buffer, *offset, qname);
+    if (*offset == 0) return nullptr;
+
+    dns_question_t *result = (dns_question_t*) malloc( MEM_ALIGN(qname.length() + 1) + sizeof(dns_question_t));
+    if (result == nullptr) return nullptr;
+    result->qname = (char*) result + sizeof(dns_question_t);
+
+    strcpy(result->qname, qname.c_str());
+    const uint8_t *ptr = buffer.content + *offset;
+    ptr = read_u16(ptr, result->type);
+    ptr = read_u16(ptr, result->clazz);
+    *offset += sizeof(uint16_t) * 2;
+    return result;
+}
+
+/*size_t dns_read_question( const dns_buffer_t &message, size_t offset, dns_question_t &question )
+{
+    offset = dns_parse_qname(message, offset, question.qname);
+    if (offset == 0) return 0;
+    const uint8_t *ptr = message.content + offset;
+    read_u16(ptr, question.type);
+    read_u16(ptr, question.clazz);
+    return offset + sizeof(uint16_t) * 2;
+}*/
+
+dns_record_t *Message::parse_record( const dns_buffer_t &buffer, size_t *offset )
+{
+    std::string qname;
+    *offset = dns_parse_qname(buffer, *offset, qname);
+    if (*offset == 0) return nullptr;
+
+    uint16_t type, clazz, rdlen;
+    uint32_t ttl;
+    const uint8_t *ptr = buffer.content + *offset;
+    ptr = read_u16(ptr, type);
+    ptr = read_u16(ptr, clazz);
+    ptr = read_u32(ptr, ttl);
+    ptr = read_u16(ptr, rdlen);
+
+    if (buffer.size < (size_t) (ptr - buffer.content) + rdlen) return nullptr; // TODO: improve this check
+
+    dns_record_t *result = (dns_record_t*) malloc( MEM_ALIGN(qname.length() + 1) + sizeof(dns_record_t) + MEM_ALIGN(rdlen));
+    if (result == nullptr) return nullptr;
+    result->qname = (char*) result + sizeof(dns_record_t);
+    result->rdata = (uint8_t*) result->qname + MEM_ALIGN(qname.length() + 1);
+
+    strcpy(result->qname, qname.c_str());
+    memcpy(result->rdata, ptr, rdlen);
+    ptr += rdlen;
+    result->type = type;
+    result->clazz = clazz;
+    result->ttl = ttl;
+    result->rdlen = rdlen;
+    *offset = ptr - buffer.content;
+    return result;
+}
+
+const dns_header_t *Message::header()
+{
+    return &header_;
+}
+
+const dns_question_t *Message::question( int index )
+{
+    if (index < 0 || index >= (int) question_.size()) return nullptr;
+    return question_[index];
+}
+
+const dns_record_t *Message::answer( int index )
+{
+    if (index < 0 || index >= (int) answer_.size()) return nullptr;
+    return answer_[index];
+}
+
+const dns_record_t *Message::authority( int index )
+{
+    if (index < 0 || index >= (int) authority_.size()) return nullptr;
+    return authority_[index];
+}
+
+const dns_record_t *Message::additional( int index )
+{
+    if (index < 0 || index >= (int) additional_.size()) return nullptr;
+    return additional_[index];
+}
+
+bool Message::is_valid() const
+{
+    return buffer_ != nullptr;
+}
+
+void print_dns_message( std::ostream &out, const dns_buffer_t &message )
+{
+#if 0
+    const auto &header = *((dns_header_t*) message.content);
+
+    std::string sid = "[";
+    sid += std::to_string(be16toh(header.id));
+    sid += "]";
+
+    out << sid <<
+        " opcode: " << dns_opcode(header.opcode) <<
+        ", status: " << dns_rcode(header.rcode) <<
+        ", flags:";
+
+    if (header.rd) out << " rd";
+	if (header.tc) out << " tc";
+	if (header.aa) out << " aa";
+	if (header.qr) out << " qr";
+	if (header.cd) out << " cd";
+	if (header.ad) out << " ad";
+	if (header.z) out << " z";
+	if (header.ra) out << " ra";
+
+    out << "; QUERY: " << be16toh(header.q_count) <<
+        ", ANSWER: " << be16toh(header.ans_count) <<
+        ", AUTHORITY: " << be16toh(header.auth_count) <<
+        ", ADDITIONAL: " << be16toh(header.add_count) << "\n";
+
+    // questions
+    //--for (int i = 0; i < be16toh(header.q_count); ++i)
+    //--{
+        dns_question_t question;
+        dns_read_question(message, sizeof(dns_header_t), question);
+        out << sid << " question " << 0 << " = " << question.qname << " IN " << dns_type(question.type) << "\n";
+    //--}
+#endif
 }
 
 }

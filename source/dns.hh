@@ -1,18 +1,16 @@
 #ifndef DNSB_DNS_HH
 #define DNSB_DNS_HH
 
-
 #include <stdint.h>
 #include <string>
 #include <vector>
+#include <iostream>
 #include <unordered_map>
 #include "defs.hh"
 #include "log.hh"
 #include "nodes.hh"
-#include "buffer.hh"
 #include "socket.hh"
 #include <shared_mutex>
-
 
 #define DNS_FLAG_QR           (1 << 15) // Query/Response
 #define DNS_FLAG_AA           (1 << 10) // Authoritative Answer
@@ -40,6 +38,7 @@
 #define DNSB_STATUS_RECURSIVE    2
 #define DNSB_STATUS_NXDOMAIN     3
 #define DNSB_STATUS_FAILURE      4
+#define DNSB_STATUS_BLOCK        5
 
 #define DNS_RCODE_NOERROR        0
 #define DNS_RCODE_FORMERR        1
@@ -50,88 +49,88 @@
 
 namespace dnsblocker {
 
-struct dns_header_t
-{
-    uint16_t id;
-    uint16_t flags;
-    uint8_t opcode;
-    uint8_t rcode;
-    uint16_t qdcount; // query count
-    uint16_t ancount; // answer count
-    uint16_t nscount; // name server count
-    uint16_t arcount; // additional record count
-
-    dns_header_t();
-    void read( buffer &bio );
-    void write( buffer &bio );
-};
-
 struct dns_question_t
 {
-    std::string qname;
+    char *qname;
     uint16_t type;
     uint16_t clazz;
-
-    dns_question_t();
-    dns_question_t( const dns_question_t &obj );
-    void read( buffer &bio );
-    void write( buffer &bio );
-    void print() const;
 };
 
 struct dns_record_t
 {
-    std::string qname;
+    char *qname;
     uint16_t type;
     uint16_t clazz;
     uint32_t ttl;
     uint16_t rdlen;
-    #ifdef ENABLE_IPV6
-    uint8_t rdata[16];  // IPv4 or IPv6
-    #else
-    uint8_t rdata[4];  // IPv4
-    #endif
-
-    dns_record_t();
-    void read( buffer &bio );
-    void write( buffer &bio );
-    void print() const;
+    uint8_t *rdata;
 };
 
-struct dns_message_t
+struct dns_header_t
 {
-    dns_header_t header;
-    std::vector<dns_question_t> questions;
-    std::vector<dns_record_t> answers;
-    std::vector<dns_record_t> authority;
-    std::vector<dns_record_t> additional;
+	uint16_t id; // identification number
 
-    dns_message_t();
-    void swap( dns_message_t &that );
-    void read( buffer &bio );
-    void write( buffer &bio );
-    void print() const;
+	uint8_t rd :1; // recursion desired
+	uint8_t tc :1; // truncated message
+	uint8_t aa :1; // authoritive answer
+	uint8_t opcode :4; // purpose of message
+	uint8_t qr :1; // query/response flag
+
+	uint8_t rcode :4; // response code
+	uint8_t cd :1; // checking disabled
+	uint8_t ad :1; // authenticated data
+	uint8_t z :1; // its z! reserved
+	uint8_t ra :1; // recursion available
+
+	uint16_t qst_count; // number of question entries
+	uint16_t ans_count; // number of answer entries
+	uint16_t auth_count; // number of authority entries
+	uint16_t add_count; // number of resource entries
 };
 
-template<class T>
-struct named_value
-{
-    typedef T type;
-    std::string name;
-    T value;
+#ifndef DNS_MESSAGE_SIZE
+#define DNS_MESSAGE_SIZE 512
+#endif
 
-    named_value() {}
-    named_value( const std::string &name, const T &value ) : name(name), value(value) {}
-    named_value( const std::string &name, T &&value ) : name(name), value(value) {}
+struct dns_buffer_t
+{
+    uint8_t content[DNS_MESSAGE_SIZE];
+    size_t size = DNS_MESSAGE_SIZE;
+};
+
+class Message
+{
+    public:
+        Message( const dns_buffer_t &buffer ); // TODO: add area allocation
+        Message( const Message & ) = delete;
+        Message( Message && );
+        ~Message();
+        void swap( Message & );
+        const dns_header_t *header();
+        const dns_question_t *question( int index );
+        const dns_record_t *answer( int index );
+        const dns_record_t *authority( int index );
+        const dns_record_t *additional( int index );
+        bool is_valid() const;
+
+    private:
+        const dns_buffer_t *buffer_ = nullptr;
+        dns_header_t header_;
+        std::vector<dns_question_t*> question_;
+        std::vector<dns_record_t*> answer_;
+        std::vector<dns_record_t*> authority_;
+        std::vector<dns_record_t*> additional_;
+
+        dns_question_t *parse_question( const dns_buffer_t &buffer, size_t *offset );
+        dns_record_t *parse_record( const dns_buffer_t &buffer, size_t *offset );
+        bool parse( const dns_buffer_t &buffer );
 };
 
 struct CacheEntry
 {
-    uint64_t timestamp;
-    ipv4_t ipv4;
-    #ifdef ENABLE_IPV6
-    ipv6_t ipv6;
-    #endif
+    uint64_t timestamp; // milliseconds
+    dns_buffer_t message;
+    bool nxdomain;
 };
 
 struct Cache
@@ -139,60 +138,47 @@ struct Cache
     public:
         Cache( int size = DNS_CACHE_LIMIT, int ttl = DNS_CACHE_TTL );
         ~Cache();
-        int find( const std::string &host, ipv4_t *value );
-        #ifdef ENABLE_IPV6
-        int find( const std::string &host, ipv6_t *value );
-        void add( const std::string &host, const ipv4_t *ipv4, const ipv6_t *ipv6 );
-        #else
-        void add( const std::string &host, const ipv4_t *ipv4 );
-        #endif
+        int find_ipv4( const std::string &host, dns_buffer_t &response );
+        void append_ipv4( const std::string &host, const dns_buffer_t &response );
+        int find_ipv6( const std::string &host, dns_buffer_t &response );
+        void append_ipv6( const std::string &host, const dns_buffer_t &response );
         void dump( std::ostream &out );
         size_t cleanup( uint32_t ttl );
         size_t reset();
 
     private:
         int size_;
-        int ttl_;
+        int ttl_; // milliseconds
         std::unordered_map<std::string, CacheEntry> cache_;
         std::shared_mutex lock_;
 
-        #ifdef ENABLE_IPV6
-        bool get( const std::string &host, ipv4_t *ipv4, ipv6_t *ipv6 );
-        #else
-        bool get( const std::string &host, ipv4_t *ipv4 );
-        #endif
+        int find( const std::string &host, dns_buffer_t &response );
+        void append( const std::string &host, const dns_buffer_t &response );
 };
 
 class Resolver
 {
     public:
-        Resolver( Cache &cache, int timeout = DNS_TIMEOUT );
+        Resolver();
         ~Resolver();
-        void set_dns( const std::string &dns, const std::string &name );
-        void set_dns( const std::string &dns, const std::string &name, const std::string &rule );
-        //int resolve( const std::string &host, int type, std::string &name, Address &output );
-        int resolve_ipv4( const std::string &host, std::string &name, ipv4_t &output );
-        #ifdef ENABLE_IPV6
-        int resolve_ipv6( const std::string &host, std::string &name, ipv6_t &output );
-        #endif
+        uint16_t send( const Endpoint &endpoint, dns_buffer_t &response, uint16_t id );
+        int receive( dns_buffer_t &response, int timeout = 0);
+        bool ready( int timeout = 0);
+        uint16_t next_id();
 
     private:
-        struct
-        {
-            uint32_t cache;
-            uint32_t external;
-        } hits_;
-        named_value<ipv4_t> default_dns_;
-        Tree<named_value<ipv4_t>> target_dns_;
-        Cache &cache_;
-        int timeout_;
+        UDP conn_;
+        std::shared_mutex id_mutex_;
+        uint16_t id_;
 
-        #ifdef ENABLE_IPV6
-        int recursive( const std::string &host, int type, const ipv4_t &dnsAddress, ipv4_t *ipv4, ipv6_t *ipv6 );
-        #else
-        int recursive( const std::string &host, int type, const ipv4_t &dnsAddress, ipv4_t *ipv4 );
-        #endif
 };
+
+uint64_t dns_time_ms();
+const char *dns_type( int value );
+const char *dns_rcode( int value );
+void print_dns_message( std::ostream &out, const dns_buffer_t &message );
+size_t dns_read_qname( const dns_buffer_t &message, size_t offset, std::string &qname );
+//size_t dns_read_question( const dns_buffer_t &message, size_t offset, dns_question_t &question );
 
 }
 

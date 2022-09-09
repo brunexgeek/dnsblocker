@@ -14,7 +14,6 @@
 #include "monitor.hh"
 #include <fstream>
 
-
 namespace dnsblocker {
 
 using webster::Parameters;
@@ -52,18 +51,6 @@ struct ConsoleListener : public webster::HttpListener
         return WBERR_OK;
     }
 
-    int return_cache( webster::Message &response )
-    {
-        response.header.status = 200;
-        response.header.fields.set(WBFI_CONTENT_TYPE, "application/json");
-
-        std::stringstream ss;
-        proc_.cache_->dump(ss);
-        response.write(ss.str());
-
-        return WBERR_OK;
-    }
-
     int return_events( webster::Message &request, webster::Message &response )
     {
         size_t start = strtol(request.header.target.query.c_str(), nullptr, 10);
@@ -93,9 +80,9 @@ struct ConsoleListener : public webster::HttpListener
             response << "\"time\":" << entry.time << ',';
             response << "\"source\":\"" << entry.source << "\",";
             response << "\"type\":\"" << entry.type << "\",";
-            response << "\"proto\":" << (int) entry.proto << ',';
             response << "\"server\":\"" << entry.server << "\",";
-            response << "\"ip\":\"" << entry.ip << "\",";
+            response << "\"qtype\":\"" << entry.qtype << "\",";
+            response << "\"duration\":\"" << entry.duration << "\",";
             response << "\"heuristic\":" << (int) entry.heuristic << ",";
             response << "\"domain\":\"" << entry.domain << "\"}";
             first = false;
@@ -149,9 +136,6 @@ struct ConsoleListener : public webster::HttpListener
             else
             if (command.find("allow/") == 0)
                 return whitelist(request, response);
-            else
-            if (command == "cache")
-                return return_cache(response);
             else
             if (command == "cache/reset")
             {
@@ -207,7 +191,7 @@ void Console::thread_proc( Console *instance )
         server.stop();
 	}
     else
-        LOG_MESSAGE("Unable to star console at %s\n", url.c_str());
+        LOG_MESSAGE("Unable to start console at %s\n", url.c_str());
 }
 
 void Console::start()

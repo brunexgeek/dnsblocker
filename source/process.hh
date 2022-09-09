@@ -15,16 +15,24 @@
 
 namespace dnsblocker {
 
+// TODO: group jobs by qname intead of id and all jobs with the same qname could be grouped using a linked list ('next' pointer)
+
 struct Job
 {
-    Endpoint endpoint;
-    dns_message_t request;
+    Endpoint endpoint; // client endpoint
+    dns_buffer_t request;
+    dns_buffer_t response;
+    uint16_t oid = 0; // original DNS message id (from the client)
+    uint16_t id = 0; // external DNS message id (zero means empty)
+    std::string qname;
+    uint16_t qtype = 0; // question type
+    uint64_t start_time = 0;
+    int max = 0; // number of external DNS queries made
+    int count = 0; // number of external DNS responses received
 
-    Job( Endpoint &endpoint, dns_message_t &request )
-    {
-        this->endpoint = endpoint;
-        this->request.swap(request);
-    }
+    Job( const Endpoint &ep, const dns_buffer_t &req ) : endpoint(ep), request(req) {}
+    Job( const Job & ) = delete;
+    Job( Job && ) = delete;
 };
 
 class Console;
@@ -52,21 +60,27 @@ class Processor
         Configuration config_;
         Tree<uint8_t> blacklist_;
         Tree<uint8_t> whitelist_;
-        Tree<uint32_t> nameserver_;
+        Tree<std::pair<std::string,Endpoint>> other_ns_;
         std::unordered_set<ipv4_t> ipv4list_;
         bool running_;
         bool useHeuristics_;
         bool useFiltering_;
         Console *console_;
         std::shared_mutex lock_;
+        Endpoint default_ns_;
 
         static void process( Processor *object, int num, std::mutex *mutex, std::condition_variable *cond );
-        bool send_error(
-            const dns_message_t &request,
-            int rcode,
-            const Endpoint &endpoint );
+        bool send_error(const Endpoint &endpoint,  const dns_buffer_t &request, int rcode);
         bool load_rules( const std::vector<std::string> &fileNames, Tree<uint8_t> &tree );
         static std::string realPath( const std::string &path );
+        void send_success( const Endpoint &endpoint, const dns_buffer_t &request, const ipv4_t *ipv4, const ipv6_t *ipv6 );
+        bool send_blocked( const Endpoint &endpoint, const dns_buffer_t &request );
+        bool send_success( const Endpoint &endpoint, const dns_buffer_t &request, const dns_buffer_t &response, uint64_t duration, bool cache );
+        bool in_whitelist( const std::string &host );
+        bool finish_job( Job &item, std::map<uint16_t, dnsblocker::Job *> &wait_list );
+        bool check_blocked_domain( const std::string &host );
+        bool check_blocked_address( const ipv4_t &address );
+        bool answer_with_cache( Job *job );
 
         friend struct ConsoleListener;
 };
