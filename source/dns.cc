@@ -64,12 +64,12 @@ uint16_t Resolver::next_id()
 uint16_t Resolver::send( const Endpoint &endpoint, dns_buffer_t &request, uint16_t id )
 {
     dns_header_t &header = *((dns_header_t*) request.content);
+    uint16_t oid = be16toh(header.id);
     header.id = htobe16(id);
-
-    if (!conn_.send(endpoint, request.content, request.size))
-        return 0;
-    else
-        return id;
+    auto result = conn_.send(endpoint, request.content, request.size);
+    header.id = htobe16(oid);
+    if (result) return id;
+    return 0;
 }
 
 int Resolver::receive( dns_buffer_t &response, int timeout )

@@ -113,7 +113,7 @@ Job *Processor::pop()
 
 static bool is_ipv4( const std::string &value, ipv4_t &ipv4 )
 {
-    if (value.length() < 8 && value.length() > 15) return false;
+    if (value.length() < 8 || value.length() > 15) return false;
     int number = 0;
     int dots = 0;
 
@@ -344,7 +344,7 @@ static uint8_t *write_u32( uint8_t *ptr, uint32_t value )
     return ptr + sizeof(uint32_t);
 }
 
-bool Processor::send_error( const Endpoint &endpoint, const dns_buffer_t &request, int rcode )
+bool Processor::send_error( const Endpoint &endpoint, const dns_buffer_t &request, uint64_t duration, int rcode )
 {
     dns_buffer_t response;
 
@@ -365,7 +365,7 @@ bool Processor::send_error( const Endpoint &endpoint, const dns_buffer_t &reques
     {
         int status = rcode_to_status(header.rcode, false, false);
         print_request(temp.question(0)->qname, endpoint, "default", temp.question(0)->type, config_,
-            status, false, 0);
+            status, false, duration);
     }
     return result;
 }
@@ -473,7 +473,7 @@ bool Processor::answer_with_cache( Job *job )
     if (result != DNSB_STATUS_FAILURE)
     {
         dns_header_t *rh = ((dns_header_t*) response.content);
-        rh->id = job->oid;
+        rh->id = htobe16(job->oid);
         send_success(job->endpoint, job->request, response, 0, true);
         return true;
     }
@@ -517,7 +517,7 @@ void Processor::process( Processor *object, int thread_num, std::mutex *mutex, s
                 // TODO: add configuration option for local domain
                 if (job->qname.find('.') == std::string::npos || header->rd == 0)
                 {
-                    object->send_error(job->endpoint, job->request, DNS_RCODE_NXDOMAIN);
+                    object->send_error(job->endpoint, job->request, dns_time_ms() - job->start_time, DNS_RCODE_NXDOMAIN);
                     delete job;
                     job = nullptr;
                     continue; // TODO: get new job or process jobs in the wait list?
@@ -564,7 +564,7 @@ void Processor::process( Processor *object, int thread_num, std::mutex *mutex, s
                     if (sent)
                         wait_list.insert( std::pair(job->id, job) );
                     else
-                        object->send_error(job->endpoint, job->request, DNS_RCODE_SERVFAIL);
+                        object->send_error(job->endpoint, job->request, dns_time_ms() - job->start_time, DNS_RCODE_SERVFAIL);
                 }
             }
         }
@@ -609,15 +609,16 @@ void Processor::process( Processor *object, int thread_num, std::mutex *mutex, s
         for (auto it = wait_list.begin(); it != wait_list.end();)
         {
             Job *job = it->second;
+            uint64_t duration = dns_time_ms() - job->start_time;
 
             // check whether is time to send the current response
-            if (job->count == job->max || (job->count > 0 && (dns_time_ms() - job->start_time) > DNS_TIMEOUT))
+            if (job->count == job->max || (job->count > 0 && duration > DNS_TIMEOUT))
             {
                 // TODO: check whether the response has blocked addresses/hosts
 
                 // use the current response as correct
                 dns_header_t &header = *((dns_header_t*) job->response.content);
-                header.id = job->oid; // recover the original ID
+                header.id = htobe16(job->oid); // recover the original ID
                 job->start_time = dns_time_ms() - job->start_time;
                 object->send_success(job->endpoint, job->request, job->response, job->start_time, false);
                 // update cache
@@ -635,10 +636,11 @@ void Processor::process( Processor *object, int thread_num, std::mutex *mutex, s
             }
             else
             // discard timed out job
-            if (dns_time_ms() - job->start_time > DNS_TIMEOUT)
+            if (duration > DNS_TIMEOUT)
             {
+                object->send_error(job->endpoint, job->request, duration, DNS_RCODE_SERVFAIL);
                 it = wait_list.erase(it);
-                delete &job;
+                delete job;
             }
             else
                 ++it;
@@ -683,7 +685,7 @@ void Processor::run(int nthreads)
         if (valid)
         {
             auto job = new Job(endpoint, buffer);
-            job->oid = header.id;
+            job->oid = be16toh(header.id);
             job->start_time = dns_time_ms();
             push(job);
             cond.notify_all();
@@ -691,7 +693,7 @@ void Processor::run(int nthreads)
              // TODO: use round-robin to insert jobs in each thread-specific queues
         }
         else
-            send_error(endpoint, buffer, DNS_RCODE_REFUSED);
+            send_error(endpoint, buffer, 0, DNS_RCODE_REFUSED);
     }
 
     for (int i = 0; i < nthreads; ++i)

@@ -20,7 +20,7 @@
 #define DNS_CACHE_TTL                 (15 * 60) // 15 minutes
 #define DNS_CACHE_LIMIT               5000
 #define DNS_ANSWER_TTL                (10 * 60) // 10 minutes
-#define DNS_TIMEOUT                   2500 // ms
+#define DNS_TIMEOUT                   2000 // ms
 #define DNS_BUFFER_SIZE               1024 // bytes
 
 #define LOG_FILENAME                  "dnsblocker.log"
