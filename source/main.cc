@@ -129,7 +129,7 @@ Configuration main_defaultConfig()
     config.cache.limit = DNS_CACHE_LIMIT;
     config.cache.ttl = DNS_CACHE_TTL;
     config.use_ipv6 = false;
-    config.threads = 2;
+    config.threads = 1;
     return config;
 }
 
