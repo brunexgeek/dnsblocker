@@ -163,6 +163,7 @@ class Resolver
         ~Resolver();
         uint16_t send( const Endpoint &endpoint, dns_buffer_t &response, uint16_t id );
         int receive( dns_buffer_t &response, int timeout = 0);
+        bool ready( int timeout = 0);
         uint16_t next_id();
 
     private:

@@ -426,7 +426,7 @@ bool Processor::send_success( const Endpoint &endpoint, const dns_buffer_t &requ
 {
     dns_header_t &header = *((dns_header_t*) response.content);
     Message temp(request);
-    if (!temp.is_valid()) { std::cerr << "Invalid!\n"; return false;}
+    if (!temp.is_valid()) return false;
 
     int status = rcode_to_status(header.rcode, cache, false);
 
@@ -497,7 +497,6 @@ void Processor::process(
         //
         // Accept new jobs
         //
-        dns_buffer_t response;
         Job *job = object->pop();
         if (job != nullptr)
         {
@@ -563,7 +562,6 @@ void Processor::process(
                     auto node = object->other_ns_.match(job->qname);
                     if (node != nullptr)
                     {
-                        std::cerr << "Ohtner NS\n";
                         job->max = 2;
                         if (resolver.send(node->value.second, job->request, job->id | 0x8000) != 0)
                             ++sent;
@@ -571,7 +569,7 @@ void Processor::process(
                     // try the primary DNS
                     if (resolver.send(object->default_ns_, job->request, job->id) != 0)
                         ++sent;
-if (job->max  > 1) std::cerr << job->qname << " sent " << sent << " requests\n";
+//if (job->max  > 1) std::cerr << job->qname << " sent " << sent << " requests\n";
                     if (sent)
                         wait_list.insert( std::pair(job->id, job) );
                     else
@@ -580,30 +578,37 @@ if (job->max  > 1) std::cerr << job->qname << " sent " << sent << " requests\n";
             }
         }
         else
-        if (wait_list.empty())
         {
-            cond->wait_for(guard, std::chrono::seconds(2));
-            continue;
+            static const auto t1 = std::chrono::milliseconds(500);
+            static const auto t2 = std::chrono::milliseconds(5);
+            cond->wait_for(guard, wait_list.empty() ? t1 : t2);
+            if (wait_list.empty()) continue;
         }
 
         //
         // Process each UDP response
         //
-        while (resolver.receive(response, 0) > 0)
+        if (resolver.ready())
         {
-            dns_header_t &header = *((dns_header_t*) response.content);
-            uint16_t id = be16toh(header.id);
-            // look for a matching pending entry
-            auto it = wait_list.find(id & 0x7FFF);
-            if (it != wait_list.end())
+            dns_buffer_t response;
+            while (resolver.receive(response, 0) > 0)
             {
-                Job &item = *it->second;
-                item.response = response;
-                ++item.count;
-                // is a successfully secondary response?
-                if (id & 0x8000)
-                    item.count = item.max; // force the transmission
-if (item.max > 1) std::cerr << item.qname << " received " << item.count << " of " << item.max << " [rcode = " << dns_rcode(header.rcode) << "]\n";
+                dns_header_t &header = *((dns_header_t*) response.content);
+                uint16_t id = be16toh(header.id);
+                // look for a matching pending entry
+                auto it = wait_list.find(id & 0x7FFF);
+                if (it != wait_list.end())
+                {
+                    Job &item = *it->second;
+                    if (item.count < item.max)
+                    {
+                        item.response = response;
+                        ++item.count;
+                        // ignore everything else if we have a secondary response
+                        if (id & 0x8000) item.count = item.max;
+                    }
+    //if (item.max > 1) std::cerr << item.qname << " received " << item.count << " of " << item.max << " [rcode = " << dns_rcode(header.rcode) << "]\n";
+                }
             }
         }
 
@@ -621,15 +626,15 @@ if (item.max > 1) std::cerr << item.qname << " received " << item.count << " of 
                 if (object->useFiltering_)
                 {
                 }
-std::cerr << item.qname << " is done\n";
-                if (item.response.size == 512)
-                    std::cerr << item.qname << " used 512 bytes\n";
+//std::cerr << item.qname << " is done\n";
 
-                /*{
+#if 0
+                {
                     Message temp(item.response);
-                    if (item.qname != temp.question(0)->qname)
-                        std::cerr << item.id << " used 512 bytes\n";
-                }*/
+                    if (item.type != temp.question(0)->type)
+                        std::cerr << item.type << " != " << temp.question(0)->type << " \n";
+                }
+#endif
 
                 // use the current response as correct
                 dns_header_t &header = *((dns_header_t*) item.response.content);
@@ -640,10 +645,10 @@ std::cerr << item.qname << " is done\n";
                 if (header.rcode == DNS_RCODE_NOERROR)
                 {
                     if (item.type == DNS_TYPE_A)
-                        object->cache_->append_ipv4(item.qname, response);
+                        object->cache_->append_ipv4(item.qname, item.response);
                     else
                     if (item.type == DNS_TYPE_AAAA)
-                        object->cache_->append_ipv6(item.qname, response);
+                        object->cache_->append_ipv6(item.qname, item.response);
                 }
 
                 it = wait_list.erase(it);

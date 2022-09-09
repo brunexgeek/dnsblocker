@@ -69,7 +69,7 @@ uint16_t Resolver::send( const Endpoint &endpoint, dns_buffer_t &request, uint16
     if (!conn_.send(endpoint, request.content, request.size))
         return 0;
     else
-        return header.id;
+        return id;
 }
 
 int Resolver::receive( dns_buffer_t &response, int timeout )
@@ -79,6 +79,11 @@ int Resolver::receive( dns_buffer_t &response, int timeout )
     if (conn_.receive(endpoint, response.content, &size, timeout))
         return (int) (response.size = size);
     return -1;
+}
+
+bool Resolver::ready( int timeout )
+{
+    return conn_.poll(timeout);
 }
 
 Cache::Cache( int size , int ttl ) : size_(size), ttl_(ttl * 1000)
